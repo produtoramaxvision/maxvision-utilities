@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: n8n-skills content issues (upstream)
+    url: https://github.com/czlonkowski/n8n-skills/issues
+    about: Questions or bugs about n8n skill content (instructions, examples, factual accuracy) should be reported upstream.
+  - name: gtm-skills content issues (upstream)
+    url: https://github.com/paolobietolini/gtm-api-for-llms/issues
+    about: Questions or bugs about GTM skill content should be reported upstream.
+  - name: Security vulnerability
+    url: https://github.com/produtoramaxvision/maxvision-claude/security/advisories/new
+    about: Report a security vulnerability privately.

@@ -1,0 +1,143 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  markdown:
+    name: Markdown Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: DavidAnson/markdownlint-cli2-action@v20
+        with:
+          globs: |
+            **/*.md
+            #node_modules
+            #.upstream-cache
+
+  json:
+    name: JSON Syntax + Plugin Schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install ajv-cli
+        run: npm install -g ajv-cli@5 ajv-formats@3
+      - name: Validate JSON syntax (all files)
+        run: |
+          set -e
+          find . -name "*.json" \
+            -not -path "./node_modules/*" \
+            -not -path "./.upstream-cache/*" \
+            -not -path "./.git/*" \
+            -print0 | xargs -0 -I{} sh -c 'echo "Checking {}"; jq . "{}" > /dev/null'
+      - name: Download plugin.json schema
+        run: |
+          curl -fsSL -o plugin.schema.json \
+            https://raw.githubusercontent.com/hesreallyhim/claude-code-json-schema/main/schemas/plugin.schema.json
+      - name: Download marketplace.json schema
+        run: |
+          curl -fsSL -o marketplace.schema.json \
+            https://raw.githubusercontent.com/hesreallyhim/claude-code-json-schema/main/schemas/marketplace.schema.json
+      - name: Validate marketplace.json against schema
+        run: ajv validate --spec=draft2020 -c ajv-formats -s marketplace.schema.json -d .claude-plugin/marketplace.json --strict=false
+      - name: Validate each plugin.json against schema
+        run: |
+          set -e
+          for manifest in */.claude-plugin/plugin.json; do
+            echo "Validating $manifest"
+            ajv validate --spec=draft2020 -c ajv-formats -s plugin.schema.json -d "$manifest" --strict=false
+          done
+
+  manifest-consistency:
+    name: Manifest Consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify marketplace.json plugin names match plugin.json names
+        run: |
+          set -e
+          mp=.claude-plugin/marketplace.json
+          mismatch=0
+          plugin_count=$(jq '.plugins | length' "$mp")
+          for i in $(seq 0 $((plugin_count - 1))); do
+            mp_name=$(jq -r ".plugins[$i].name" "$mp")
+            mp_source=$(jq -r ".plugins[$i].source" "$mp")
+            # source is like "./n8n-skills"; strip leading ./
+            sub=${mp_source#./}
+            file="$sub/.claude-plugin/plugin.json"
+            if [ ! -f "$file" ]; then
+              echo "ERROR: marketplace.json points at '$mp_source' but $file is missing"
+              mismatch=$((mismatch + 1))
+              continue
+            fi
+            pj_name=$(jq -r ".name" "$file")
+            if [ "$mp_name" != "$pj_name" ]; then
+              echo "ERROR: marketplace.json plugin '$mp_name' != plugin.json name '$pj_name' in $file"
+              mismatch=$((mismatch + 1))
+            fi
+          done
+          if [ "$mismatch" -gt 0 ]; then
+            echo "Total mismatches: $mismatch"
+            exit 1
+          fi
+          echo "All plugin names consistent"
+
+  skills-structure:
+    name: Skills Structure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify each skill has SKILL.md with required frontmatter
+        run: |
+          set -e
+          missing=0
+          checked=0
+          for plugin_dir in */; do
+            # Skip non-plugin directories
+            [ -d "${plugin_dir}.claude-plugin" ] || continue
+            [ -d "${plugin_dir}skills" ] || continue
+            for skill_dir in "${plugin_dir}skills"/*/; do
+              file="${skill_dir}SKILL.md"
+              checked=$((checked + 1))
+              if [ ! -f "$file" ]; then
+                echo "Missing SKILL.md in $skill_dir"
+                missing=$((missing + 1))
+                continue
+              fi
+              if ! grep -q "^name:" "$file"; then
+                echo "$file missing 'name:' in frontmatter"
+                missing=$((missing + 1))
+              fi
+              if ! grep -q "^description:" "$file"; then
+                echo "$file missing 'description:' in frontmatter"
+                missing=$((missing + 1))
+              fi
+            done
+          done
+          if [ "$missing" -gt 0 ]; then
+            echo "Total issues: $missing"
+            exit 1
+          fi
+          echo "All $checked skills valid"
+
+  secrets:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

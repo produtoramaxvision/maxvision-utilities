@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest an improvement to plugin packaging, docs, or tooling
+title: "[FEAT] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Note:** requests for new skills or changes to existing skill content belong upstream at [czlonkowski/n8n-skills](https://github.com/czlonkowski/n8n-skills).
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Problem / motivation
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true

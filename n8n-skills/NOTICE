@@ -1,0 +1,28 @@
+Claude Code N8N Skills Plugin
+Copyright (c) 2026 Produtora MaxVision
+
+================================================================================
+This product includes software developed by Romuald Członkowski and contributors
+to the n8n-skills project (https://github.com/czlonkowski/n8n-skills), licensed
+under the MIT License.
+================================================================================
+
+Derivation:
+  - Source: https://github.com/czlonkowski/n8n-skills
+  - Version: v1.6.0 (commit 1530f09, released 2026-04-19)
+  - Skills included (verbatim from upstream):
+      * n8n-code-javascript/
+      * n8n-code-python/
+      * n8n-expression-syntax/
+      * n8n-mcp-tools-expert/
+      * n8n-node-configuration/
+      * n8n-validation-expert/
+      * n8n-workflow-patterns/
+
+Modifications by Produtora MaxVision:
+  - Packaging as a Claude Code plugin (.claude-plugin/plugin.json)
+  - Self-hosted marketplace manifest (.claude-plugin/marketplace.json)
+  - Professional repository structure (CI, issue templates, contribution docs)
+
+No upstream skill content is modified. Updates from upstream are tracked via
+the sync mechanism documented in the workspace README (outside this repo).

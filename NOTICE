@@ -1,0 +1,14 @@
+MaxVision Claude Marketplace
+Copyright (c) 2026 Produtora MaxVision
+
+================================================================================
+This repository bundles multiple plugins, each with its own upstream and
+license. Per-plugin attribution lives in each plugin's NOTICE file:
+
+  - n8n-skills/NOTICE   — derives from czlonkowski/n8n-skills (MIT)
+  - gtm-skills/NOTICE   — derives from paolobietolini/gtm-api-for-llms
+                          (BSD 3-Clause)
+
+The marketplace packaging at the repository root (root README, CI, manifests
+outside plugin subdirs) is original work by Produtora MaxVision under MIT.
+================================================================================

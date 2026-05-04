@@ -1,0 +1,38 @@
+{
+  "name": "maxvision-claude",
+  "owner": {
+    "name": "Produtora MaxVision",
+    "email": "produtoramaxvision@gmail.com",
+    "url": "https://github.com/produtoramaxvision"
+  },
+  "metadata": {
+    "description": "MaxVision's curated Claude Code marketplace — production-grade skills for n8n workflows, Google Tag Manager API, and more.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "n8n-skills",
+      "description": "7 expert skills for building flawless n8n workflows in Claude Code",
+      "source": "./n8n-skills",
+      "strict": true,
+      "skills": [
+        "./skills/n8n-code-javascript",
+        "./skills/n8n-code-python",
+        "./skills/n8n-expression-syntax",
+        "./skills/n8n-mcp-tools-expert",
+        "./skills/n8n-node-configuration",
+        "./skills/n8n-validation-expert",
+        "./skills/n8n-workflow-patterns"
+      ]
+    },
+    {
+      "name": "gtm-skills",
+      "description": "Google Tag Manager API expert skill — create, update, delete, and publish tags, triggers, and variables programmatically",
+      "source": "./gtm-skills",
+      "strict": true,
+      "skills": [
+        "./skills/gtm-api"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "name": "gtm-skills",
+  "version": "0.1.0",
+  "description": "Google Tag Manager API expert skill for Claude Code. Derived from paolobietolini/gtm-api-for-llms (BSD-3-Clause).",
+  "author": {
+    "name": "Produtora MaxVision",
+    "email": "produtoramaxvision@gmail.com",
+    "url": "https://github.com/produtoramaxvision"
+  },
+  "homepage": "https://github.com/produtoramaxvision/maxvision-claude",
+  "repository": "https://github.com/produtoramaxvision/maxvision-claude",
+  "license": "BSD-3-Clause",
+  "keywords": [
+    "google-tag-manager",
+    "gtm",
+    "gtm-api",
+    "claude-code",
+    "claude-plugin",
+    "skills",
+    "analytics",
+    "tag-management",
+    "automation"
+  ]
+}

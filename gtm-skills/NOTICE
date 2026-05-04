@@ -1,0 +1,29 @@
+Claude Code GTM Skills Plugin
+Copyright (c) 2026 Produtora MaxVision
+
+================================================================================
+This product includes software developed by Paolo Bietolini and contributors to
+the gtm-api-for-llms project (https://github.com/paolobietolini/gtm-api-for-llms),
+licensed under the BSD 3-Clause License.
+================================================================================
+
+Derivation:
+  - Source: https://github.com/paolobietolini/gtm-api-for-llms
+  - Upstream commit: 11e563f (released 2026-02-07)
+  - Skills included (verbatim from upstream):
+      * gtm-api/ — Google Tag Manager API operations (SKILL.md + 9 reference files)
+
+Modifications by Produtora MaxVision:
+  - Packaging as a Claude Code plugin (.claude-plugin/plugin.json)
+  - Self-hosted marketplace manifest (.claude-plugin/marketplace.json)
+  - Professional repository structure (CI, issue templates, contribution docs)
+
+No upstream skill content is modified. Updates from upstream are tracked via
+the sync mechanism documented in the workspace README (outside this repo).
+
+BSD 3-Clause Clause 3 Notice:
+  The name "Paolo Bietolini" and any related marks are retained here solely
+  for attribution of the derivation source. They are NOT used to endorse or
+  promote this derivative work. This plugin is maintained independently by
+  Produtora MaxVision and has no formal affiliation with, nor endorsement by,
+  Paolo Bietolini.
