@@ -37,7 +37,7 @@ const ReferenceImageItem = z.object({
 // ---------------------------------------------------------------------------
 
 // A) NanoBananaProInput — Gemini multimodal (text → image, up to 14 reference images)
-const _NanoBananaProBase = z
+export const _NanoBananaProBase = z
   .object({
     op: z.literal('nano-banana-pro'),
     model: z.literal(IMAGE_MODEL_NANO_BANANA_PRO).default(IMAGE_MODEL_NANO_BANANA_PRO),
@@ -92,7 +92,7 @@ export const Imagen4UltraInput = z
 export type Imagen4UltraInputT = z.infer<typeof Imagen4UltraInput>;
 
 // C) EditImageInput — semantic edit (add/remove/replace/inpaint/outpaint)
-const _EditImageBase = z
+export const _EditImageBase = z
   .object({
     op: z.literal('edit-image'),
     model: z.literal(IMAGE_MODEL_NANO_BANANA_PRO).default(IMAGE_MODEL_NANO_BANANA_PRO),

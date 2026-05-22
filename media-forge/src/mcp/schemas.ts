@@ -4,8 +4,10 @@ import type { ZodTypeAny } from 'zod';
 // Image schemas (P3.1)
 export {
   NanoBananaProInput,
+  _NanoBananaProBase,
   Imagen4UltraInput,
   EditImageInput,
+  _EditImageBase,
   ComposeSceneInput,
   DescribeImageInput,
   ExtractPaletteInput,
@@ -24,9 +26,13 @@ export type {
 // Video schemas (P3.2)
 export {
   GenerateVideoT2VInput,
+  _T2VBase,
   GenerateVideoI2VInput,
+  _I2VBase,
   GenerateVideoInterpolateInput,
+  _InterpolateBase,
   GenerateVideoWithRefsInput,
+  _WithRefsBase,
   ExtendVideoInput,
   PollVideoOperationInput,
   DownloadVideoInput,
@@ -46,17 +52,23 @@ export type {
 // Re-import for internal use in MCP_TOOLS definitions
 import {
   NanoBananaProInput,
+  _NanoBananaProBase,
   Imagen4UltraInput,
   EditImageInput,
+  _EditImageBase,
   ComposeSceneInput,
   DescribeImageInput,
   ExtractPaletteInput,
 } from '../image/image-schemas.js';
 import {
   GenerateVideoT2VInput,
+  _T2VBase,
   GenerateVideoI2VInput,
+  _I2VBase,
   GenerateVideoInterpolateInput,
+  _InterpolateBase,
   GenerateVideoWithRefsInput,
+  _WithRefsBase,
   ExtendVideoInput,
   PollVideoOperationInput,
   DownloadVideoInput,
@@ -166,7 +178,8 @@ export type MediaHelpInputT = z.infer<typeof MediaHelpInput>;
 export interface MCPTool {
   name: string;
   description: string;
-  inputSchema: ZodTypeAny;
+  inputSchema: ZodTypeAny;          // base shape — emitted in tools/list
+  validationSchema?: ZodTypeAny;    // full (superRefine) shape — runtime parse
   outputSchema?: ZodTypeAny;
 }
 
@@ -179,7 +192,8 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   {
     name: 'media_generate_image',
     description: 'Generate image via Nano Banana Pro (text → image)',
-    inputSchema: NanoBananaProInput,
+    inputSchema: _NanoBananaProBase,
+    validationSchema: NanoBananaProInput,
   },
   {
     name: 'media_generate_imagen',
@@ -189,7 +203,8 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   {
     name: 'media_edit_image',
     description: 'Semantic edit (add/remove/replace/inpaint/outpaint)',
-    inputSchema: EditImageInput,
+    inputSchema: _EditImageBase,
+    validationSchema: EditImageInput,
   },
   {
     name: 'media_compose_scene',
@@ -211,22 +226,26 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   {
     name: 'media_generate_video_t2v',
     description: 'Text → video via Veo 3.1 Pro',
-    inputSchema: GenerateVideoT2VInput,
+    inputSchema: _T2VBase,
+    validationSchema: GenerateVideoT2VInput,
   },
   {
     name: 'media_generate_video_i2v',
     description: 'Image (first frame) → video via Veo 3.1 Pro',
-    inputSchema: GenerateVideoI2VInput,
+    inputSchema: _I2VBase,
+    validationSchema: GenerateVideoI2VInput,
   },
   {
     name: 'media_generate_video_interpolate',
     description: 'First + last frame → video via Veo 3.1 Pro',
-    inputSchema: GenerateVideoInterpolateInput,
+    inputSchema: _InterpolateBase,
+    validationSchema: GenerateVideoInterpolateInput,
   },
   {
     name: 'media_generate_video_with_refs',
     description: 'Text + up to 3 asset reference images → video',
-    inputSchema: GenerateVideoWithRefsInput,
+    inputSchema: _WithRefsBase,
+    validationSchema: GenerateVideoWithRefsInput,
   },
   {
     name: 'media_extend_video',

@@ -8,8 +8,9 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { MediaForgeClient } from '../core/client.js';
 import type { MediaForgeConfig } from '../core/config.js';
 import type { OutputManager } from '../output/output-manager.js';
+import type { ZodTypeAny } from 'zod';
 import { logger } from '../core/logger.js';
-import { MCP_TOOLS } from './schemas.js';
+import { MCP_TOOLS, type MCPTool } from './schemas.js';
 import {
   generateImageNanoBananaPro,
   generateImageImagen4Ultra,
@@ -116,6 +117,15 @@ function asResult(structured: unknown): {
 }
 
 // ---------------------------------------------------------------------------
+// validateInput: use validationSchema (superRefine) when available, else inputSchema
+// ---------------------------------------------------------------------------
+
+function validateInput<T>(tool: MCPTool, input: unknown): T {
+  const schema: ZodTypeAny = tool.validationSchema ?? tool.inputSchema;
+  return schema.parse(input) as T;
+}
+
+// ---------------------------------------------------------------------------
 // Static capability matrix built from models.ts constants
 // ---------------------------------------------------------------------------
 
@@ -204,7 +214,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     reg(
       t.name,
       { title: 'Generate Image (Nano Banana Pro)', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await generateImageNanoBananaPro(input as never, client))),
+      wrap(t.name, async (input) => asResult(await generateImageNanoBananaPro(validateInput(t, input), client))),
     );
   }
 
@@ -222,7 +232,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     reg(
       t.name,
       { title: 'Edit Image', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await editImage(input as never, client))),
+      wrap(t.name, async (input) => asResult(await editImage(validateInput(t, input), client))),
     );
   }
 
@@ -260,7 +270,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     reg(
       t.name,
       { title: 'Generate Video (Text to Video)', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await generateVideoT2V(input as never, client))),
+      wrap(t.name, async (input) => asResult(await generateVideoT2V(validateInput(t, input), client))),
     );
   }
 
@@ -269,7 +279,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     reg(
       t.name,
       { title: 'Generate Video (Image to Video)', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await generateVideoI2V(input as never, client))),
+      wrap(t.name, async (input) => asResult(await generateVideoI2V(validateInput(t, input), client))),
     );
   }
 
@@ -278,7 +288,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     reg(
       t.name,
       { title: 'Generate Video (Interpolate)', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await generateVideoInterpolate(input as never, client))),
+      wrap(t.name, async (input) => asResult(await generateVideoInterpolate(validateInput(t, input), client))),
     );
   }
 
@@ -287,7 +297,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     reg(
       t.name,
       { title: 'Generate Video With References', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await generateVideoWithRefs(input as never, client))),
+      wrap(t.name, async (input) => asResult(await generateVideoWithRefs(validateInput(t, input), client))),
     );
   }
 

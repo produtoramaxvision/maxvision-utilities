@@ -66,7 +66,7 @@ function addRegionPersonGenerationIssue(
 // ---------------------------------------------------------------------------
 
 // A) GenerateVideoT2VInput (op='t2v') — text to video
-const _T2VBase = z
+export const _T2VBase = z
   .object({
     op: z.literal('t2v'),
     model: z.literal(VIDEO_MODEL_VEO_3_1_PRO).default(VIDEO_MODEL_VEO_3_1_PRO),
@@ -94,7 +94,7 @@ export const GenerateVideoT2VInput = _T2VBase.superRefine((v, ctx) => {
 export type GenerateVideoT2VInputT = z.infer<typeof GenerateVideoT2VInput>;
 
 // B) GenerateVideoI2VInput (op='i2v') — image (first frame) to video
-const _I2VBase = z
+export const _I2VBase = z
   .object({
     op: z.literal('i2v'),
     model: z.literal(VIDEO_MODEL_VEO_3_1_PRO).default(VIDEO_MODEL_VEO_3_1_PRO),
@@ -131,7 +131,7 @@ export const GenerateVideoI2VInput = _I2VBase.superRefine((v, ctx) => {
 export type GenerateVideoI2VInputT = z.infer<typeof GenerateVideoI2VInput>;
 
 // C) GenerateVideoInterpolateInput (op='interpolate') — first + last frame to video
-const _InterpolateBase = z
+export const _InterpolateBase = z
   .object({
     op: z.literal('interpolate'),
     model: z.literal(VIDEO_MODEL_VEO_3_1_PRO).default(VIDEO_MODEL_VEO_3_1_PRO),
@@ -168,7 +168,7 @@ export const GenerateVideoInterpolateInput = _InterpolateBase.superRefine((v, ct
 export type GenerateVideoInterpolateInputT = z.infer<typeof GenerateVideoInterpolateInput>;
 
 // D) GenerateVideoWithRefsInput (op='with-refs') — text + up to 3 asset reference images
-const _WithRefsBase = z
+export const _WithRefsBase = z
   .object({
     op: z.literal('with-refs'),
     model: z.literal(VIDEO_MODEL_VEO_3_1_PRO).default(VIDEO_MODEL_VEO_3_1_PRO),
