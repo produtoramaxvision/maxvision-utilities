@@ -1,0 +1,26 @@
+id: video-i2v/environment-pan
+domain: video-i2v
+description: |
+  Slow camera pan over an environment starting from a still input frame to reveal hidden width.
+  Use when a wide scene photograph needs to be extended into a video exploring the spatial depth.
+variables:
+  - name: prompt
+    required: true
+    description: "Pan direction and any scene extension guidance (e.g., pan slowly right revealing a misty forest edge)"
+  - name: duration
+    required: false
+    default: "6 seconds"
+    description: "Duration of the pan clip (4 seconds, 6 seconds, 10 seconds)"
+  - name: speed
+    required: false
+    default: slow and deliberate
+    description: "Pan speed character (slow and deliberate, moderate, brisk)"
+template: |
+  Starting from the input frame, ${prompt}.
+  Duration: ${duration}. Pan speed: ${speed}.
+  Camera movement is smooth with no acceleration spikes; use ease-in and ease-out.
+  Maintain lighting and atmosphere consistent with the original image throughout the pan.
+  Generate additional scene content at the reveal edge that is coherent with the source frame.
+  No subject motion during the pan; environment remains still except for ambient elements.
+attribution: |
+  Derived from image-to-video environment pan techniques in research §7.6.

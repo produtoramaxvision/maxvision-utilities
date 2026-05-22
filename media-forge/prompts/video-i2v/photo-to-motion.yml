@@ -1,0 +1,26 @@
+id: video-i2v/photo-to-motion
+domain: video-i2v
+description: |
+  Animate a static photograph with subtle parallax and depth-layer separation to add life.
+  Use when a still image needs gentle movement without changing the scene's core content.
+variables:
+  - name: prompt
+    required: true
+    description: "Description of the desired motion applied to the input image (e.g., gentle parallax with foreground leaves swaying)"
+  - name: intensity
+    required: false
+    default: subtle and organic
+    description: "Motion intensity level (subtle and organic, moderate, pronounced)"
+  - name: duration
+    required: false
+    default: "4 seconds"
+    description: "Output video duration (2 seconds, 4 seconds, 6 seconds)"
+template: |
+  Animate the input photograph with ${prompt}.
+  Motion intensity: ${intensity}. Output duration: ${duration}.
+  Apply depth-layer separation so near elements move more than distant ones (parallax effect).
+  No scene content changes; preserve the original composition, lighting, and subject identity.
+  Smooth, loopable motion cycle. Background warping masked to avoid edge artifacts.
+  Output at the same aspect ratio as the source image.
+attribution: |
+  Derived from image-to-video animation prompt techniques in research §7.4.
