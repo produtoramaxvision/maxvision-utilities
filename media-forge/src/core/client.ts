@@ -82,6 +82,11 @@ export function createClient(opts: CreateClientOpts): MediaForgeClient {
   } else if (config.apiKey) {
     mode = 'gemini';
     ai = new Ctor({ apiKey: config.apiKey });
+  } else if (dryRun) {
+    // Dry-run with no creds: instantiate a stub client. The proxy below intercepts
+    // every SDK call before it can hit the network, so a placeholder apiKey is safe.
+    mode = 'gemini';
+    ai = new Ctor({ apiKey: 'dry-run-stub' });
   } else {
     throw new ConfigError(
       'No Google credentials configured: set GOOGLE_API_KEY or GOOGLE_PROJECT_ID+GOOGLE_LOCATION',

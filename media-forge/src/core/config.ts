@@ -70,13 +70,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MediaForgeConf
   const useVertex = (env['GOOGLE_GENAI_USE_VERTEXAI'] ?? 'false') === 'true';
   const project = env['GOOGLE_CLOUD_PROJECT'] || undefined;
 
-  // Validate
-  if (!apiKey && !useVertex) {
-    throw new ConfigError(
-      'Missing API key. Set GOOGLE_API_KEY or GEMINI_API_KEY, or enable Vertex AI with GOOGLE_GENAI_USE_VERTEXAI=true.',
-      { hasApiKey: false, useVertex },
-    );
-  }
+  // Credential validation is deferred to createClient so that dry-run, --help,
+  // --version, and `media-forge doctor` work without auth. createClient throws
+  // ConfigError when no credentials are present AND dryRun === false.
+  // Vertex misconfig (useVertex without project) is still caught here because
+  // it indicates a broken env regardless of dryRun.
   if (useVertex && !project) {
     throw new ConfigError(
       'Vertex AI mode requires GOOGLE_CLOUD_PROJECT.',

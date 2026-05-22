@@ -8,8 +8,10 @@ const BASE_ENV = {
 };
 
 describe('loadConfig validation', () => {
-  it('throws ConfigError when no API key and no Vertex', () => {
-    expect(() => loadConfig({})).toThrow(ConfigError);
+  it('accepts empty env for dry-run / --help / doctor paths (credential check deferred to createClient)', () => {
+    const c = loadConfig({});
+    expect(c.apiKey).toBeUndefined();
+    expect(c.useVertex).toBe(false);
   });
 
   it('throws ConfigError when Vertex mode without project', () => {

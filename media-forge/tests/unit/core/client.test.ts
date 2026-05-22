@@ -66,13 +66,24 @@ describe('createClient', () => {
     expect(SpyGenAI.lastInit).toMatchObject({ vertexai: true, project: 'my-proj', location: 'us-east1' });
   });
 
-  it('throws ConfigError when neither apiKey nor vertex configured', () => {
+  it('throws ConfigError when neither apiKey nor vertex configured and not dry-run', () => {
     expect(() =>
       createClient({
         config: makeConfig({ apiKey: undefined, useVertex: false }),
         _GoogleGenAIClass: SpyGenAI as unknown as new (init: unknown) => GoogleGenAI,
       }),
     ).toThrow(ConfigError);
+  });
+
+  it('dryRun=true + no credentials → stub client with placeholder apiKey', () => {
+    const client = createClient({
+      config: makeConfig({ apiKey: undefined, useVertex: false }),
+      dryRun: true,
+      _GoogleGenAIClass: SpyGenAI as unknown as new (init: unknown) => GoogleGenAI,
+    });
+    expect(client.mode).toBe('gemini');
+    expect(client.dryRun).toBe(true);
+    expect(SpyGenAI.lastInit).toMatchObject({ apiKey: 'dry-run-stub' });
   });
 
   it('vertex wins when both apiKey and useVertex are set', () => {
