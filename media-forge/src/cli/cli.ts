@@ -2,6 +2,11 @@ import { Command } from 'commander';
 import { registerDoctorCommand } from './commands/doctor.js';
 import { registerImageCommands } from './commands/image.js';
 import { registerVideoCommands } from './commands/video.js';
+import { registerCostCommands } from './commands/cost.js';
+import { registerAuditCommand } from './commands/audit.js';
+import { registerPromptsCommand } from './commands/prompts.js';
+import { registerModelsCommand } from './commands/models.js';
+import { registerConfigCommand } from './commands/config.js';
 
 export function buildProgram(): Command {
   const program = new Command();
@@ -13,7 +18,11 @@ export function buildProgram(): Command {
   registerDoctorCommand(program);
   registerImageCommands(program);
   registerVideoCommands(program);
-  // 9.4 will register more here
+  registerCostCommands(program);
+  registerAuditCommand(program);
+  registerPromptsCommand(program);
+  registerModelsCommand(program);
+  registerConfigCommand(program);
 
   return program;
 }
