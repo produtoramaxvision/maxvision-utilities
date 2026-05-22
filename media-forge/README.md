@@ -16,7 +16,7 @@ media-forge exposes **only** the three highest-tier Google AI models available a
 |---|---|---|
 | `gemini-3-pro-image-preview` | Image generation, editing, composition, description | 4K |
 | `imagen-4.0-ultra-generate-001` | Image generation with seed / negative-prompt / multi-image batches | 2K |
-| `veo-3.1-generate-preview` | Video generation (text-to-video, image-to-video, interpolation, extension) | 4K |
+| `veo-3.1-generate-preview` | Video generation (text-to-video, image-to-video, interpolation, extension) | 720p (1080p/4K available with `durationSeconds=8`) |
 
 Cost guards (dry-run default, confirmation prompt above $0.50, hard block above $2.00, daily cap at $25) mitigate budget exposure from this quality-first policy.
 
@@ -100,7 +100,7 @@ Set keys in one of three ways:
 | Scene composition | Nano Banana Pro | Multi-image assembly up to 14 references with role labels |
 | Image description | Nano Banana Pro | Gemini vision → text description |
 | Color palette extraction | (local) | node-vibrant; no API call |
-| Text-to-video | Veo 3.1 Pro | 4–8s, 4K, 16:9 or 9:16 |
+| Text-to-video | Veo 3.1 Pro | 4–8s, 720p default (1080p/4K require 8s), 16:9 or 9:16 |
 | Image-to-video | Veo 3.1 Pro | First-frame anchor |
 | Frame interpolation | Veo 3.1 Pro | First + last frames → filled video |
 | Video with references | Veo 3.1 Pro | Up to 3 asset references |

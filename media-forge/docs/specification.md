@@ -60,7 +60,7 @@ VIDEO_MODEL_VEO_3_1_PRO      = "veo-3.1-generate-preview"
 |---|---|---|---|
 | `aspectRatio` | `16:9`, `9:16` | `16:9` | |
 | `durationSeconds` | `4`, `6`, `8` | `8` | Top-tier default is max duration |
-| `resolution` | `1080p`, `4k` | `4k` | 720p not exposed to users |
+| `resolution` | `720p`, `1080p`, `4k` | `720p` | `1080p` and `4k` require `durationSeconds=8` (capability validator) |
 | `personGeneration` | `allow_all`, `allow_adult` | `allow_adult` | `allow_none` not supported by Veo |
 | `seed` | integer (optional) | — | |
 | `numberOfVideos` | `1` (literal) | 1 | Gemini API hard limit for Veo 3.1 |

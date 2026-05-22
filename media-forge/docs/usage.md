@@ -185,7 +185,7 @@ Text-to-video via Veo 3.1 Pro.
 
 **Key parameters:**
 - `durationSeconds`: `"4"` | `"6"` | `"8"` (string enum; default: `"8"`)
-- `resolution`: `"1080p"` | `"4k"` (default: `"4k"`; 720p not exposed)
+- `resolution`: `"720p"` | `"1080p"` | `"4k"` (default: `"720p"`; `1080p` and `4k` require `durationSeconds=8`)
 - `generateAudio`: boolean (default: true)
 - `seed`: optional integer
 
