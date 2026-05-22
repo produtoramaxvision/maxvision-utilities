@@ -11,18 +11,6 @@ export async function editImage(
   input: EditImageInputT,
   client: MediaForgeClient,
 ): Promise<GenerateImageResult> {
-  // Dry-run shortcut — do NOT call the SDK
-  if (client.dryRun) {
-    return {
-      base64: '',
-      mimeType: 'image/png',
-      modelUsed: input.model,
-      finishReason: 'DRY_RUN',
-      dryRun: true,
-      rawPayload: { model: input.model, prompt: input.prompt },
-    };
-  }
-
   // Build a mode-specific prompt prefix
   let promptText = input.prompt;
   if (input.editMode === 'outpaint') {
@@ -35,8 +23,10 @@ export async function editImage(
     promptText = `${input.prompt} (mask shown in second image: white = edit region, black = preserve)`;
   }
 
-  // Read source image
-  const sourceBase64 = readBase64(input.sourceImage);
+  // Assemble the full generateContent payload before the dry-run guard so that
+  // the dry-run rawPayload mirrors the production request shape exactly.
+  // Under dry-run, skip fs I/O and use a placeholder instead.
+  const sourceBase64 = client.dryRun ? '<base64-elided-dryrun>' : readBase64(input.sourceImage);
   const sourceMime = mimeFromExt(input.sourceImage);
 
   const contents: Part[] = [
@@ -46,7 +36,7 @@ export async function editImage(
 
   // Add mask for inpaint mode
   if (input.editMode === 'inpaint' && input.maskImage) {
-    const maskBase64 = readBase64(input.maskImage);
+    const maskBase64 = client.dryRun ? '<base64-elided-dryrun>' : readBase64(input.maskImage);
     const maskMime = mimeFromExt(input.maskImage);
     contents.push({ inlineData: { mimeType: maskMime, data: maskBase64 } });
   }
@@ -57,6 +47,17 @@ export async function editImage(
   };
 
   const config: GenerateContentConfig & { imageConfig?: ImageConfig } = { imageConfig };
+
+  if (client.dryRun) {
+    return {
+      base64: '',
+      mimeType: 'image/png',
+      modelUsed: input.model,
+      finishReason: 'DRY_RUN',
+      dryRun: true,
+      rawPayload: { model: input.model, contents, config },
+    };
+  }
 
   logger.debug('editImage: calling SDK', { model: input.model, editMode: input.editMode });
 

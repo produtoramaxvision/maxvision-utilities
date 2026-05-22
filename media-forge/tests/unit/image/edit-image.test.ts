@@ -102,6 +102,12 @@ describe('editImage', () => {
     expect(spy).not.toHaveBeenCalled();
     expect(result.dryRun).toBe(true);
     expect(result.base64).toBe('');
+    // rawPayload must mirror production generateContent shape: {model, contents, config}
+    const payload = result.rawPayload as { model: string; contents: Array<{ text?: string; inlineData?: { data: string } }>; config: { imageConfig: object } };
+    expect(payload.model).toBe('gemini-3-pro-image-preview');
+    expect(payload.contents[0]).toHaveProperty('text');
+    expect(payload.contents[1]?.inlineData?.data).toBe('<base64-elided-dryrun>');
+    expect(payload.config).toHaveProperty('imageConfig');
   });
 
   it('no inlineData in response → throws ApiError', async () => {
