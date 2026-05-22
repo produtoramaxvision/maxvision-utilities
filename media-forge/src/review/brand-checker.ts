@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
-import type { ImageAnnotatorClient } from '@google-cloud/vision';
+import { ImageAnnotatorClient } from '@google-cloud/vision';
 import { extractPalette } from '../image/extract-palette.js';
 import { readBase64 } from '../utils/files.js';
 import { ValidationError, ApiError } from '../core/errors.js';
@@ -182,10 +182,8 @@ let _lazyVisionClient: ImageAnnotatorClient | undefined;
 function getVisionClient(injected?: ImageAnnotatorClient): ImageAnnotatorClient {
   if (injected) return injected;
   if (_lazyVisionClient) return _lazyVisionClient;
-  const { ImageAnnotatorClient: IAC } = require('@google-cloud/vision') as {
-    ImageAnnotatorClient: new () => ImageAnnotatorClient;
-  };
-  _lazyVisionClient = new IAC();
+  // Lazy init — constructor probes GCP credentials, not the static import
+  _lazyVisionClient = new ImageAnnotatorClient();
   return _lazyVisionClient;
 }
 

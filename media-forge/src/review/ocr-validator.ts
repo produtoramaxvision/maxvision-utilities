@@ -1,4 +1,4 @@
-import type { ImageAnnotatorClient } from '@google-cloud/vision';
+import { ImageAnnotatorClient } from '@google-cloud/vision';
 import { readBase64 } from '../utils/files.js';
 import { ApiError, MediaForgeError } from '../core/errors.js';
 import { logger } from '../core/logger.js';
@@ -82,11 +82,8 @@ export class OcrValidator {
   private getVisionClient(): ImageAnnotatorClient {
     if (this.injectedVisionClient) return this.injectedVisionClient;
     if (this.lazyVisionClient) return this.lazyVisionClient;
-    // Lazy init — avoids GCP credential check at module-load time
-    const { ImageAnnotatorClient: IAC } = require('@google-cloud/vision') as {
-      ImageAnnotatorClient: new () => ImageAnnotatorClient;
-    };
-    this.lazyVisionClient = new IAC();
+    // Lazy init — constructor probes GCP credentials, not the static import
+    this.lazyVisionClient = new ImageAnnotatorClient();
     return this.lazyVisionClient;
   }
 
