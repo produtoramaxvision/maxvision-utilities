@@ -30,3 +30,6 @@ prompts/_index.json
 !tests/
 !tests/**/core/
 !tests/**/core/**
+
+# Stray planning-state directory — debts/specs/plans live in the maxvision-audiovisual repo
+.maxvision/
