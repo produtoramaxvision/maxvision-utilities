@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { GenerateVideosOperation } from '@google/genai';
 import type { GoogleGenAI } from '@google/genai';
 import { pollVideoOperation } from '../../../src/video/polling.js';
 import { ApiError, PollingError } from '../../../src/core/errors.js';
@@ -127,6 +128,29 @@ describe('pollVideoOperation', () => {
     controller.abort(); // fires abort event synchronously into the pending sleep promise
 
     await assertion;
+  });
+
+  it('passes a real GenerateVideosOperation instance to getVideosOperation', async () => {
+    let capturedArg: unknown;
+    vi.spyOn(mock.client.operations, 'getVideosOperation').mockImplementation(async (req) => {
+      capturedArg = req;
+      return { name: 'op-stub', done: true, response: {} };
+    });
+
+    await pollVideoOperation({
+      client: makeClient(mock),
+      operationName: 'op-stub',
+      intervalMs: 1000,
+      maxAttempts: 5,
+    });
+
+    // The operation handle must be a real SDK class instance carrying the original name
+    const handle = (capturedArg as { operation: GenerateVideosOperation }).operation;
+    expect(handle).toBeInstanceOf(GenerateVideosOperation);
+    expect(handle.name).toBe('op-stub');
+
+    // The prototype _fromAPIResponse must be a function (SDK's real normalizer, not a stub)
+    expect(typeof handle._fromAPIResponse).toBe('function');
   });
 
   it('intervalMs override is respected (mock called at correct cadence)', async () => {

@@ -31,7 +31,7 @@ describe.skipIf(!SHOULD_RUN)('Live API smoke (real network calls, cost-capped â‰
     const client = createClient({ config });
     const input = NanoBananaProInput.parse({
       op: 'nano-banana-pro',
-      prompt: 'A simple geometric blue circle on white background, minimalist, 1K resolution',
+      prompt: 'An abstract gradient pattern of geometric triangles, deep purple to teal, smooth color bands, 1K minimal composition',
       imageSize: '1K',
       thinkingLevel: 'LOW',
       referenceImages: [],
