@@ -85,12 +85,9 @@ describe('OutputManager', () => {
       const vDir = manager.resolveVersionDir(jobId, v);
       expect(fs.existsSync(vDir)).toBe(true);
     }
-    // Versions span 1..10 (may not be exactly v1..v10 due to retries but must be 10 distinct)
+    // Must be exactly v1..v10 (retry loop re-reads max on each attempt, so no gaps)
     const nums = sorted.map((v) => parseInt(v.slice(1), 10));
-    expect(nums.length).toBe(10);
-    for (const n of nums) {
-      expect(n).toBeGreaterThanOrEqual(1);
-    }
+    expect(nums).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
   // ── 6. saveAsset writes file with computed extension from mime ───────────────
