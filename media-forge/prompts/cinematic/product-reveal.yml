@@ -1,0 +1,25 @@
+id: cinematic/product-reveal
+domain: cinematic
+description: |
+  Cinematic product reveal keyframe with a slow push-in camera intent and dramatic lighting.
+  Use for premium product announcements requiring film-quality still imagery.
+variables:
+  - name: product
+    required: true
+    description: "The product being revealed (e.g., minimalist wristwatch, obsidian black)"
+  - name: surface
+    required: false
+    default: polished dark stone pedestal
+    description: "Surface the product rests on (polished dark stone pedestal, brushed metal, glass)"
+  - name: lighting_accent
+    required: false
+    default: single dramatic spotlight from above
+    description: "Key lighting treatment (single dramatic spotlight from above, rim-only, low-key side)"
+template: |
+  A cinematic product reveal still of ${product} resting on ${surface}.
+  Lighting: ${lighting_accent}, creating a strong specular highlight on the product surface.
+  Camera framing suggests a slow forward push-in; product centered in a wide shot.
+  Deep black background fades into darkness at the edges. Lens: 50mm prime.
+  Premium commercial quality, photorealistic, sharp product details, subtle depth haze.
+attribution: |
+  Derived from cinematic product reveal techniques in research §5.2.
