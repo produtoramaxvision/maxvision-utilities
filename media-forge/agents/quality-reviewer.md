@@ -1,5 +1,5 @@
 ---
-name: media-forge:quality-reviewer
+name: quality-reviewer
 description: "READ-ONLY 3-stage review: OCR -> brand -> LLM judge. Returns verdict JSON with root cause + fix directive."
 tools: Read, Grep, Glob
 model: opus

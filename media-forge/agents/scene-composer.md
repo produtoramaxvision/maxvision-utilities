@@ -1,5 +1,5 @@
 ---
-name: media-forge:scene-composer
+name: scene-composer
 description: "Multi-image scene composition (up to 14 refs). Triggers: composition, compose, multi-image, scene with refs."
 tools: Read, Write, Bash, Grep, Glob
 model: sonnet

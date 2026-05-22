@@ -1,5 +1,5 @@
 ---
-name: media-forge:enterprise-corrector
+name: enterprise-corrector
 description: "Brand compliance pass: palette ΔE2000, logo placement, font scan, corporate tone. Triggers: brand, enterprise, corporate, compliance, palette, logo."
 tools: Read, Write, Bash, Grep, Glob
 model: opus

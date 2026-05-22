@@ -1,5 +1,5 @@
 ---
-name: media-forge:prompt-engineer
+name: prompt-engineer
 description: "Refines user intent into refined_spec.json. Routes by domain. Applies safety bypass rephrasing strategies."
 tools: Read, Write, Bash, Grep, Glob
 model: sonnet

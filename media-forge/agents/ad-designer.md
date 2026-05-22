@@ -1,5 +1,5 @@
 ---
-name: media-forge:ad-designer
+name: ad-designer
 description: "Ad creatives, banners, social posts with rendered text. Triggers: ad, banner, social, instagram, story, vertical, text overlay, copy."
 tools: Read, Write, Bash, Grep, Glob
 model: sonnet

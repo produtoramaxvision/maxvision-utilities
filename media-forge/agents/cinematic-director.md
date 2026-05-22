@@ -1,5 +1,5 @@
 ---
-name: media-forge:cinematic-director
+name: cinematic-director
 description: "Cinematic shorts, ads, music videos. Triggers: cinematic, ad, music video, trailer, short film, narrative."
 tools: Read, Write, Bash, Grep, Glob
 model: sonnet

@@ -1,5 +1,5 @@
 ---
-name: media-forge:video-editor
+name: video-editor
 description: "Veo 3.1 video orchestration including extension chains, first/last-frame interpolation, reference-image generation. Triggers: video, motion, animation, extend, interpolate."
 tools: Read, Write, Bash, Grep, Glob
 model: sonnet

@@ -1,5 +1,5 @@
 ---
-name: media-forge:hyperrealistic-artist
+name: hyperrealistic-artist
 description: "Photorealistic portraits, scenes, environments. Triggers: photorealistic, hyperrealistic, lifelike, portrait, environmental."
 tools: Read, Write, Bash, Grep, Glob
 model: sonnet
