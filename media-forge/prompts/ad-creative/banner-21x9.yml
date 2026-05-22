@@ -1,0 +1,26 @@
+id: ad-creative/banner-21x9
+domain: ad-creative
+description: |
+  21:9 ultra-wide hero banner for website headers, digital out-of-home, and desktop placements.
+  Use when maximum horizontal sweep and cinematic presentation are required.
+variables:
+  - name: subject
+    required: true
+    description: "The hero subject or concept for the banner (e.g., luxury automotive brand reveal)"
+  - name: tagline
+    required: false
+    default: ""
+    description: "Optional short tagline to incorporate into the composition (left or center aligned)"
+  - name: atmosphere
+    required: false
+    default: dramatic dusk gradient
+    description: "Background atmosphere (dramatic dusk gradient, clean minimal white, urban night)"
+template: |
+  A 21:9 ultra-wide hero banner featuring ${subject}.
+  Atmosphere: ${atmosphere}. Composition sweeps horizontally across the full width.
+  Tagline "${tagline}" in the left-third safe zone if provided.
+  Key subject positioned at the golden-ratio point from the left edge.
+  High detail and resolution; designed for large-format display at 2560px width minimum.
+  Photorealistic, cinematic depth of field, rich tonal range.
+attribution: |
+  Derived from wide-format banner design specifications in research §8.3.

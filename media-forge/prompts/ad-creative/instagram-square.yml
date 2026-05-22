@@ -1,0 +1,26 @@
+id: ad-creative/instagram-square
+domain: ad-creative
+description: |
+  1:1 square Instagram ad creative with a clear focal product and rendered text overlay zone.
+  Use for paid social campaigns requiring thumb-stopping square format assets.
+variables:
+  - name: product
+    required: true
+    description: "The hero product or offer being advertised (e.g., skincare serum, amber glass)"
+  - name: headline
+    required: false
+    default: "New Arrival"
+    description: "Short headline text rendered in the composition (1-4 words)"
+  - name: color_palette
+    required: false
+    default: warm earth tones
+    description: "Dominant color palette (warm earth tones, cool minimal white, vibrant bold)"
+template: |
+  A 1:1 square social media advertisement for ${product}.
+  Headline text "${headline}" positioned in the upper third with clear legibility.
+  Color palette: ${color_palette}. High-contrast subject isolation.
+  Safe zone: 20px inset on all edges for platform cropping. No bleed text.
+  Bold, visually striking composition. Product occupies 60% of frame.
+  Clean graphic design aesthetic, photorealistic product rendering.
+attribution: |
+  Derived from social media ad creative best practices in research §8.1.
