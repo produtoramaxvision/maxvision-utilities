@@ -1,0 +1,24 @@
+id: video-extension/scene-transition
+domain: video-extension
+description: |
+  Video extension that transitions to a new scene while preserving character identity and lighting continuity.
+  Use when a clip must evolve to a new location without breaking subject recognition.
+variables:
+  - name: character_description
+    required: true
+    description: "Exact visual description of the character(s) to preserve through the transition"
+  - name: new_scene
+    required: true
+    description: "The destination scene to transition into (e.g., the character arrives at a rain-soaked harbor)"
+  - name: transition_style
+    required: false
+    default: motivated cut on action
+    description: "Transition method (motivated cut on action, slow dissolve, match cut on geometry)"
+template: |
+  Extend the clip with a ${transition_style} to: ${new_scene}.
+  Character continuity: ${character_description}. Identity must remain consistent post-transition.
+  Lighting in the new scene is coherent with the established direction from the source clip.
+  Color grade carries through the transition with at most a subtle hue shift for the new environment.
+  Audio-visual rhythm preserved; motion cadence matches the clip before the transition point.
+attribution: |
+  Derived from scene-transition continuity techniques for video extension in research §7.8.
