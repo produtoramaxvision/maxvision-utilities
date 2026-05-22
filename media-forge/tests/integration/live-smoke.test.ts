@@ -11,6 +11,26 @@
  *   Nano Banana Pro 1K image ≈ $0.134
  *   Veo 3.1 Pro 720p 4s      ≈ $0.20
  *   Total                     ≈ $0.33 (cap $0.50)
+ *
+ * Prompts below follow the OFFICIAL Google prompt frameworks. They are
+ * deliberately detailed so that this smoke test doubles as an executable
+ * reference for the production prompt patterns documented in P11 templates.
+ *
+ *   Nano Banana Pro framework (image):
+ *     [Subject + Adjectives] doing [Action] in [Location/Context].
+ *     [Composition/Camera Angle]. [Lighting/Atmosphere]. [Style/Media].
+ *     — https://blog.google/products-and-platforms/products/gemini/prompting-tips-nano-banana-pro/
+ *     — https://cloud.google.com/blog/products/ai-machine-learning/ultimate-prompting-guide-for-nano-banana
+ *
+ *   Veo 3.1 Pro 5-part formula (video):
+ *     [Cinematography] + [Subject] + [Action] + [Context] + [Style & Ambiance]
+ *     plus optional Audio: dialogue / SFX / ambient noise
+ *     — https://cloud.google.com/blog/products/ai-machine-learning/ultimate-prompting-guide-for-veo-3-1
+ *     — https://deepmind.google/models/veo/prompt-guide/
+ *
+ * Subjects chosen intentionally avoid copyright/celebrity/famous-art mappings
+ * that can trigger Google's Layer 2 RAI filter (finishReason: IMAGE_RECITATION,
+ * blockReason: OTHER). See https://ai.google.dev/gemini-api/docs/safety-settings.
  */
 import { describe, it, expect } from 'vitest';
 import { loadConfig } from '../../src/core/config.js';
@@ -31,7 +51,16 @@ describe.skipIf(!SHOULD_RUN)('Live API smoke (real network calls, cost-capped �
     const client = createClient({ config });
     const input = NanoBananaProInput.parse({
       op: 'nano-banana-pro',
-      prompt: 'An abstract gradient pattern of geometric triangles, deep purple to teal, smooth color bands, 1K minimal composition',
+      // Nano Banana Pro framework: Subject → Composition → Camera → Lighting → Style.
+      prompt:
+        'A precision-machined titanium watch movement with exposed gear assembly, ' +
+        'photographed in extreme macro detail. ' +
+        'Composition: top-down centered, subject fills 80% of frame. ' +
+        'Camera: 100mm macro lens, f/8 aperture for edge-to-edge sharpness. ' +
+        'Lighting: dual softbox key+fill at 45 degree elevation, single rim light from behind ' +
+        'separating gears from background. Atmosphere: deep matte black velvet backdrop, ' +
+        'subtle dust particles catching the rim light. ' +
+        'Style: high-end editorial product photography, photorealistic, color graded with cool steel tones.',
       imageSize: '1K',
       thinkingLevel: 'LOW',
       referenceImages: [],
@@ -48,7 +77,18 @@ describe.skipIf(!SHOULD_RUN)('Live API smoke (real network calls, cost-capped �
 
     const input = GenerateVideoT2VInput.parse({
       op: 't2v',
-      prompt: 'A slow pan across a calm blue ocean horizon, daylight, peaceful',
+      // Veo 3.1 5-part formula: Cinematography → Subject → Action → Context → Style & Ambiance.
+      // Audio disabled here to keep the run inside the cost cap; the Audio syntax
+      // (dialogue / SFX / ambient noise) is exercised by P11 templates and integration mocks.
+      prompt:
+        'Slow tracking shot from left to right, 50mm lens, shallow depth of field. ' +
+        'A single drop of dark espresso falls from a brushed copper espresso machine spout, ' +
+        'then accelerates and impacts a white ceramic cup creating a controlled splash with ' +
+        'concentric surface ripples. ' +
+        'Modern artisanal coffee bar setting, blurred warm tungsten lights in background, ' +
+        'polished marble countertop in foreground. ' +
+        'Cinematic commercial photography aesthetic, golden hour color grade, ' +
+        'slight motion blur on the falling drop, premium product film quality.',
       aspectRatio: '16:9',
       durationSeconds: 4,
       resolution: '720p',
