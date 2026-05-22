@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { registerDoctorCommand } from './commands/doctor.js';
+import { registerImageCommands } from './commands/image.js';
 
 export function buildProgram(): Command {
   const program = new Command();
@@ -9,7 +10,8 @@ export function buildProgram(): Command {
     .description('Production-grade image + video generation via top-tier Google AI models');
 
   registerDoctorCommand(program);
-  // 9.2-9.4 will register more here
+  registerImageCommands(program);
+  // 9.3-9.4 will register more here
 
   return program;
 }
