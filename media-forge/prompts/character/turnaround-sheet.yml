@@ -1,0 +1,26 @@
+id: character/turnaround-sheet
+domain: character
+description: |
+  Three-view character turnaround orientation sheet showing front, side, and back perspectives.
+  Use for character design documentation and 3D reference material.
+variables:
+  - name: character_description
+    required: true
+    description: "Complete character appearance including costume, proportions, and distinguishing features"
+  - name: art_style
+    required: false
+    default: semi-realistic illustration
+    description: "Visual style (semi-realistic illustration, flat graphic, stylized cartoon)"
+  - name: background
+    required: false
+    default: clean white
+    description: "Sheet background treatment (clean white, light grey grid, pale blue)"
+template: |
+  A character design turnaround sheet of ${character_description}.
+  Three views arranged horizontally: front facing, 90-degree side profile, and rear view.
+  Art style: ${art_style}. Background: ${background}.
+  Consistent scale and alignment guides across all three poses.
+  Full body from head to toe, even studio lighting with no shadows to obscure silhouette.
+  Clear anatomical proportions, costume details visible from all angles.
+attribution: |
+  Derived from character design and turnaround documentation in research §4.2.

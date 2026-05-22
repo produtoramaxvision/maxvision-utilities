@@ -1,0 +1,25 @@
+id: character/identity-lock-portrait
+domain: character
+description: |
+  Character portrait with identity-locking descriptors to maintain visual consistency across generations.
+  Use when repeatable character appearance is required for a series or brand mascot.
+variables:
+  - name: character_description
+    required: true
+    description: "Full character description including age, ethnicity, hair, eye color, distinctive features"
+  - name: expression
+    required: false
+    default: neutral confident
+    description: "Facial expression (neutral confident, warm smile, intense focused)"
+  - name: lighting
+    required: false
+    default: Rembrandt three-quarter
+    description: "Portrait lighting style (Rembrandt three-quarter, butterfly, split)"
+template: |
+  A high-fidelity portrait photograph of ${character_description}.
+  Expression: ${expression}. Lighting: ${lighting} with soft fill on shadow side.
+  Shot at 85mm equivalent, shallow depth of field, sharp eyes, neutral background.
+  Identity anchors preserved: exact hair texture, eye color, facial structure, and skin tone.
+  Photorealistic, professional headshot quality, 4K resolution.
+attribution: |
+  Derived from character consistency techniques documented in research §4.1.
