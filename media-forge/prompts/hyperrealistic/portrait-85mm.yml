@@ -1,0 +1,26 @@
+id: hyperrealistic/portrait-85mm
+domain: hyperrealistic
+description: |
+  Hyperrealistic 85mm portrait with extreme skin texture detail, shallow depth of field, and natural bokeh.
+  Use when a photograph must be indistinguishable from a high-end camera capture.
+variables:
+  - name: subject
+    required: true
+    description: "Person description (age, gender presentation, distinguishing features)"
+  - name: setting
+    required: false
+    default: natural window light
+    description: "Lighting and location context (natural window light, golden hour outdoor, studio strobe)"
+  - name: focus_detail
+    required: false
+    default: subsurface skin texture and individual eyelashes
+    description: "The micro-detail to emphasize in the sharp plane"
+template: |
+  A hyperrealistic photograph of ${subject}, shot on 85mm prime lens at f/1.4.
+  Setting: ${setting}. Exquisite ${focus_detail} rendered with microscopic precision.
+  Shallow depth of field with smooth creamy bokeh transitioning behind the sharp plane.
+  Pores, fine hair, and translucent skin layers are visible in the focal area.
+  Natural color science, no over-sharpening, no skin smoothing, 50MP equivalent detail.
+  Indistinguishable from a photograph taken on a professional full-frame camera.
+attribution: |
+  Derived from hyperrealistic portrait rendering techniques in research §3.1.

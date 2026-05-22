@@ -1,0 +1,26 @@
+id: hyperrealistic/architectural-interior
+domain: hyperrealistic
+description: |
+  Hyperrealistic architectural interior with precise key and rim lighting and material fidelity.
+  Use for real estate renders, interior design visualization, or high-end property marketing.
+variables:
+  - name: space
+    required: true
+    description: "The interior space to render (e.g., open-plan living room with exposed concrete)"
+  - name: lighting_scheme
+    required: false
+    default: warm ambient with cool key accent from skylights
+    description: "Lighting setup (warm ambient with cool key accent from skylights, all-natural, artificial only)"
+  - name: style
+    required: false
+    default: contemporary minimalist
+    description: "Interior design style (contemporary minimalist, Scandinavian, industrial loft)"
+template: |
+  A hyperrealistic architectural interior render of ${space}.
+  Design style: ${style}. Lighting: ${lighting_scheme}.
+  Key and rim lighting separate objects from background and define spatial depth.
+  Materials rendered with physical accuracy: concrete roughness, wood grain, glass reflections.
+  16:9 aspect ratio, rectilinear lens correction, no fisheye distortion.
+  Shadows cast naturally, no clipping in highlights, full tonal range preserved.
+attribution: |
+  Derived from architectural visualization rendering standards in research §3.3.
