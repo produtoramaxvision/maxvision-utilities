@@ -9,7 +9,23 @@ export async function generateImageImagen4Ultra(
   input: Imagen4UltraInputT,
   client: MediaForgeClient,
 ): Promise<GenerateImageResult> {
-  // Dry-run shortcut — do NOT call the SDK
+  // Map PERSON_GENERATION_IMAGE 'ALLOW_NONE' → SDK enum 'DONT_ALLOW'
+  const sdkPersonGeneration =
+    input.personGeneration === 'ALLOW_NONE' ? 'DONT_ALLOW' : input.personGeneration;
+
+  // Assemble the full generateImages config before the dry-run guard so the
+  // dry-run rawPayload mirrors the production request shape exactly.
+  const config = {
+    numberOfImages: 1,
+    aspectRatio: input.aspectRatio,
+    ...(input.seed !== undefined ? { seed: input.seed } : {}),
+    ...(input.negativePrompt ? { negativePrompt: input.negativePrompt } : {}),
+    personGeneration: sdkPersonGeneration as PersonGeneration,
+    safetyFilterLevel: 'BLOCK_MEDIUM_AND_ABOVE' as SafetyFilterLevel,
+    outputMimeType: 'image/png',
+    includeRaiReason: true,
+  };
+
   if (client.dryRun) {
     return {
       base64: '',
@@ -17,7 +33,7 @@ export async function generateImageImagen4Ultra(
       modelUsed: input.model,
       finishReason: 'DRY_RUN',
       dryRun: true,
-      rawPayload: { model: input.model, prompt: input.prompt },
+      rawPayload: { model: input.model, prompt: input.prompt, config },
     };
   }
 
@@ -29,23 +45,10 @@ export async function generateImageImagen4Ultra(
     );
   }
 
-  // Map PERSON_GENERATION_IMAGE 'ALLOW_NONE' → SDK enum 'DONT_ALLOW'
-  const sdkPersonGeneration =
-    input.personGeneration === 'ALLOW_NONE' ? 'DONT_ALLOW' : input.personGeneration;
-
   const response = await client.ai.models.generateImages({
     model: input.model,
     prompt: input.prompt,
-    config: {
-      numberOfImages: 1,
-      aspectRatio: input.aspectRatio,
-      ...(input.seed !== undefined ? { seed: input.seed } : {}),
-      ...(input.negativePrompt ? { negativePrompt: input.negativePrompt } : {}),
-      personGeneration: sdkPersonGeneration as PersonGeneration,
-      safetyFilterLevel: 'BLOCK_MEDIUM_AND_ABOVE' as SafetyFilterLevel,
-      outputMimeType: 'image/png',
-      includeRaiReason: true,
-    },
+    config,
   });
 
   const img = response.generatedImages?.[0];

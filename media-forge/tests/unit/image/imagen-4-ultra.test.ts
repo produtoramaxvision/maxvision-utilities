@@ -131,5 +131,11 @@ describe('generateImageImagen4Ultra', () => {
     expect(spy).not.toHaveBeenCalled();
     expect(result.dryRun).toBe(true);
     expect(result.base64).toBe('');
+    // rawPayload must mirror production generateImages shape: {model, prompt, config}
+    const payload = result.rawPayload as { model: string; prompt: string; config: { numberOfImages: number; aspectRatio: string } };
+    expect(payload.model).toBe('imagen-4.0-ultra-generate-001');
+    expect(payload.prompt).toBe('A beautiful mountain landscape');
+    expect(payload.config.numberOfImages).toBe(1);
+    expect(payload.config.aspectRatio).toBe('1:1');
   });
 });
