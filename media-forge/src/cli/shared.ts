@@ -8,6 +8,22 @@ export interface CommonFlags {
   outputDir?: string;
 }
 
+/**
+ * Sentinel error thrown by exitOk/exitErr instead of calling process.exit
+ * directly. runCli catches this and calls process.exit(code).
+ * Tests catch this to assert exit code and payload without triggering
+ * vitest's process.exit guard.
+ */
+export class CliExit extends Error {
+  constructor(
+    public readonly code: number,
+    public readonly payload?: unknown,
+  ) {
+    super(`cli exit ${code}`);
+    this.name = 'CliExit';
+  }
+}
+
 export function addCommonFlags(cmd: Command): Command {
   return cmd
     .option('-d, --dry-run', 'Assemble and print payload without API call', false)
@@ -27,7 +43,7 @@ export function exitOk(payload: unknown, opts: { json?: boolean } = {}): never {
   } else {
     process.stdout.write(`${humanFormat(payload)}\n`);
   }
-  process.exit(0);
+  throw new CliExit(0, payload);
 }
 
 export function exitErr(err: unknown, opts: { json?: boolean } = {}): never {
@@ -37,5 +53,5 @@ export function exitErr(err: unknown, opts: { json?: boolean } = {}): never {
   } else {
     process.stderr.write(`error: ${msg}\n`);
   }
-  process.exit(1);
+  throw new CliExit(1, err);
 }

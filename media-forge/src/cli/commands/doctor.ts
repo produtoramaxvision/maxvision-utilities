@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import { CliExit } from '../shared.js';
 import { loadConfig } from '../../core/config.js';
 import { logger } from '../../core/logger.js';
 import {
@@ -208,6 +209,6 @@ export function registerDoctorCommand(program: Command): void {
       } else {
         printDoctorHuman(result);
       }
-      process.exit(result.ok ? 0 : 1);
+      throw new CliExit(result.ok ? 0 : 1, result);
     });
 }

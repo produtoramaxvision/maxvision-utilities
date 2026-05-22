@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { CliExit } from './shared.js';
 import { registerDoctorCommand } from './commands/doctor.js';
 import { registerImageCommands } from './commands/image.js';
 import { registerVideoCommands } from './commands/video.js';
@@ -29,5 +30,12 @@ export function buildProgram(): Command {
 
 export async function runCli(argv: string[]): Promise<void> {
   const program = buildProgram();
-  await program.parseAsync(['node', 'media-forge', ...argv]);
+  try {
+    await program.parseAsync(['node', 'media-forge', ...argv]);
+  } catch (err) {
+    if (err instanceof CliExit) {
+      process.exit(err.code);
+    }
+    throw err;
+  }
 }

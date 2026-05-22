@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { addCommonFlags, exitOk, exitErr } from '../shared.js';
+import { addCommonFlags, exitOk, exitErr, CliExit } from '../shared.js';
 import { createClient } from '../../core/client.js';
 import { loadConfig } from '../../core/config.js';
 import {
@@ -211,6 +211,7 @@ export function registerImageCommands(program: Command): void {
       const result = await generateImageNanoBananaPro(input, client);
       exitOk(result, opts);
     } catch (err) {
+      if (err instanceof CliExit) throw err;
       exitErr(err, opts);
     }
   });
@@ -240,6 +241,7 @@ export function registerImageCommands(program: Command): void {
       const result = await generateImageImagen4Ultra(input, client);
       exitOk(result, opts);
     } catch (err) {
+      if (err instanceof CliExit) throw err;
       exitErr(err, opts);
     }
   });
@@ -270,6 +272,7 @@ export function registerImageCommands(program: Command): void {
       const result = await editImage(input, client);
       exitOk(result, opts);
     } catch (err) {
+      if (err instanceof CliExit) throw err;
       exitErr(err, opts);
     }
   });
@@ -302,6 +305,7 @@ export function registerImageCommands(program: Command): void {
       const result = await composeScene(input, client);
       exitOk(result, opts);
     } catch (err) {
+      if (err instanceof CliExit) throw err;
       exitErr(err, opts);
     }
   });
@@ -326,6 +330,7 @@ export function registerImageCommands(program: Command): void {
       const result = await describeImage(input, client);
       exitOk(result, opts);
     } catch (err) {
+      if (err instanceof CliExit) throw err;
       exitErr(err, opts);
     }
   });
@@ -349,6 +354,7 @@ export function registerImageCommands(program: Command): void {
       const result = await extractPalette(input);
       exitOk(result, opts);
     } catch (err) {
+      if (err instanceof CliExit) throw err;
       exitErr(err, opts);
     }
   });

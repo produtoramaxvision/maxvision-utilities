@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { addCommonFlags, exitOk, exitErr } from '../shared.js';
+import { addCommonFlags, exitOk, exitErr, CliExit } from '../shared.js';
 import { createClient } from '../../core/client.js';
 import { loadConfig } from '../../core/config.js';
 import {
@@ -271,6 +271,7 @@ export function registerVideoCommands(program: Command): void {
       const result = await generateVideoT2V(input, client);
       exitOk(result, opts);
     } catch (err) {
+      if (err instanceof CliExit) throw err;
       exitErr(err, opts);
     }
   });
@@ -305,6 +306,7 @@ export function registerVideoCommands(program: Command): void {
       const result = await generateVideoI2V(input, client);
       exitOk(result, opts);
     } catch (err) {
+      if (err instanceof CliExit) throw err;
       exitErr(err, opts);
     }
   });
@@ -339,6 +341,7 @@ export function registerVideoCommands(program: Command): void {
       const result = await generateVideoInterpolate(input, client);
       exitOk(result, opts);
     } catch (err) {
+      if (err instanceof CliExit) throw err;
       exitErr(err, opts);
     }
   });
@@ -380,6 +383,7 @@ export function registerVideoCommands(program: Command): void {
       const result = await generateVideoWithRefs(input, client);
       exitOk(result, opts);
     } catch (err) {
+      if (err instanceof CliExit) throw err;
       exitErr(err, opts);
     }
   });
@@ -421,6 +425,7 @@ export function registerVideoCommands(program: Command): void {
       });
       exitOk(result, opts);
     } catch (err) {
+      if (err instanceof CliExit) throw err;
       exitErr(err, opts);
     }
   });
@@ -453,6 +458,7 @@ export function registerVideoCommands(program: Command): void {
       });
       exitOk(result, opts);
     } catch (err) {
+      if (err instanceof CliExit) throw err;
       exitErr(err, opts);
     }
   });
@@ -482,6 +488,7 @@ export function registerVideoCommands(program: Command): void {
       });
       exitOk(result, opts);
     } catch (err) {
+      if (err instanceof CliExit) throw err;
       exitErr(err, opts);
     }
   });
@@ -537,6 +544,7 @@ export function registerVideoCommands(program: Command): void {
 
       exitOk({ poll: pollResult, download: downloadResult }, opts);
     } catch (err) {
+      if (err instanceof CliExit) throw err;
       exitErr(err, opts);
     }
   });
