@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "media-forge",
+  "displayName": "Media Forge",
+  "version": "0.1.0",
+  "description": "Production-grade Claude Code plugin for image and video generation using top-tier Google AI models. 10 domain-specialized subagents with smart-routing quality review.",
+  "author": { "name": "Produtora MaxVision", "email": "produtoramaxvision@gmail.com", "url": "https://github.com/produtoramaxvision" },
+  "homepage": "https://github.com/produtoramaxvision/maxvision-utilities/tree/main/media-forge",
+  "repository": "https://github.com/produtoramaxvision/maxvision-utilities",
+  "license": "MIT",
+  "keywords": ["image-generation", "video-generation", "nano-banana-pro", "veo-3.1", "imagen-4", "multi-agent"],
+  "skills": "./skills/",
+  "commands": "./commands/",
+  "agents": "./agents/",
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/hooks.json"
+}
