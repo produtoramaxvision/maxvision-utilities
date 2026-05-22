@@ -20,31 +20,19 @@ export async function generateImageNanoBananaPro(
   input: NanoBananaProInputT,
   client: MediaForgeClient,
 ): Promise<GenerateImageResult> {
-  // Dry-run shortcut — do NOT call the SDK
-  if (client.dryRun) {
-    const rawPayload = {
-      model: input.model,
-      contents: [{ text: input.prompt }],
-      config: { imageConfig: {}, thinkingConfig: {} },
-    };
-    return {
-      base64: '',
-      mimeType: 'image/png',
-      modelUsed: input.model,
-      finishReason: 'DRY_RUN',
-      dryRun: true,
-      rawPayload,
-    };
-  }
-
-  const refParts = await Promise.all(
-    input.referenceImages.map(async (ref) => ({
-      inlineData: {
-        mimeType: mimeFromExt(ref.path),
-        data: await readBase64(ref.path),
-      },
-    })),
-  );
+  // Always assemble the real payload first so dry-run mirrors production.
+  const refParts = client.dryRun
+    ? input.referenceImages.map((ref) => ({
+        inlineData: { mimeType: mimeFromExt(ref.path), data: '<base64-elided-dryrun>' },
+      }))
+    : await Promise.all(
+        input.referenceImages.map(async (ref) => ({
+          inlineData: {
+            mimeType: mimeFromExt(ref.path),
+            data: await readBase64(ref.path),
+          },
+        })),
+      );
 
   const contents = [{ text: input.prompt }, ...refParts];
 
@@ -66,6 +54,17 @@ export async function generateImageNanoBananaPro(
     thinkingConfig,
     ...(input.useGoogleSearch ? { tools: [{ googleSearch: {} }] } : {}),
   };
+
+  if (client.dryRun) {
+    return {
+      base64: '',
+      mimeType: 'image/png',
+      modelUsed: input.model,
+      finishReason: 'DRY_RUN',
+      dryRun: true,
+      rawPayload: { model: input.model, contents, config },
+    };
+  }
 
   logger.debug('generateImageNanoBananaPro: calling SDK', {
     model: input.model,
