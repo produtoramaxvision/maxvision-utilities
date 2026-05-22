@@ -1,0 +1,26 @@
+# Build outputs
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Runtime / workspace
+.media-forge/
+outputs/
+
+# Env (NEVER commit real secrets)
+.env
+.env.local
+.env.*.local
+
+# Editor / OS
+.DS_Store
+*.log
+.idea/
+.vscode/
+
+# Negations — these MUST be tracked despite global gitignore rules
+!pnpm-lock.yaml
+!bin/
+!src/core/
+!src/cli/
