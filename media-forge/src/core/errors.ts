@@ -41,6 +41,16 @@ export class CapabilityError extends MediaForgeError {
   }
 }
 
+export class ApiFieldError extends CapabilityError {
+  constructor(
+    public readonly field: string,
+    message: string,
+    context?: Record<string, unknown>,
+  ) {
+    super(message, { ...context, field });
+  }
+}
+
 export class ApiError extends MediaForgeError {
   constructor(
     message: string,

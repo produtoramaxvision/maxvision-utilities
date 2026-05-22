@@ -5,6 +5,7 @@ import {
   ValidationError,
   CapabilityError,
   ApiError,
+  ApiFieldError,
   PollingError,
   OutputError,
   FileSystemError,
@@ -60,6 +61,25 @@ describe('error subclasses', () => {
 
   it('FileSystemError has code FILESYSTEM', () => {
     expect(new FileSystemError('permission denied').code).toBe('FILESYSTEM');
+  });
+});
+
+describe('ApiFieldError', () => {
+  it('carries field, message, code CAPABILITY and merges field into context', () => {
+    const e = new ApiFieldError('aspectRatio', 'aspectRatio is invalid', { received: '7:7' });
+    expect(e.field).toBe('aspectRatio');
+    expect(e.message).toBe('aspectRatio is invalid');
+    expect(e.code).toBe('CAPABILITY');
+    expect(e.context).toEqual({ received: '7:7', field: 'aspectRatio' });
+  });
+
+  it('preserves instanceof chain (ApiFieldError -> CapabilityError -> MediaForgeError -> Error)', () => {
+    const e = new ApiFieldError('x', 'y');
+    expect(e instanceof ApiFieldError).toBe(true);
+    expect(e instanceof CapabilityError).toBe(true);
+    expect(e instanceof MediaForgeError).toBe(true);
+    expect(e instanceof Error).toBe(true);
+    expect(e.name).toBe('ApiFieldError');
   });
 });
 

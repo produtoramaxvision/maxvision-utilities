@@ -1,4 +1,4 @@
-import { CapabilityError } from './errors.js';
+import { ApiFieldError } from './errors.js';
 import {
   ASPECT_RATIO_NANO_BANANA,
   ASPECT_RATIO_IMAGEN,
@@ -11,20 +11,7 @@ import {
   VIDEO_DURATION_SECONDS,
 } from './models.js';
 
-// ---------------------------------------------------------------------------
-// ApiFieldError — local to capabilities; extends CapabilityError so callers
-// catching CapabilityError still work. Not exported from errors.ts to avoid
-// modifying P0/P1 files.
-// ---------------------------------------------------------------------------
-export class ApiFieldError extends CapabilityError {
-  constructor(
-    public readonly field: string,
-    message: string,
-    context?: Record<string, unknown>,
-  ) {
-    super(message, { ...context, field });
-  }
-}
+export { ApiFieldError };
 
 // ---------------------------------------------------------------------------
 // Helpers
