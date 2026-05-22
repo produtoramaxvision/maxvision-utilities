@@ -24,3 +24,6 @@ outputs/
 !bin/
 !src/core/
 !src/cli/
+!tests/
+!tests/**/core/
+!tests/**/core/**
