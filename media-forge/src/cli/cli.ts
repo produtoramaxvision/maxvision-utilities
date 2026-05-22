@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { registerDoctorCommand } from './commands/doctor.js';
 import { registerImageCommands } from './commands/image.js';
+import { registerVideoCommands } from './commands/video.js';
 
 export function buildProgram(): Command {
   const program = new Command();
@@ -11,7 +12,8 @@ export function buildProgram(): Command {
 
   registerDoctorCommand(program);
   registerImageCommands(program);
-  // 9.3-9.4 will register more here
+  registerVideoCommands(program);
+  // 9.4 will register more here
 
   return program;
 }
