@@ -146,10 +146,10 @@ All CLI subcommands are exposed via the `media-forge` binary (`bin/media-forge` 
 
 | Subcommand | Key flags | Notes |
 |---|---|---|
-| `image generate` | `--prompt`, `--aspect-ratio`, `--image-size`, `--dry-run` | Nano Banana Pro path |
-| `image imagen` | `--prompt`, `--aspect-ratio`, `--seed`, `--negative-prompt`, `--num-images` | Imagen 4 Ultra path |
-| `image edit` | `--input <path>`, `--prompt` | Semantic edit |
-| `image compose` | `--refs <paths>`, `--prompt` | Multi-image composition |
+| `image generate` | `<prompt>`, `--aspect-ratio`, `--image-size`, `--dry-run` | Nano Banana Pro path (positional prompt) |
+| `image imagen` | `<prompt>`, `--aspect-ratio`, `--seed`, `--negative-prompt`, `--num-images` | Imagen 4 Ultra path (positional prompt) |
+| `image edit` | `<inputPath>`, `<prompt>` | Semantic edit (both positional) |
+| `image compose` | `<prompt>`, `--refs <paths>` | Multi-image composition (positional prompt) |
 | `image describe` | `--input <path>` | Vision description |
 | `image palette` | `--input <path>` | Color palette extraction |
 
@@ -157,11 +157,11 @@ All CLI subcommands are exposed via the `media-forge` binary (`bin/media-forge` 
 
 | Subcommand | Key flags | Notes |
 |---|---|---|
-| `video t2v` | `--prompt`, `--duration`, `--resolution`, `--dry-run` | Text-to-video |
-| `video i2v` | `--image <path>`, `--prompt`, `--duration` | Image-to-video |
-| `video interpolate` | `--first <path>`, `--last <path>`, `--prompt`, `--duration` | Frame interpolation |
-| `video refs` | `--refs <paths>`, `--prompt`, `--duration` | Video with asset references |
-| `video extend` | `--operation-id <opid>`, `--prompt` | +7s extension hop |
+| `video t2v` | `<prompt>`, `--duration-seconds`, `--resolution`, `--dry-run` | Text-to-video (positional prompt) |
+| `video i2v` | `<prompt>`, `--image <path>`, `--duration-seconds` | Image-to-video (positional prompt) |
+| `video interpolate` | `<prompt>`, `--first <path>`, `--last <path>`, `--duration-seconds` | Frame interpolation (positional prompt) |
+| `video refs` | `<prompt>`, `--refs <paths>`, `--duration-seconds` | Video with asset references (positional prompt) |
+| `video extend` | `<prompt>`, `--source-uri <uri>`, `--hop-index <n>` | +7s extension hop (positional extension directive prompt) |
 | `video poll` | `--operation-id <opid>` | Poll operation status |
 | `video download` | `--uri <https-uri>`, `--output-dir <dir>` | Download from resolved URI |
 | `video wait` | `--operation-id <opid>` | Block until done; auto-downloads |

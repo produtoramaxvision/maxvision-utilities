@@ -120,7 +120,7 @@ Set keys in one of three ways:
 ```bash
 # See what would be sent to the API and how much it would cost — no charge
 media-forge image generate \
-  --prompt "professional product photo of a coffee mug on white background, 4K" \
+  "professional product photo of a coffee mug on white background, 4K" \
   --aspect-ratio 1:1 \
   --image-size 4K \
   --dry-run \
@@ -133,8 +133,8 @@ Expected output: a JSON payload with the full request parameters and a `costEsti
 
 ```bash
 media-forge video t2v \
-  --prompt "a slow-motion espresso shot being poured into a ceramic cup, cinematic, 4K" \
-  --duration 8 \
+  "a slow-motion espresso shot being poured into a ceramic cup, cinematic, 4K" \
+  --duration-seconds 8 \
   --resolution 4k \
   --dry-run \
   --json
