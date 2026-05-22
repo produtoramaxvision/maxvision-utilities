@@ -1,0 +1,26 @@
+id: food-product-crossover/flatlay-knolling
+domain: food-product-crossover
+description: |
+  Overhead flatlay with knolling composition arranging food or product items in precise geometric order.
+  Use for editorial still-life photography that conveys abundance, variety, and meticulous curation.
+variables:
+  - name: subject
+    required: true
+    description: "Items to arrange (e.g., artisan coffee tools and beans, or skincare product line)"
+  - name: surface
+    required: false
+    default: white marble with subtle veining
+    description: "The surface the items rest on (white marble, dark slate, natural linen)"
+  - name: arrangement
+    required: false
+    default: symmetrical grid with equal spacing
+    description: "Layout logic (symmetrical grid, radial from center, scattered organic)"
+template: |
+  A directly overhead flatlay photograph with knolling arrangement of ${subject}.
+  Surface: ${surface}. Layout: ${arrangement}, items aligned to an invisible grid.
+  Each object rotated to 0 or 45-degree angles consistent with knolling conventions.
+  Even diffused overhead lighting with no harsh shadows; subtle soft shadow under each item.
+  Aspect ratio 1:1 or 4:5. Color palette harmonious across all items in the arrangement.
+  Editorial quality, photorealistic, crisp focus across the entire flat plane.
+attribution: |
+  Derived from flatlay and knolling composition techniques in research §6.4.

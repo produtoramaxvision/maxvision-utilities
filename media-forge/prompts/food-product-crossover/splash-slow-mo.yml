@@ -1,0 +1,26 @@
+id: food-product-crossover/splash-slow-mo
+domain: food-product-crossover
+description: |
+  Frozen splash photography capturing suspended droplets and liquid collision for food or product subjects.
+  Use for high-impact hero imagery where dynamic liquid motion is the central visual story.
+variables:
+  - name: subject
+    required: true
+    description: "What is being splashed or what liquid is involved (e.g., a red chili pepper dropped into water)"
+  - name: liquid_color
+    required: false
+    default: crystal clear water
+    description: "The splash liquid type and color (crystal clear water, deep red tomato juice, golden oil)"
+  - name: background
+    required: false
+    default: pure black
+    description: "Background setting (pure black, clean white, dark moody gradient)"
+template: |
+  A high-speed frozen splash photograph of ${subject} with ${liquid_color}.
+  Background: ${background}. Simulated exposure equivalent to 1/8000s freeze.
+  Suspended droplets in mid-air show individual spherical shapes; no motion blur.
+  Crown splash formation visible with radiating spikes frozen at peak height.
+  Studio strobe lighting creates specular highlights on every suspended droplet.
+  Commercial food or product photography quality, photorealistic, 4K resolution.
+attribution: |
+  Derived from high-speed splash photography techniques in research §6.5.
