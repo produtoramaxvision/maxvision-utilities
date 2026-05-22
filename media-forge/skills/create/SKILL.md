@@ -1,5 +1,5 @@
 ---
-name: media-forge:create
+name: create
 description: "Main orchestrator. Refines user brief, routes to domain agent, runs reviewer, surfaces verdict. Triggers: create, generate, make, produce."
 allowed-tools: Read, Write, Bash, Grep, Glob
 preamble-tier: 1

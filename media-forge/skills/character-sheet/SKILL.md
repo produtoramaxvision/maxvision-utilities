@@ -1,5 +1,5 @@
 ---
-name: media-forge:character-sheet
+name: character-sheet
 description: "Character consistency: identity-lock portrait + turnaround + expression sheet from one reference. Triggers: character sheet, turnaround, consistency."
 allowed-tools: Read, Write, Bash, Grep, Glob
 preamble-tier: 1

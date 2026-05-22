@@ -1,5 +1,5 @@
 ---
-name: media-forge:brand-check
+name: brand-check
 description: "INTERNAL - brand compliance check (color deltaE2000 + logo + font). Used by enterprise-corrector and quality-reviewer."
 allowed-tools: Read, Bash, Grep, Glob
 preamble-tier: 1

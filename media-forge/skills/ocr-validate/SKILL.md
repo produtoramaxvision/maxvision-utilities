@@ -1,5 +1,5 @@
 ---
-name: media-forge:ocr-validate
+name: ocr-validate
 description: "INTERNAL - OCR text validation via Cloud Vision. Used by quality-reviewer."
 allowed-tools: Read, Bash, Grep, Glob
 preamble-tier: 1

@@ -1,5 +1,5 @@
 ---
-name: media-forge:audit
+name: audit
 description: "Audit a job's lineage: read metadata, trace, lineage, verdicts. Triggers: audit, lineage, verdict, history."
 allowed-tools: Read, Write, Bash, Grep, Glob
 preamble-tier: 1

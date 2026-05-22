@@ -1,5 +1,5 @@
 ---
-name: media-forge:scene-compose
+name: scene-compose
 description: "Multi-image scene composition with role-labeled refs (up to 14). Triggers: scene compose, composition, multi-image scene."
 allowed-tools: Read, Write, Bash, Grep, Glob
 preamble-tier: 1

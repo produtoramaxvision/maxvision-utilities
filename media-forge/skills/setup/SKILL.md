@@ -1,5 +1,5 @@
 ---
-name: media-forge:setup
+name: setup
 description: "Onboarding wizard: env detection, API key prompts, output dir setup, first dry-run smoke. Run on first install."
 allowed-tools: Read, Write, Bash, Grep, Glob
 preamble-tier: 1

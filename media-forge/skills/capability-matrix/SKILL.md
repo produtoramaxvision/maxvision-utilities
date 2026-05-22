@@ -1,5 +1,5 @@
 ---
-name: media-forge:capability-matrix
+name: capability-matrix
 description: Model x params capability cheatsheet. Static reference; read by all media-forge agents.
 allowed-tools: Read, Grep, Glob
 preamble-tier: 1
