@@ -45,9 +45,12 @@ describe('generateVideoT2V', () => {
     expect(result.dryRun).toBeUndefined();
   });
 
-  it('config forwarding: mock called with all 7 config fields', async () => {
+  it('config forwarding (vertex mode): all 7 config fields present', async () => {
     mock.queueVideoOperation('op-2');
-    await generateVideoT2V(makeInput(), makeClient(mock));
+    await generateVideoT2V(
+      makeInput(),
+      { mode: 'vertex', dryRun: false, ai: mock.client as unknown as GoogleGenAI },
+    );
     const call = mock.recordedCalls[0];
     expect(call).toBeDefined();
     const args = call!.args as {
@@ -61,6 +64,18 @@ describe('generateVideoT2V', () => {
     expect(args.config.personGeneration).toBe('allow_all');
     expect(args.config.numberOfVideos).toBe(1);
     expect(args.config.generateAudio).toBe(true);
+  });
+
+  it('gemini mode strips personGeneration and generateAudio from payload', async () => {
+    mock.queueVideoOperation('op-gemini-strip');
+    await generateVideoT2V(makeInput(), makeClient(mock));
+    const call = mock.recordedCalls[0];
+    const args = call!.args as { config: Record<string, unknown> };
+    expect(args.config.personGeneration).toBeUndefined();
+    expect(args.config.generateAudio).toBeUndefined();
+    // non-vertex fields still present
+    expect(args.config.aspectRatio).toBe('16:9');
+    expect(args.config.numberOfVideos).toBe(1);
   });
 
   it('seed=42 → mock config.seed === 42', async () => {

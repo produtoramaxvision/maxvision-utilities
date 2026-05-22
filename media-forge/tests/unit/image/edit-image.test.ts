@@ -116,4 +116,12 @@ describe('editImage', () => {
     });
     await expect(editImage(makeInput(), makeClient(mock))).rejects.toBeInstanceOf(ApiError);
   });
+
+  it('gemini mode strips personGeneration from imageConfig', async () => {
+    mock.queueImageResponse({ base64: 'GG', mimeType: 'image/png' });
+    await editImage(makeInput({ personGeneration: 'ALLOW_ADULT' }), makeClient(mock));
+    const call = mock.recordedCalls[0];
+    const args = call!.args as { config: { imageConfig: Record<string, unknown> } };
+    expect(args.config.imageConfig.personGeneration).toBeUndefined();
+  });
 });

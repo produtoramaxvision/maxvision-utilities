@@ -43,8 +43,15 @@ export async function editImage(
 
   const imageConfig: ImageConfig = {
     ...(input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}),
-    personGeneration: input.personGeneration,
+    ...(client.mode === 'vertex' ? { personGeneration: input.personGeneration } : {}),
   };
+
+  if (client.mode === 'gemini') {
+    logger.debug('Gemini Developer API mode: stripped Vertex-only fields from payload', {
+      service: 'edit-image',
+      stripped: ['personGeneration'],
+    });
+  }
 
   const config: GenerateContentConfig & { imageConfig?: ImageConfig } = { imageConfig };
 

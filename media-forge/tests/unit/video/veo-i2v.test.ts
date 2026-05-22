@@ -86,12 +86,26 @@ describe('generateVideoI2V', () => {
     expect(config.image).toBeUndefined();
   });
 
-  it('personGeneration=allow_adult forwarded to config', async () => {
+  it('personGeneration=allow_adult forwarded to config (vertex mode)', async () => {
     mock.queueVideoOperation('op-i2v-3');
-    await generateVideoI2V(makeInput({ personGeneration: 'allow_adult' }), makeClient(mock));
+    await generateVideoI2V(
+      makeInput({ personGeneration: 'allow_adult' }),
+      { mode: 'vertex', dryRun: false, ai: mock.client as unknown as GoogleGenAI },
+    );
     const call = mock.recordedCalls[0];
     const args = call!.args as { config: Record<string, unknown> };
     expect(args.config.personGeneration).toBe('allow_adult');
+  });
+
+  it('gemini mode strips personGeneration and generateAudio from payload', async () => {
+    mock.queueVideoOperation('op-i2v-gemini');
+    await generateVideoI2V(makeInput(), makeClient(mock));
+    const call = mock.recordedCalls[0];
+    const args = call!.args as { config: Record<string, unknown> };
+    expect(args.config.personGeneration).toBeUndefined();
+    expect(args.config.generateAudio).toBeUndefined();
+    expect(args.config.aspectRatio).toBe('16:9');
+    expect(args.config.numberOfVideos).toBe(1);
   });
 
   it('dryRun=true → returns dryRun:true WITHOUT calling SDK or reading disk', async () => {

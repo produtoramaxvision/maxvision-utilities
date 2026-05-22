@@ -39,8 +39,15 @@ export async function generateImageNanoBananaPro(
   const imageConfig: ImageConfig = {
     aspectRatio: input.aspectRatio,
     imageSize: input.imageSize,
-    personGeneration: input.personGeneration,
+    ...(client.mode === 'vertex' ? { personGeneration: input.personGeneration } : {}),
   };
+
+  if (client.mode === 'gemini') {
+    logger.debug('Gemini Developer API mode: stripped Vertex-only fields from payload', {
+      service: 'nano-banana-pro',
+      stripped: ['personGeneration'],
+    });
+  }
 
   const thinkingConfig: ThinkingConfig = {
     ...(input.thinkingLevel !== undefined

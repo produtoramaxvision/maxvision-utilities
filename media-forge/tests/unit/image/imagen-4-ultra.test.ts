@@ -66,26 +66,34 @@ describe('generateImageImagen4Ultra', () => {
     expect(args.config.negativePrompt).toBe('no clouds');
   });
 
-  it('personGeneration=ALLOW_NONE → SDK config receives DONT_ALLOW', async () => {
+  it('personGeneration=ALLOW_NONE → SDK config receives DONT_ALLOW (vertex mode)', async () => {
     mock.queueImagenResponse([{ base64: 'DD', mimeType: 'image/png' }]);
     await generateImageImagen4Ultra(
       makeInput({ personGeneration: 'ALLOW_NONE' }),
-      makeClient(mock),
+      { mode: 'vertex', dryRun: false, ai: mock.client as unknown as GoogleGenAI },
     );
     const call = mock.recordedCalls[0];
     const args = call!.args as { config: { personGeneration: string } };
     expect(args.config.personGeneration).toBe('DONT_ALLOW');
   });
 
-  it('personGeneration=ALLOW_ADULT → forwarded as-is', async () => {
+  it('personGeneration=ALLOW_ADULT → forwarded as-is (vertex mode)', async () => {
     mock.queueImagenResponse([{ base64: 'EE', mimeType: 'image/png' }]);
     await generateImageImagen4Ultra(
       makeInput({ personGeneration: 'ALLOW_ADULT' }),
-      makeClient(mock),
+      { mode: 'vertex', dryRun: false, ai: mock.client as unknown as GoogleGenAI },
     );
     const call = mock.recordedCalls[0];
     const args = call!.args as { config: { personGeneration: string } };
     expect(args.config.personGeneration).toBe('ALLOW_ADULT');
+  });
+
+  it('gemini mode strips personGeneration from payload', async () => {
+    mock.queueImagenResponse([{ base64: 'GG', mimeType: 'image/png' }]);
+    await generateImageImagen4Ultra(makeInput({ personGeneration: 'ALLOW_ADULT' }), makeClient(mock));
+    const call = mock.recordedCalls[0];
+    const args = call!.args as { config: Record<string, unknown> };
+    expect(args.config.personGeneration).toBeUndefined();
   });
 
   it('raiFilteredReason set → throws SafetyBlockError', async () => {

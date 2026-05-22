@@ -136,4 +136,15 @@ describe('generateVideoInterpolate', () => {
       ApiError,
     );
   });
+
+  it('gemini mode strips personGeneration and generateAudio from payload', async () => {
+    mock.queueVideoOperation('op-interp-gemini');
+    await generateVideoInterpolate(makeInput(), makeClient(mock));
+    const call = mock.recordedCalls[0];
+    const args = call!.args as { config: Record<string, unknown> };
+    expect(args.config.personGeneration).toBeUndefined();
+    expect(args.config.generateAudio).toBeUndefined();
+    expect(args.config.aspectRatio).toBe('16:9');
+    expect(args.config.numberOfVideos).toBe(1);
+  });
 });

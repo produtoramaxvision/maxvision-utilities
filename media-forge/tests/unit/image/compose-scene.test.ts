@@ -131,4 +131,13 @@ describe('composeScene', () => {
     const args = call!.args as { contents: unknown[] };
     expect(args.contents).toHaveLength(2);
   });
+
+  it('gemini mode strips personGeneration from imageConfig', async () => {
+    const ref = makeRefPng('gemini-strip.png');
+    mock.queueImageResponse({ base64: 'FF', mimeType: 'image/png' });
+    await composeScene(makeInput([ref], { personGeneration: 'ALLOW_ADULT' }), makeClient(mock));
+    const call = mock.recordedCalls[0];
+    const args = call!.args as { config: { imageConfig: Record<string, unknown> } };
+    expect(args.config.imageConfig.personGeneration).toBeUndefined();
+  });
 });

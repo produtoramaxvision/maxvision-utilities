@@ -82,8 +82,15 @@ export async function composeScene(
   const imageConfig: ImageConfig = {
     aspectRatio: input.aspectRatio,
     imageSize: input.imageSize,
-    personGeneration: input.personGeneration,
+    ...(client.mode === 'vertex' ? { personGeneration: input.personGeneration } : {}),
   };
+
+  if (client.mode === 'gemini') {
+    logger.debug('Gemini Developer API mode: stripped Vertex-only fields from payload', {
+      service: 'compose-scene',
+      stripped: ['personGeneration'],
+    });
+  }
 
   const thinkingConfig: ThinkingConfig = {
     thinkingLevel: input.thinkingLevel as ThinkingLevel,

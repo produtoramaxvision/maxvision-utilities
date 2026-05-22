@@ -26,6 +26,13 @@ export async function generateVideoI2V(
   const firstFrameB64 = readBase64(input.firstFrameImage);
   const firstFrameMime = mimeFromExt(input.firstFrameImage);
 
+  if (client.mode === 'gemini') {
+    logger.debug('Gemini Developer API mode: stripped Vertex-only fields from payload', {
+      service: 'veo-i2v',
+      stripped: ['personGeneration', 'generateAudio'],
+    });
+  }
+
   const operation = await client.ai.models.generateVideos({
     model: input.model,
     prompt: input.prompt,
@@ -34,9 +41,9 @@ export async function generateVideoI2V(
       aspectRatio: input.aspectRatio,
       durationSeconds: input.durationSeconds,
       resolution: input.resolution,
-      personGeneration: input.personGeneration,
       numberOfVideos: 1,
-      generateAudio: input.generateAudio ?? true,
+      ...(client.mode === 'vertex' ? { personGeneration: input.personGeneration } : {}),
+      ...(client.mode === 'vertex' ? { generateAudio: input.generateAudio ?? true } : {}),
       ...(input.seed !== undefined ? { seed: input.seed } : {}),
       ...(input.negativePrompt ? { negativePrompt: input.negativePrompt } : {}),
     },

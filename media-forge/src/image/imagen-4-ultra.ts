@@ -9,7 +9,7 @@ export async function generateImageImagen4Ultra(
   input: Imagen4UltraInputT,
   client: MediaForgeClient,
 ): Promise<GenerateImageResult> {
-  // Map PERSON_GENERATION_IMAGE 'ALLOW_NONE' → SDK enum 'DONT_ALLOW'
+  // Map PERSON_GENERATION_IMAGE 'ALLOW_NONE' → SDK enum 'DONT_ALLOW' (Vertex only).
   const sdkPersonGeneration =
     input.personGeneration === 'ALLOW_NONE' ? 'DONT_ALLOW' : input.personGeneration;
 
@@ -20,11 +20,18 @@ export async function generateImageImagen4Ultra(
     aspectRatio: input.aspectRatio,
     ...(input.seed !== undefined ? { seed: input.seed } : {}),
     ...(input.negativePrompt ? { negativePrompt: input.negativePrompt } : {}),
-    personGeneration: sdkPersonGeneration as PersonGeneration,
+    ...(client.mode === 'vertex' ? { personGeneration: sdkPersonGeneration as PersonGeneration } : {}),
     safetyFilterLevel: 'BLOCK_MEDIUM_AND_ABOVE' as SafetyFilterLevel,
     outputMimeType: 'image/png',
     includeRaiReason: true,
   };
+
+  if (client.mode === 'gemini') {
+    logger.debug('Gemini Developer API mode: stripped Vertex-only fields from payload', {
+      service: 'imagen-4-ultra',
+      stripped: ['personGeneration'],
+    });
+  }
 
   if (client.dryRun) {
     return {

@@ -18,12 +18,19 @@ export async function generateVideoT2V(
     aspectRatio: input.aspectRatio,
     durationSeconds: input.durationSeconds,
     resolution: input.resolution,
-    personGeneration: input.personGeneration,
     numberOfVideos: 1,
-    generateAudio: input.generateAudio ?? true,
+    ...(client.mode === 'vertex' ? { personGeneration: input.personGeneration } : {}),
+    ...(client.mode === 'vertex' ? { generateAudio: input.generateAudio ?? true } : {}),
     ...(input.seed !== undefined ? { seed: input.seed } : {}),
     ...(input.negativePrompt ? { negativePrompt: input.negativePrompt } : {}),
   };
+
+  if (client.mode === 'gemini') {
+    logger.debug('Gemini Developer API mode: stripped Vertex-only fields from payload', {
+      service: 'veo-t2v',
+      stripped: ['personGeneration', 'generateAudio'],
+    });
+  }
 
   if (client.dryRun) {
     return {

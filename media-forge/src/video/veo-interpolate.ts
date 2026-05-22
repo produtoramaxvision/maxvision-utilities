@@ -27,6 +27,13 @@ export async function generateVideoInterpolate(
   const firstB64 = readBase64(input.firstFrameImage);
   const lastB64 = readBase64(input.lastFrameImage);
 
+  if (client.mode === 'gemini') {
+    logger.debug('Gemini Developer API mode: stripped Vertex-only fields from payload', {
+      service: 'veo-interpolate',
+      stripped: ['personGeneration', 'generateAudio'],
+    });
+  }
+
   const operation = await client.ai.models.generateVideos({
     model: input.model,
     prompt: input.prompt,
@@ -36,9 +43,9 @@ export async function generateVideoInterpolate(
       aspectRatio: input.aspectRatio,
       durationSeconds: input.durationSeconds,
       resolution: input.resolution,
-      personGeneration: input.personGeneration,
       numberOfVideos: 1,
-      generateAudio: input.generateAudio ?? true,
+      ...(client.mode === 'vertex' ? { personGeneration: input.personGeneration } : {}),
+      ...(client.mode === 'vertex' ? { generateAudio: input.generateAudio ?? true } : {}),
     },
   });
 
