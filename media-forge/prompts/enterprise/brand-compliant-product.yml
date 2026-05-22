@@ -1,0 +1,26 @@
+id: enterprise/brand-compliant-product
+domain: enterprise
+description: |
+  Brand-compliant product image with enforced palette, safe logo zone, and approved tone constraints.
+  Use when enterprise brand guidelines must be strictly honored in every generated asset.
+variables:
+  - name: product
+    required: true
+    description: "The product to feature (e.g., enterprise software dashboard on a laptop)"
+  - name: primary_color
+    required: false
+    default: "#003087 (brand navy)"
+    description: "Brand primary color hex and name (e.g., #003087 brand navy)"
+  - name: logo_placement
+    required: false
+    default: top-left corner with 24px safe margin
+    description: "Logo placement instruction (top-left corner, bottom-right, centered top)"
+template: |
+  A brand-compliant product image of ${product}.
+  Primary brand color ${primary_color} applied to accent elements and background gradient.
+  Logo placement zone reserved at ${logo_placement}; no visual elements intrude into this zone.
+  Tone: professional, clean, modern. No photography-style shadows that compete with brand elements.
+  Flat-lay or three-quarter view only; consistent with approved brand image library style.
+  High resolution, RGB color space, suitable for both print and digital distribution.
+attribution: |
+  Derived from enterprise brand compliance requirements in research §9.1.
