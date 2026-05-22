@@ -33,3 +33,6 @@ prompts/_index.json
 
 # Stray planning-state directory — debts/specs/plans live in the maxvision-audiovisual repo
 .maxvision/
+
+# Eval run artifacts (generated on test execution, never commit)
+tests/evals/results.jsonl
