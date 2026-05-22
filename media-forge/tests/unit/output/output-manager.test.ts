@@ -265,7 +265,7 @@ describe('OutputManager', () => {
     expect(entry.ts).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
-  it('appendCostLog includes serialized breakdown when provided', async () => {
+  it('appendCostLog preserves structured breakdown record (round-trip JSON)', async () => {
     const { jobId, jobDir } = await manager.createJob({});
     await manager.appendCostLog({
       jobId,
@@ -274,8 +274,15 @@ describe('OutputManager', () => {
       breakdown: { base: 0.3, audio: 0.1 },
     });
     const logPath = path.join(jobDir, 'cost.jsonl');
-    const raw = fs.readFileSync(logPath, 'utf8');
-    expect(raw).toContain('veo-3.1');
+    const raw = fs.readFileSync(logPath, 'utf8').trim();
+    const parsed = JSON.parse(raw) as {
+      model: string;
+      usd: number;
+      breakdown: { base: number; audio: number };
+    };
+    expect(parsed.model).toBe('veo-3.1');
+    expect(parsed.usd).toBeCloseTo(0.4);
+    expect(parsed.breakdown).toEqual({ base: 0.3, audio: 0.1 });
   });
 
   // ── 16. appendCostLog atomic under concurrent calls ──────────────────────────

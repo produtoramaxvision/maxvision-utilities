@@ -274,15 +274,16 @@ export class OutputManager {
     const jobDir = this.resolveJobDir(opts.jobId);
     const logPath = path.join(jobDir, 'cost.jsonl');
 
-    // Serialize breakdown Record<string, number> → string for the cost helper
-    const breakdownStr = opts.breakdown
-      ? JSON.stringify(opts.breakdown)
+    // Forward structured Record<string, number> straight to the cost log so the
+    // payload preserves per-component costs (cost.ts accepts CostBreakdown).
+    const breakdown = opts.breakdown
+      ? opts.breakdown
       : `${opts.model}: $${opts.usd}`;
 
     appendCostLogEntry(logPath, {
       model: opts.model,
       usd: opts.usd,
-      breakdown: breakdownStr,
+      breakdown,
     });
 
     logger.debug('OutputManager: cost log appended', { jobId: opts.jobId, model: opts.model, usd: opts.usd });

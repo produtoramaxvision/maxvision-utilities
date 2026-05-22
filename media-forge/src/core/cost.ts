@@ -110,9 +110,17 @@ export function dailyTotal(opts: DailyTotalOpts): { usd: number; entries: number
   return { usd, entries };
 }
 
+export type CostBreakdown = string | Record<string, number>;
+
 export function appendCostLogEntry(
   logPath: string,
-  entry: { ts?: string; date?: string; usd: number; model: string; breakdown: string },
+  entry: {
+    ts?: string;
+    date?: string;
+    usd: number;
+    model: string;
+    breakdown: CostBreakdown;
+  },
 ): void {
   const dir = path.dirname(logPath);
   fs.mkdirSync(dir, { recursive: true });
