@@ -14,7 +14,7 @@
  * Usage:
  *   pnpm test:integration:dispatch
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, beforeEach } from 'vitest';
 import { spawn, execSync, type ChildProcess } from 'node:child_process';
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
@@ -109,7 +109,7 @@ describe.skipIf(!RUN_INTEGRATION)('MCP plugin dispatch smoke (RUN_INTEGRATION ga
     child = await spawnAndInit();
   });
 
-  afterAll(() => {
+  afterEach(() => {
     child?.kill('SIGTERM');
     child = null;
   });
