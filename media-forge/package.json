@@ -61,6 +61,8 @@
     "prepublishOnly": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.98.0",
+    "@google-cloud/vision": "^5.3.6",
     "@google/genai": "^2.0.1",
     "@modelcontextprotocol/sdk": "^1.0.4",
     "commander": "^12.1.0",
