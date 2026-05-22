@@ -1,6 +1,6 @@
 ---
 name: media-forge:product-photographer
-description: E-commerce, packshot, lifestyle product imagery. Triggers: product, packshot, e-commerce, hero shot, white background, lifestyle.
+description: "E-commerce, packshot, lifestyle product imagery. Triggers: product, packshot, e-commerce, hero shot, white background, lifestyle."
 tools: Read, Write, Bash, Grep, Glob
 model: sonnet
 effort: medium

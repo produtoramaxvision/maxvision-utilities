@@ -1,5 +1,5 @@
 ---
-description: Audit a job's lineage: agents, prompts, verdicts, cost
+description: "Audit a job's lineage: agents, prompts, verdicts, cost"
 argument-hint: "<jobId>"
 allowed-tools: Read, Write, Bash, Grep, Glob
 ---

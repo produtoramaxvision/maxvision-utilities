@@ -1,5 +1,5 @@
 ---
-description: Generate a coordinated multi-asset campaign (hero + variations + sizes)
+description: "Generate a coordinated multi-asset campaign (hero + variations + sizes)"
 argument-hint: "<brief>"
 allowed-tools: Read, Write, Bash, Grep, Glob
 ---

@@ -1,6 +1,6 @@
 ---
 name: media-forge:extend-video
-description: Extend existing video via Veo 3.1 +7s hops. Triggers: extend video, longer video, continuation.
+description: "Extend existing video via Veo 3.1 +7s hops. Triggers: extend video, longer video, continuation."
 allowed-tools: Read, Write, Bash, Grep, Glob
 preamble-tier: 1
 user-invocable: true

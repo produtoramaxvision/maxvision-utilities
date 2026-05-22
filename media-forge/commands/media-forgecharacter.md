@@ -1,5 +1,5 @@
 ---
-description: Generate a full character sheet: identity-locked portrait, turnaround, and expression sheet
+description: "Generate a full character sheet: identity-locked portrait, turnaround, and expression sheet"
 argument-hint: "<name> <description>"
 allowed-tools: Read, Write, Bash, Grep, Glob
 ---
@@ -12,6 +12,6 @@ Full character sheet workflow. Takes a character name and description and produc
 
 1. Take character name and description from $ARGUMENTS (format: `<name> <description>`).
 2. Invoke the `media-forge:character-sheet` skill with the combined input.
-3. Report progress as each asset is generated (hero → turnaround → expressions).
+3. Report progress as each asset is generated (hero -> turnaround -> expressions).
 4. On completion, display the character sheet manifest: all asset paths organized by view/expression.
 5. Include the identity-lock descriptor string so the user can reference it for future consistency.

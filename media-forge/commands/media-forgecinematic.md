@@ -1,5 +1,5 @@
 ---
-description: Generate a cinematic short: storyboard, key frames, and video chain
+description: "Generate a cinematic short: storyboard, key frames, and video chain"
 argument-hint: "<brief>"
 allowed-tools: Read, Write, Bash, Grep, Glob
 ---

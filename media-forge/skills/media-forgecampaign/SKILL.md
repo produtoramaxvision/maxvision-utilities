@@ -1,6 +1,6 @@
 ---
 name: media-forge:campaign
-description: Multi-asset campaign: generates a coordinated set (hero + variations + sizes). Triggers: campaign, ad campaign, multi-asset, batch.
+description: "Multi-asset campaign: generates a coordinated set (hero + variations + sizes). Triggers: campaign, ad campaign, multi-asset, batch."
 allowed-tools: Read, Write, Bash, Grep, Glob
 preamble-tier: 1
 user-invocable: true

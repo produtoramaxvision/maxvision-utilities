@@ -1,6 +1,6 @@
 ---
 name: media-forge:cinematic-short
-description: Cinematic short video workflow: storyboard -> frame imagery -> video chain. Triggers: cinematic short, narrative video, short film.
+description: "Cinematic short video workflow: storyboard -> frame imagery -> video chain. Triggers: cinematic short, narrative video, short film."
 allowed-tools: Read, Write, Bash, Grep, Glob
 preamble-tier: 1
 user-invocable: true

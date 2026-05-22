@@ -1,5 +1,5 @@
 ---
-description: List the 3 LOCKED top-tier model IDs with capabilities
+description: "List the 3 LOCKED top-tier model IDs with capabilities"
 argument-hint: ""
 allowed-tools: Read, Grep, Glob
 ---

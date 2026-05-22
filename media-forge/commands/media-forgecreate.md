@@ -1,5 +1,5 @@
 ---
-description: Generate image/video from a brief — orchestrated end-to-end with quality review
+description: "Generate image/video from a brief — orchestrated end-to-end with quality review"
 argument-hint: "<brief>"
 allowed-tools: Read, Write, Bash, Grep, Glob
 ---

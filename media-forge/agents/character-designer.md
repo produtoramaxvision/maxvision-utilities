@@ -1,6 +1,6 @@
 ---
 name: media-forge:character-designer
-description: Character sheets, identity-locked portraits, multi-shot character consistency. Triggers: character, character sheet, turnaround, expression sheet, identity.
+description: "Character sheets, identity-locked portraits, multi-shot character consistency. Triggers: character, character sheet, turnaround, expression sheet, identity."
 tools: Read, Write, Bash, Grep, Glob
 model: sonnet
 effort: high

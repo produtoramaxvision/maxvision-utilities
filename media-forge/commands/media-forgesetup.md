@@ -1,5 +1,5 @@
 ---
-description: First-time onboarding: API keys, output dir, smoke test
+description: "First-time onboarding: API keys, output dir, smoke test"
 argument-hint: ""
 allowed-tools: Read, Write, Bash, Grep, Glob
 ---

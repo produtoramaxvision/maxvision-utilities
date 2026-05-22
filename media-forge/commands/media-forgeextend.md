@@ -1,5 +1,5 @@
 ---
-description: Extend an existing video via Veo 3.1 +7s extension hops (max 20 hops / 148s)
+description: "Extend an existing video via Veo 3.1 +7s extension hops (max 20 hops / 148s)"
 argument-hint: "<jobId|videoPath> <directive>"
 allowed-tools: Read, Write, Bash, Grep, Glob
 ---

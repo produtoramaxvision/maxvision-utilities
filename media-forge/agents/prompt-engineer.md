@@ -1,6 +1,6 @@
 ---
 name: media-forge:prompt-engineer
-description: Refines user intent into refined_spec.json. Routes by domain. Applies safety bypass rephrasing strategies.
+description: "Refines user intent into refined_spec.json. Routes by domain. Applies safety bypass rephrasing strategies."
 tools: Read, Write, Bash, Grep, Glob
 model: sonnet
 effort: high
