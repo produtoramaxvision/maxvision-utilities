@@ -1,0 +1,26 @@
+id: video-t2v/cinematic-establishing
+domain: video-t2v
+description: |
+  Wide cinematic establishing shot for text-to-video generation with slow push-in camera movement.
+  Use for scene-setting opening sequences at 16:9 aspect ratio with dramatic framing.
+variables:
+  - name: scene
+    required: true
+    description: "The scene or environment to render (e.g., fog-shrouded ancient city at sunrise)"
+  - name: duration
+    required: false
+    default: "8 seconds"
+    description: "Target video duration (4 seconds, 8 seconds, 16 seconds)"
+  - name: atmosphere
+    required: false
+    default: cinematic and dramatic
+    description: "Atmospheric quality (cinematic and dramatic, serene and peaceful, tense and foreboding)"
+template: |
+  A wide establishing shot of ${scene}. Duration: ${duration}.
+  Camera: slow push-in from a slightly elevated wide angle toward the scene center.
+  Atmosphere: ${atmosphere}. Aspect ratio 16:9.
+  Cinematic color grade with deep blacks and rich midtones. Subtle film grain.
+  Volumetric lighting interacts with environmental particles (dust, mist, or smoke).
+  Smooth motion, no cuts. Photorealistic rendering, broadcast-quality output.
+attribution: |
+  Derived from text-to-video cinematic prompt techniques in research §7.1.

@@ -1,0 +1,26 @@
+id: video-t2v/dialogue-medium
+domain: video-t2v
+description: |
+  Medium dialogue framing for text-to-video lipsync generation with stable camera and clear subject.
+  Use when generating a speaking character whose mouth must be legible for lipsync processing.
+variables:
+  - name: character
+    required: true
+    description: "Character description (appearance, clothing, setting context)"
+  - name: setting
+    required: false
+    default: neutral softly lit studio background
+    description: "Scene environment (neutral softly lit studio, office interior, outdoor urban)"
+  - name: duration
+    required: false
+    default: "8 seconds"
+    description: "Target clip duration (4 seconds, 8 seconds, 12 seconds)"
+template: |
+  A ${duration} medium shot of ${character} in a ${setting}, facing the camera and speaking.
+  Framing: chest to crown, face clearly centered, eyes at upper-third grid line.
+  Lighting: even three-point setup; no harsh shadows obscuring the mouth region.
+  Stable locked-off camera, no camera movement during the clip.
+  Natural facial animation with mouth movements compatible with lipsync post-processing.
+  Photorealistic rendering, clean audio-visual alignment cues in the frame composition.
+attribution: |
+  Derived from lipsync-compatible dialogue shot techniques in research §7.3.
