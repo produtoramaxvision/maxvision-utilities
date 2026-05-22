@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "media-forge": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js"],
+      "env": {
+        "GOOGLE_API_KEY": "${GOOGLE_API_KEY}",
+        "GEMINI_API_KEY": "${GEMINI_API_KEY}",
+        "GOOGLE_PROJECT_ID": "${GOOGLE_PROJECT_ID}",
+        "GOOGLE_LOCATION": "${GOOGLE_LOCATION}",
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
+        "MEDIA_FORGE_PROJECT_DIR": "${CLAUDE_PROJECT_DIR}/.media-forge",
+        "MEDIA_FORGE_OCR": "${MEDIA_FORGE_OCR}",
+        "MEDIA_FORGE_REVIEW_THRESHOLD": "${MEDIA_FORGE_REVIEW_THRESHOLD}",
+        "MEDIA_FORGE_MAX_FIX_ATTEMPTS": "${MEDIA_FORGE_MAX_FIX_ATTEMPTS}"
+      }
+    }
+  }
+}
