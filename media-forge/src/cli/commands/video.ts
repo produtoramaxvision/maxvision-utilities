@@ -237,12 +237,19 @@ async function handleBg(argv: string[]): Promise<boolean> {
 // 0-ms tight loop, --timeout-ms abc → NaN propagation).
 // ---------------------------------------------------------------------------
 
-function parsePositiveInt(raw: string, flagName: string): number {
+// Lower bounds mirror the MCP poll schema (PollVideoOperationInput) so the CLI
+// surface cannot ask for tighter polling than the API tool registry would
+// allow. Veo operations take seconds to minutes; sub-second polling just
+// hammers Google's API without yielding new state.
+const MIN_INTERVAL_MS = 1000;
+const MIN_TIMEOUT_MS = 60_000;
+
+function parsePositiveInt(raw: string, flagName: string, minMs: number): number {
   const n = parseInt(raw, 10);
-  if (!Number.isFinite(n) || n <= 0) {
+  if (!Number.isFinite(n) || n < minMs) {
     throw new ValidationError(
-      `--${flagName} must be a positive integer in milliseconds, got '${raw}'`,
-      { flag: flagName, value: raw },
+      `--${flagName} must be an integer >= ${minMs} (ms), got '${raw}'`,
+      { flag: flagName, value: raw, min: minMs },
     );
   }
   return n;
@@ -250,10 +257,12 @@ function parsePositiveInt(raw: string, flagName: string): number {
 
 function parsePollFlags(opts: PollOpts): { intervalMs: number; maxAttempts: number } {
   const intervalMs =
-    opts.intervalMs !== undefined ? parsePositiveInt(opts.intervalMs, 'interval-ms') : 10000;
+    opts.intervalMs !== undefined
+      ? parsePositiveInt(opts.intervalMs, 'interval-ms', MIN_INTERVAL_MS)
+      : 10000;
   const maxAttempts =
     opts.timeoutMs !== undefined
-      ? Math.ceil(parsePositiveInt(opts.timeoutMs, 'timeout-ms') / intervalMs)
+      ? Math.ceil(parsePositiveInt(opts.timeoutMs, 'timeout-ms', MIN_TIMEOUT_MS) / intervalMs)
       : 90;
   return { intervalMs, maxAttempts };
 }

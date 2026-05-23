@@ -176,7 +176,7 @@ export const _WithRefsBase = z
     referenceImages: z
       .array(
         z.object({
-          path: z.string(),
+          path: z.string().trim().min(1),
           referenceType: z.literal('ASSET'),
         }),
       )
