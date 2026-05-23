@@ -147,15 +147,25 @@ export function buildCostEstimate(opts: {
 export function getCostSummary(opts: {
   projectDir?: string;
   today?: boolean;
+  month?: boolean;
 }) {
   const projectDir =
     opts.projectDir ??
     process.env['MEDIA_FORGE_PROJECT_DIR'] ??
     path.join(process.cwd(), '.media-forge');
   const logPath = path.join(projectDir, 'cost.jsonl');
-  const today = new Date().toISOString().slice(0, 10);
-  const { usd, entries } = dailyTotal({ logPath, date: opts.today ? today : undefined });
-  return { date: opts.today ? today : 'all-time', usd, entries };
+  if (opts.month) {
+    const month = new Date().toISOString().slice(0, 7);
+    const { usd, entries } = monthlyTotal({ logPath, month });
+    return { date: month, usd, entries };
+  }
+  if (opts.today) {
+    const today = new Date().toISOString().slice(0, 10);
+    const { usd, entries } = dailyTotal({ logPath, date: today });
+    return { date: today, usd, entries };
+  }
+  const { usd, entries } = allTimeTotal({ logPath });
+  return { date: 'all-time', usd, entries };
 }
 
 // Export for testing

@@ -539,10 +539,26 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
         // safeJoin throws FileSystemError if the resolved path escapes projectDir/jobs.
         const jobDir = safeJoin(config.projectDir, 'jobs', inp.jobId);
 
-        const result: Record<string, unknown> = { jobId: inp.jobId, jobDir };
+        // OutputManager persists artifacts in <jobDir>/v<N>/. Pick the latest
+        // version (matches src/cli/commands/audit.ts behavior); fall back to
+        // the job root when no version dirs exist (e.g. dry-run failure).
+        const dirEntries = await fs.readdir(jobDir).catch(() => [] as string[]);
+        const versions = dirEntries
+          .filter((e) => /^v\d+$/.test(e))
+          .map((e) => ({ name: e, n: parseInt(e.slice(1), 10) }))
+          .sort((a, b) => b.n - a.n);
+        const targetDir = versions.length > 0 ? path.join(jobDir, versions[0]!.name) : jobDir;
 
-        // Read metadata.json
-        const metadataPath = path.join(jobDir, 'metadata.json');
+        const result: Record<string, unknown> = {
+          jobId: inp.jobId,
+          jobDir,
+          ...(targetDir !== jobDir
+            ? { versionDir: targetDir, version: path.basename(targetDir) }
+            : {}),
+        };
+
+        // Read metadata.json from the version directory
+        const metadataPath = path.join(targetDir, 'metadata.json');
         try {
           const raw = await fs.readFile(metadataPath, 'utf8');
           result['metadata'] = JSON.parse(raw) as unknown;
@@ -550,8 +566,8 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           result['metadata'] = null;
         }
 
-        // Read trace.jsonl
-        const tracePath = path.join(jobDir, 'trace.jsonl');
+        // Read trace.jsonl from the version directory
+        const tracePath = path.join(targetDir, 'trace.jsonl');
         try {
           const raw = await fs.readFile(tracePath, 'utf8');
           result['trace'] = raw
@@ -568,7 +584,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           result['trace'] = [];
         }
 
-        // Read lineage.jsonl
+        // Read lineage.jsonl (lineage is per-job, not per-version, so stays at jobDir)
         const lineagePath = path.join(jobDir, 'lineage.jsonl');
         try {
           const raw = await fs.readFile(lineagePath, 'utf8');
