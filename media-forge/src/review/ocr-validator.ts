@@ -16,6 +16,12 @@ export interface ValidateTextOpts {
   imagePath: string;
   requiredText: string;
   hasTextIntent?: boolean;
+  /**
+   * Optional BCP-47 language codes forwarded to Cloud Vision's textDetection
+   * (`imageContext.languageHints`). Improves recognition accuracy on
+   * multilingual assets. Omit for default auto-detect.
+   */
+  languages?: string[];
 }
 
 export interface ValidateTextResult {
@@ -88,7 +94,7 @@ export class OcrValidator {
   }
 
   async validateText(opts: ValidateTextOpts): Promise<ValidateTextResult> {
-    const { imagePath, requiredText, hasTextIntent } = opts;
+    const { imagePath, requiredText, hasTextIntent, languages } = opts;
 
     // Stage 1: skip if no text intent
     if (hasTextIntent === false && this.skipWhenNoTextIntent) {
@@ -118,10 +124,16 @@ export class OcrValidator {
     // Stage 4: call Cloud Vision
     let detectedText = '';
     try {
-      logger.debug('OcrValidator: calling Cloud Vision textDetection', { imagePath });
+      logger.debug('OcrValidator: calling Cloud Vision textDetection', {
+        imagePath,
+        languages,
+      });
       const client = this.getVisionClient();
       const [result] = await client.textDetection({
         image: { content: bytes },
+        ...(languages && languages.length > 0
+          ? { imageContext: { languageHints: languages } }
+          : {}),
       });
       detectedText = result?.fullTextAnnotation?.text ?? '';
     } catch (err) {

@@ -679,6 +679,10 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           imagePath: inp.imagePath,
           requiredText: '',
           hasTextIntent: true,
+          // Forward caller-supplied BCP-47 language hints to Cloud Vision so
+          // multilingual assets get accurate detection. Dropping this field
+          // silently degrades recognition while appearing to honor the input.
+          ...(inp.languages !== undefined ? { languages: inp.languages } : {}),
         });
         return asResult({
           imagePath: inp.imagePath,
@@ -701,6 +705,11 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           await checkBrand({
             imagePath: inp.imagePath,
             guidelinesPath: inp.brandGuidelinesPath,
+            // Full brand compliance: include logo identity check when
+            // guidelines.logo is set in brand-guidelines.yml. checkBrand
+            // no-ops the logo branch when guidelines.logo is absent, so
+            // non-logo brands are unaffected.
+            enableLogoDetection: true,
           }),
         );
       }),
