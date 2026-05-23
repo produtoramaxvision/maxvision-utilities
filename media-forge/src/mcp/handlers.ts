@@ -554,21 +554,24 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
         const jobsDir = path.join(config.projectDir, 'jobs');
         try {
           const entries = await fs.readdir(jobsDir);
-          // Filter to directories that match the OutputManager jobId pattern.
-          const jobs: Array<{ jobId: string; jobDir: string }> = [];
+          // Collect EVERY directory matching the OutputManager jobId pattern
+          // before truncating. fs.readdir() does not promise chronological
+          // ordering, so applying the limit during collection could drop the
+          // newest jobs when more than `limit` entries exist on disk. Sort
+          // first (jobId starts with ISO-like timestamp → reverse-lex ≈
+          // newest-first) and slice afterwards.
+          const all: Array<{ jobId: string; jobDir: string }> = [];
           for (const entry of entries) {
             if (!JOB_ID_PATTERN.test(entry)) continue;
             const jobDir = path.join(jobsDir, entry);
             const stat = await fs.stat(jobDir).catch(() => null);
             if (stat?.isDirectory()) {
-              jobs.push({ jobId: entry, jobDir });
-              if (jobs.length >= limit) break;
+              all.push({ jobId: entry, jobDir });
             }
           }
-          // Most recent first — jobId starts with an ISO-like timestamp so a
-          // reverse lexicographic sort is a good approximation of newest-first.
-          jobs.sort((a, b) => b.jobId.localeCompare(a.jobId));
-          return asResult({ jobs, count: jobs.length, jobsDir });
+          all.sort((a, b) => b.jobId.localeCompare(a.jobId));
+          const jobs = all.slice(0, limit);
+          return asResult({ jobs, count: jobs.length, total: all.length, jobsDir });
         } catch (err) {
           // Directory missing simply means no jobs run yet — return empty.
           if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
