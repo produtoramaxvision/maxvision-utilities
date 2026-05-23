@@ -10,7 +10,15 @@ import type { MediaForgeConfig } from '../core/config.js';
 import type { OutputManager } from '../output/output-manager.js';
 import type { ZodTypeAny } from 'zod';
 import { logger } from '../core/logger.js';
+import { safeJoin } from '../utils/paths.js';
+import { ValidationError } from '../core/errors.js';
 import { MCP_TOOLS, type MCPTool } from './schemas.js';
+
+// Strict jobId pattern: starts with alnum, only alnum + `_.-`, max 128 chars.
+// Mirrors the format emitted by OutputManager (YYYYMMDDTHHMMSSZ-<random6>-<slug>)
+// and explicitly excludes `/`, `\`, `..`, and NUL so user input cannot escape
+// the jobs/ root via media_get_job_metadata.
+const JOB_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 import {
   generateImageNanoBananaPro,
   generateImageImagen4Ultra,
@@ -522,7 +530,14 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       { title: 'Get Job Metadata', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
         const inp = input as { jobId: string };
-        const jobDir = path.join(config.projectDir, 'jobs', inp.jobId);
+        if (!JOB_ID_PATTERN.test(inp.jobId)) {
+          throw new ValidationError(
+            'Invalid jobId: must match [A-Za-z0-9][A-Za-z0-9_.-]{0,127}',
+            { jobId: inp.jobId },
+          );
+        }
+        // safeJoin throws FileSystemError if the resolved path escapes projectDir/jobs.
+        const jobDir = safeJoin(config.projectDir, 'jobs', inp.jobId);
 
         const result: Record<string, unknown> = { jobId: inp.jobId, jobDir };
 

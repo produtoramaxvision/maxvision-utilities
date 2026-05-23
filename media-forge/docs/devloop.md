@@ -13,7 +13,7 @@ This document explains the recommended development workflow for iterating on med
 | Run targeted tests | `pnpm test tests/unit/<area>/` | Fast feedback loop |
 | Full validation | `pnpm typecheck && pnpm lint && pnpm test` | Pre-merge gate |
 | Regenerate prompt index | `pnpm build:prompts` | After adding/modifying YAML templates |
-| Validate agents | `pnpm validate:agents` | After editing `.md` frontmatter |
+| Validate plugin manifest | `pnpm validate:plugin` | After editing `.claude-plugin/plugin.json` |
 
 ---
 

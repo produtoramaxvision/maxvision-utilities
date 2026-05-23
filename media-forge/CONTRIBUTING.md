@@ -37,19 +37,20 @@ Agents live in `agents/<name>.md`. The plugin loader builds the fully-qualified 
 
 ### Validation
 
-```bash
-pnpm validate:agents     # validates all .md frontmatter in agents/
-```
-
-This script checks that `name`, `description`, and `model` are present and that `model` is a known value. No test run needed for agent-only changes.
-
-### Scaffolding helper
+Run the standard gate:
 
 ```bash
-pnpm scaffold:agent <name>
+pnpm typecheck && pnpm lint
 ```
 
-Creates a skeleton `agents/<name>.md` with the standard frontmatter template.
+For agent-only changes (no source code touched) this is sufficient — agent
+files are loaded by Claude Code at runtime and their frontmatter is parsed
+by the plugin loader, not by a build step. If your edit affects any
+TypeScript, also run `pnpm test` against the relevant unit files.
+
+A dedicated `validate:agents` helper and a `scaffold:agent` generator are
+roadmapped for v0.2.0; until then, copy an existing `agents/*.md` as a
+template when adding a new agent.
 
 ---
 
