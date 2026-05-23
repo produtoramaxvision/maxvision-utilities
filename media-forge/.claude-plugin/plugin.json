@@ -1,5 +1,4 @@
 {
-  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "media-forge",
   "displayName": "Media Forge",
   "version": "0.1.0",
