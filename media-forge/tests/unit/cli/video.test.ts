@@ -83,12 +83,14 @@ describe('buildI2VInput', () => {
     expect(input.op).toBe('i2v');
   });
 
-  // 14. i2v missing --image flag → validation fails (empty string → Zod required check)
-  it('missing --image gives empty string (no crash, schema allows non-empty string)', () => {
-    // Zod schema requires firstFrameImage: z.string() — empty string passes Zod
-    // (runtime validation happens in the service). This test documents behavior.
-    const input = buildI2VInput('test', { dryRun: false, json: false, estimateCost: false, strict: false });
-    expect(input.firstFrameImage).toBe('');
+  // 14. i2v missing --image flag → schema rejects empty firstFrameImage
+  it('missing --image fails fast at schema validation (firstFrameImage non-empty)', () => {
+    // Zod schema now enforces firstFrameImage: z.string().trim().min(1) so an
+    // empty/missing --image throws immediately instead of reaching the
+    // service layer and surfacing as a late filesystem error.
+    expect(() =>
+      buildI2VInput('test', { dryRun: false, json: false, estimateCost: false, strict: false }),
+    ).toThrow();
   });
 
   it('personGeneration is always allow_adult for i2v', () => {

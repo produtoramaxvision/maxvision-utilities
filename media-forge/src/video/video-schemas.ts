@@ -99,7 +99,7 @@ export const _I2VBase = z
     op: z.literal('i2v'),
     model: z.literal(VIDEO_MODEL_VEO_3_1_PRO).default(VIDEO_MODEL_VEO_3_1_PRO),
     prompt: z.string().trim().min(1).max(2000),
-    firstFrameImage: z.string(),
+    firstFrameImage: z.string().trim().min(1),
     aspectRatio: AspectRatioVideoEnum.default('16:9'),
     durationSeconds: DurationSecondsSchema.default(8),
     resolution: VideoResolutionEnum.default('720p'),
@@ -136,8 +136,8 @@ export const _InterpolateBase = z
     op: z.literal('interpolate'),
     model: z.literal(VIDEO_MODEL_VEO_3_1_PRO).default(VIDEO_MODEL_VEO_3_1_PRO),
     prompt: z.string().trim().min(1).max(2000),
-    firstFrameImage: z.string(),
-    lastFrameImage: z.string(),
+    firstFrameImage: z.string().trim().min(1),
+    lastFrameImage: z.string().trim().min(1),
     aspectRatio: AspectRatioVideoEnum.default('16:9'),
     durationSeconds: DurationSecondsSchema.default(8),
     resolution: VideoResolutionEnum.default('720p'),
@@ -216,7 +216,7 @@ export const ExtendVideoInput = z
   .object({
     op: z.literal('extend'),
     model: z.literal(VIDEO_MODEL_VEO_3_1_PRO).default(VIDEO_MODEL_VEO_3_1_PRO),
-    sourceVideoPath: z.string(),
+    sourceVideoPath: z.string().trim().min(1),
     prompt: z.string().trim().min(1).max(2000),
     // Extension is 720p only
     resolution: z.literal('720p').default('720p'),
@@ -238,7 +238,7 @@ export type ExtendVideoInputT = z.infer<typeof ExtendVideoInput>;
 export const PollVideoOperationInput = z
   .object({
     op: z.literal('poll'),
-    operationName: z.string(),
+    operationName: z.string().trim().min(1),
     intervalMs: z.number().int().min(1000).max(60000).default(10000),
     timeoutMs: z.number().int().min(60000).max(1800000).default(900000),
   })
@@ -250,7 +250,7 @@ export type PollVideoOperationInputT = z.infer<typeof PollVideoOperationInput>;
 export const DownloadVideoInput = z
   .object({
     op: z.literal('download'),
-    operationName: z.string(),
+    operationName: z.string().trim().min(1),
     outputDir: z.string().default('./outputs'),
     filename: z.string().optional(),
   })

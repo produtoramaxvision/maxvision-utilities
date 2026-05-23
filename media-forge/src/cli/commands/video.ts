@@ -231,6 +231,34 @@ async function handleBg(argv: string[]): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------------------
+// Poll/wait flag parsing — validates --interval-ms / --timeout-ms so invalid
+// flags (zero, negative, non-numeric) fail fast instead of producing
+// pathological poll loops (e.g. --interval-ms 0 → infinite maxAttempts +
+// 0-ms tight loop, --timeout-ms abc → NaN propagation).
+// ---------------------------------------------------------------------------
+
+function parsePositiveInt(raw: string, flagName: string): number {
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new ValidationError(
+      `--${flagName} must be a positive integer in milliseconds, got '${raw}'`,
+      { flag: flagName, value: raw },
+    );
+  }
+  return n;
+}
+
+function parsePollFlags(opts: PollOpts): { intervalMs: number; maxAttempts: number } {
+  const intervalMs =
+    opts.intervalMs !== undefined ? parsePositiveInt(opts.intervalMs, 'interval-ms') : 10000;
+  const maxAttempts =
+    opts.timeoutMs !== undefined
+      ? Math.ceil(parsePositiveInt(opts.timeoutMs, 'timeout-ms') / intervalMs)
+      : 90;
+  return { intervalMs, maxAttempts };
+}
+
+// ---------------------------------------------------------------------------
 // Command registration
 // ---------------------------------------------------------------------------
 
@@ -447,16 +475,12 @@ export function registerVideoCommands(program: Command): void {
       }
       const config = loadConfig(process.env as Record<string, string | undefined>);
       const client = createClient({ config, dryRun: opts.dryRun ?? false });
-      const intervalMs =
-        opts.intervalMs !== undefined ? parseInt(opts.intervalMs, 10) : 10000;
+      const { intervalMs, maxAttempts } = parsePollFlags(opts);
       const result = await pollVideoOperation({
         client,
         operationName,
         intervalMs,
-        maxAttempts:
-          opts.timeoutMs !== undefined
-            ? Math.ceil(parseInt(opts.timeoutMs, 10) / intervalMs)
-            : 90,
+        maxAttempts,
       });
       exitOk(result, opts);
     } catch (err) {
@@ -517,16 +541,12 @@ export function registerVideoCommands(program: Command): void {
       const client = createClient({ config, dryRun: opts.dryRun ?? false });
 
       // Step 1: poll
-      const intervalMs =
-        opts.intervalMs !== undefined ? parseInt(opts.intervalMs, 10) : 10000;
+      const { intervalMs, maxAttempts } = parsePollFlags(opts);
       const pollResult = await pollVideoOperation({
         client,
         operationName,
         intervalMs,
-        maxAttempts:
-          opts.timeoutMs !== undefined
-            ? Math.ceil(parseInt(opts.timeoutMs, 10) / intervalMs)
-            : 90,
+        maxAttempts,
       });
 
       // Step 2: extract videoUri from the poll result. The SDK normalizes the
