@@ -70,15 +70,17 @@ export async function pollVideoOperation(opts: PollOpts): Promise<PollResult> {
       throw new Error('aborted');
     }
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(resolve, intervalMs);
-      opts.abortSignal?.addEventListener(
-        'abort',
-        () => {
-          clearTimeout(timer);
-          reject(new Error('aborted'));
-        },
-        { once: true },
-      );
+      const onAbort = (): void => {
+        clearTimeout(timer);
+        reject(new Error('aborted'));
+      };
+      const timer = setTimeout(() => {
+        // Detach the listener on the happy path so a long-lived AbortSignal
+        // reused across many poll cycles does not accumulate dead listeners.
+        opts.abortSignal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, intervalMs);
+      opts.abortSignal?.addEventListener('abort', onAbort, { once: true });
     });
     operation = (await opts.client.ai.operations.getVideosOperation({
       operation: makeOperationHandle(operation),

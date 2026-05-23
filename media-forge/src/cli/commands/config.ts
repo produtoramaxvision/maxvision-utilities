@@ -5,17 +5,22 @@ import * as os from 'node:os';
 import { safeJoin } from '../../utils/paths.js';
 import { ApiFieldError } from '../../core/errors.js';
 
-// Whitelisted config keys
-const ALLOWED_KEYS = [
-  'apiKey',
-  'useVertex',
-  'project',
-  'location',
-  'outputBaseDir',
-  'reviewThreshold',
-  'maxFixAttempts',
-  'ocrBackend',
-] as const;
+// Whitelisted config keys with declared value types. The type drives how
+// `config set key=value` coerces the raw string: string-typed keys stay raw
+// (e.g. outputBaseDir="2026" must NOT become a number), boolean-typed keys
+// accept the string 'true'/'false', number-typed keys parse via Number().
+const KEY_TYPES = {
+  apiKey: 'string',
+  useVertex: 'boolean',
+  project: 'string',
+  location: 'string',
+  outputBaseDir: 'string',
+  reviewThreshold: 'number',
+  maxFixAttempts: 'number',
+  ocrBackend: 'string',
+} as const;
+
+const ALLOWED_KEYS = Object.keys(KEY_TYPES) as Array<keyof typeof KEY_TYPES>;
 
 type AllowedKey = (typeof ALLOWED_KEYS)[number];
 
@@ -70,11 +75,24 @@ export async function configSet(keyValue: string): Promise<void> {
     throw new ApiFieldError(key, `'${key}' is not a recognized config key`);
   }
   const config = await readConfig();
-  // Coerce value: booleans and numbers
+  // Type-driven coercion: keep strings raw, parse only when the declared
+  // type matches. Prevents string-valued keys (e.g. outputBaseDir) from being
+  // silently turned into numbers when their value happens to look numeric.
+  const expectedType = KEY_TYPES[key];
   let coerced: unknown = value;
-  if (value === 'true') coerced = true;
-  else if (value === 'false') coerced = false;
-  else if (!Number.isNaN(Number(value)) && value.trim() !== '') coerced = Number(value);
+  if (expectedType === 'boolean') {
+    if (value === 'true') coerced = true;
+    else if (value === 'false') coerced = false;
+    else {
+      throw new ApiFieldError(key, `'${key}' expects boolean 'true' or 'false', got '${value}'`);
+    }
+  } else if (expectedType === 'number') {
+    const n = Number(value);
+    if (Number.isNaN(n) || value.trim() === '') {
+      throw new ApiFieldError(key, `'${key}' expects a number, got '${value}'`);
+    }
+    coerced = n;
+  } // else: 'string' → keep raw value verbatim
 
   config[key] = coerced;
   await writeConfig(config);
