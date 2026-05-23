@@ -25,6 +25,19 @@ export interface DownloadOpts {
 export async function downloadVideo(opts: DownloadOpts): Promise<DownloadResult> {
   const filename = opts.filename ?? 'video.mp4';
   const outputPath = safeJoin(opts.outputDir, filename);
+
+  // Honor client.dryRun: skip both the network fetch AND the file write so
+  // `video download --dry-run` / `video wait --dry-run` produce no side effects
+  // and don't fail when callers pass non-URI operation names. The shape mirrors
+  // a real result so downstream code keeps working.
+  if (opts.client.dryRun) {
+    logger.info('downloadVideo: dry-run — skipping fetch + write', {
+      videoUri: opts.videoUri.slice(0, 80),
+      outputPath,
+    });
+    return { outputPath, bytes: 0, sha256: '' };
+  }
+
   await ensureDir(opts.outputDir);
 
   if (opts.createTime) {

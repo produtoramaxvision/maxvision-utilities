@@ -335,7 +335,11 @@ export function registerVideoCommands(program: Command): void {
       }
       const input = buildI2VInput(prompt, opts);
       if (opts.estimateCost) {
-        const est = estimateVideoCost({ model: VIDEO_MODEL_VEO_3_1_PRO });
+        const est = estimateVideoCost({
+          model: VIDEO_MODEL_VEO_3_1_PRO,
+          resolution: input.resolution as '720p' | '1080p' | '4k',
+          generateAudio: input.generateAudio,
+        });
         exitOk({ estimateUsd: est.usd, breakdown: est }, opts);
       }
       const config = loadConfig(process.env as Record<string, string | undefined>);
@@ -370,7 +374,11 @@ export function registerVideoCommands(program: Command): void {
       }
       const input = buildInterpolateInput(prompt, opts);
       if (opts.estimateCost) {
-        const est = estimateVideoCost({ model: VIDEO_MODEL_VEO_3_1_PRO });
+        const est = estimateVideoCost({
+          model: VIDEO_MODEL_VEO_3_1_PRO,
+          resolution: input.resolution as '720p' | '1080p' | '4k',
+          generateAudio: input.generateAudio,
+        });
         exitOk({ estimateUsd: est.usd, breakdown: est }, opts);
       }
       const config = loadConfig(process.env as Record<string, string | undefined>);
@@ -412,7 +420,11 @@ export function registerVideoCommands(program: Command): void {
       }
       const input = buildRefsInput(prompt, opts);
       if (opts.estimateCost) {
-        const est = estimateVideoCost({ model: VIDEO_MODEL_VEO_3_1_PRO });
+        const est = estimateVideoCost({
+          model: VIDEO_MODEL_VEO_3_1_PRO,
+          resolution: input.resolution as '720p' | '1080p' | '4k',
+          generateAudio: input.generateAudio,
+        });
         exitOk({ estimateUsd: est.usd, breakdown: est }, opts);
       }
       const config = loadConfig(process.env as Record<string, string | undefined>);
