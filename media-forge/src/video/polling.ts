@@ -63,6 +63,12 @@ export async function pollVideoOperation(opts: PollOpts): Promise<PollResult> {
   let attempts = 0;
 
   while (!operation.done && attempts < maxAttempts) {
+    // Bail immediately if the caller's signal is already aborted (avoids
+    // a wasted intervalMs sleep + an extra getVideosOperation call on
+    // pre-aborted controllers, e.g. shared controllers between requests).
+    if (opts.abortSignal?.aborted) {
+      throw new Error('aborted');
+    }
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(resolve, intervalMs);
       opts.abortSignal?.addEventListener(
