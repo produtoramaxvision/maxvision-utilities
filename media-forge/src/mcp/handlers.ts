@@ -338,7 +338,10 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       wrap(t.name, async (input) => {
         const inp = input as { operationName: string; intervalMs?: number; timeoutMs?: number };
         const intervalMs = inp.intervalMs ?? 10000;
-        const maxAttempts = Math.floor((inp.timeoutMs ?? 900000) / intervalMs);
+        // Round UP so a non-multiple timeout (e.g. timeoutMs=119999 / intervalMs=60000)
+        // still gets the caller's full requested wait window. Math.floor would chop
+        // off the partial last attempt. Matches the CLI poll/wait derivation.
+        const maxAttempts = Math.ceil((inp.timeoutMs ?? 900000) / intervalMs);
         return asResult(
           await pollVideoOperation({
             client,
