@@ -5,7 +5,6 @@ import { SafetyBlockError, ApiError } from '../../../src/core/errors.js';
 import { createMockGenAI } from '../../helpers/mock-genai.js';
 import type { Imagen4UltraInputT } from '../../../src/image/image-schemas.js';
 import type { MediaForgeClient } from '../../../src/core/client.js';
-import { logger } from '../../../src/core/logger.js';
 
 function makeInput(overrides: Partial<Imagen4UltraInputT> = {}): Imagen4UltraInputT {
   return {
@@ -123,13 +122,27 @@ describe('generateImageImagen4Ultra', () => {
     );
   });
 
-  it('imageSize=1K set → logger.warn fires', async () => {
-    const warnSpy = vi.spyOn(logger, 'warn');
-    mock.queueImagenResponse([{ base64: 'FF', mimeType: 'image/png' }]);
+  it('imageSize=1K → forwarded to SDK config (DEBT-006 resolved)', async () => {
+    const spy = vi.spyOn(mock.client.models, 'generateImages').mockResolvedValueOnce({
+      generatedImages: [{ image: { imageBytes: 'FF', mimeType: 'image/png' } }],
+    });
     await generateImageImagen4Ultra(makeInput({ imageSize: '1K' }), makeClient(mock));
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('imageSize'),
-      expect.objectContaining({ requested: '1K' }),
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({ imageSize: '1K' }),
+      }),
+    );
+  });
+
+  it('imageSize=2K (default) → forwarded to SDK config', async () => {
+    const spy = vi.spyOn(mock.client.models, 'generateImages').mockResolvedValueOnce({
+      generatedImages: [{ image: { imageBytes: 'FF', mimeType: 'image/png' } }],
+    });
+    await generateImageImagen4Ultra(makeInput({ imageSize: '2K' }), makeClient(mock));
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({ imageSize: '2K' }),
+      }),
     );
   });
 
