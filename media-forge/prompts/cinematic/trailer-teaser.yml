@@ -1,0 +1,26 @@
+id: cinematic/trailer-teaser
+domain: cinematic
+description: |
+  Dramatic trailer or teaser keyframe with cinematic lens vocabulary and moody lighting.
+  Use for promotional key art intended to convey tension, scale, or spectacle.
+variables:
+  - name: scene
+    required: true
+    description: "The scene or moment to depict (e.g., lone figure at the edge of a ruined city)"
+  - name: tone
+    required: false
+    default: dark and epic
+    description: "Emotional tone (dark and epic, hopeful and sweeping, tense and intimate)"
+  - name: aspect_ratio
+    required: false
+    default: "2.39:1 anamorphic"
+    description: "Target aspect ratio (2.39:1 anamorphic, 16:9, 1.85:1)"
+template: |
+  A cinematic trailer keyframe: ${scene}.
+  Tone: ${tone}. Aspect ratio: ${aspect_ratio}.
+  Anamorphic lens characteristics: oval bokeh, subtle horizontal lens flare, deep shadows.
+  Color grade: high-contrast with crushed blacks and a teal-orange complementary palette.
+  Atmospheric haze in the midground, volumetric light shafts, epic scale.
+  Shot quality comparable to big-budget feature film, photorealistic.
+attribution: |
+  Derived from cinematic visual language research §5.1.

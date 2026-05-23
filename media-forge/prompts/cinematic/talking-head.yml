@@ -1,0 +1,25 @@
+id: cinematic/talking-head
+domain: cinematic
+description: |
+  Medium close-up dialogue framing optimized for interview, speech, or narrative talking-head scenes.
+  Use when the subject must appear authoritative, approachable, and clearly lit for dialogue sequences.
+variables:
+  - name: subject
+    required: true
+    description: "Description of the speaker (e.g., mid-40s journalist in a grey blazer)"
+  - name: environment
+    required: false
+    default: softly lit studio with shallow depth of field background
+    description: "The scene behind the subject (studio, outdoor urban blur, office interior)"
+  - name: framing
+    required: false
+    default: medium close-up (chest to top of head)
+    description: "Crop framing (medium close-up, close-up, medium shot)"
+template: |
+  A ${framing} of ${subject} in a ${environment}.
+  Eye line is at upper-third of frame, slight headroom above.
+  Lighting: key light 45 degrees camera-left, soft fill from right, hair light from above-rear.
+  Natural color temperature, clean skin tones, professional broadcast quality.
+  Lens: 85mm equivalent, f/2.8. Background details identifiable but non-distracting.
+attribution: |
+  Derived from broadcast and interview cinematography standards in research §5.3.

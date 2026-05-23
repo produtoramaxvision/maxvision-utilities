@@ -1,0 +1,24 @@
+{
+  "SubagentStart": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/run-hook.cmd trace-injection",
+          "timeout": 10
+        }
+      ]
+    }
+  ],
+  "SessionEnd": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/run-hook.cmd session-cleanup",
+          "timeout": 15
+        }
+      ]
+    }
+  ]
+}

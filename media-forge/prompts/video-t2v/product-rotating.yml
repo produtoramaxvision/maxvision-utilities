@@ -1,0 +1,26 @@
+id: video-t2v/product-rotating
+domain: video-t2v
+description: |
+  Rotating product on a turntable for text-to-video showcasing all sides of a physical item.
+  Use for e-commerce product videos requiring a clean 360-degree product presentation.
+variables:
+  - name: product
+    required: true
+    description: "The product to rotate (e.g., minimalist ceramic vase, matte white)"
+  - name: background
+    required: false
+    default: seamless white infinite backdrop
+    description: "Background setting (seamless white infinite backdrop, dark studio, gradient grey)"
+  - name: duration
+    required: false
+    default: "6 seconds"
+    description: "Video duration for one full rotation (4 seconds, 6 seconds, 8 seconds)"
+template: |
+  A ${duration} product turntable video of ${product} completing one full 360-degree rotation.
+  Background: ${background}. Product centered on a neutral turntable surface.
+  Camera: static at three-quarter height, product rotates left-to-right at constant speed.
+  Studio lighting with two soft boxes; no harsh shadows on the background.
+  Clean, sharp product detail throughout the rotation. No motion blur on key frames.
+  Smooth loopable rotation, photorealistic, e-commerce grade quality.
+attribution: |
+  Derived from product turntable video prompt techniques in research §7.2.

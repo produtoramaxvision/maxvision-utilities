@@ -1,0 +1,24 @@
+id: product/ecommerce-white-bg
+domain: product
+description: |
+  Clean white-background product packshot suitable for e-commerce galleries.
+  Use when the subject is a single physical product and the goal is catalog photography.
+variables:
+  - name: subject
+    required: true
+    description: "The product description (e.g., ceramic mug, matte black)"
+  - name: angle
+    required: false
+    default: three-quarter view
+    description: "Camera angle override (overhead, three-quarter view, profile)"
+  - name: lighting
+    required: false
+    default: soft diffused
+    description: "Lighting style (soft diffused, hard directional, ring light)"
+template: |
+  A studio packshot photograph of ${subject}, photographed at ${angle}.
+  Lighting: ${lighting}, with a seamless pure white (#FFFFFF) background.
+  4K resolution, sharp focus, no shadows on background, photorealistic rendering.
+  Product fills 70% of the frame, centered composition, neutral white card backdrop.
+attribution: |
+  Derived from product photography conventions documented in research §6.1.

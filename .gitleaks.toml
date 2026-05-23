@@ -1,0 +1,21 @@
+# Gitleaks config — repo-root allowlist for known false positives.
+# Fixtures and tests intentionally contain fake credential strings so that the
+# media-forge sanitizer code paths can be verified. Those literals must NOT be
+# treated as real leaks.
+
+title = "maxvision-utilities gitleaks config"
+
+[allowlist]
+description = "Test fixtures and sanitizer mock data"
+paths = [
+  '''media-forge/tests/unit/core/sanitize\.test\.ts''',
+  '''media-forge/tests/.*fixtures.*''',
+  '''media-forge/src/core/sanitize\.ts''',
+]
+# Specific fake-looking key shapes used in sanitizer tests:
+#   - 'AIzaSyABCDEFGHIJKLMN1234' (deliberate non-functional, 20-char tail)
+#   - 'AIza...' literals inside docstrings explaining sanitizer behavior
+regexes = [
+  '''AIzaSyABCDEFGHIJKLMN1234''',
+  '''AIza[A-Za-z]{4,}1234''',
+]

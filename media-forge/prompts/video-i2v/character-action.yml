@@ -1,0 +1,26 @@
+id: video-i2v/character-action
+domain: video-i2v
+description: |
+  Animate a character from a reference photo with a specific directed action sequence.
+  Use when a character portrait must transition from static into a defined body motion.
+variables:
+  - name: action
+    required: true
+    description: "The action for the character to perform (e.g., turns head to the left and smiles)"
+  - name: duration
+    required: false
+    default: "4 seconds"
+    description: "Length of the animated action clip (2 seconds, 4 seconds, 6 seconds)"
+  - name: camera
+    required: false
+    default: locked-off static
+    description: "Camera behavior during the action (locked-off static, gentle follow pan, slight push-in)"
+template: |
+  Animate the character in the input image performing the following action: ${action}.
+  Duration: ${duration}. Camera: ${camera}.
+  Preserve the character's visual identity (face, clothing, hair, build) throughout the motion.
+  Animation must be anatomically plausible with natural weight and follow-through.
+  Lighting on the character consistent with the input photograph.
+  No background changes; environment remains stable while character animates.
+attribution: |
+  Derived from character animation from reference photo techniques in research §7.5.

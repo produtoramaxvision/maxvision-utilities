@@ -1,0 +1,26 @@
+id: food-product-crossover/hero-macro
+domain: food-product-crossover
+description: |
+  Extreme macro hero shot of a food or product detail with pronounced bokeh and exquisite surface rendering.
+  Use when the tactile quality, texture, or micro-detail of the subject is the primary selling point.
+variables:
+  - name: subject
+    required: true
+    description: "The food or product detail to feature in extreme close-up (e.g., glistening chocolate ganache surface)"
+  - name: depth_of_field
+    required: false
+    default: razor-thin (front 2mm sharp, rest bokeh)
+    description: "Depth of field treatment (razor-thin, moderate selective, deep for full detail)"
+  - name: lighting
+    required: false
+    default: side-raking light to reveal texture relief
+    description: "Lighting angle and quality (side-raking to reveal texture, backlit translucency, ring flash)"
+template: |
+  An extreme macro close-up of ${subject}.
+  Depth of field: ${depth_of_field}. Lighting: ${lighting}.
+  Magnification reveals micro-textures invisible to the naked eye.
+  Creamy background bokeh transitions smoothly from the sharp focal plane.
+  Surface moisture, crystallization, grain, or material structure rendered in exquisite detail.
+  Shot at 1:1 macro equivalent, photorealistic, high-end commercial food or product photography standard.
+attribution: |
+  Derived from macro hero shot techniques for food and product photography in research §6.6.

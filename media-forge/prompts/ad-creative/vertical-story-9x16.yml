@@ -1,0 +1,26 @@
+id: ad-creative/vertical-story-9x16
+domain: ad-creative
+description: |
+  9:16 vertical story format advertisement optimized for Instagram and TikTok story placements.
+  Use for full-screen mobile-first campaigns with strong vertical composition.
+variables:
+  - name: offer
+    required: true
+    description: "The product or promotion being advertised (e.g., 50% off summer collection)"
+  - name: visual_hook
+    required: false
+    default: bold centered product reveal
+    description: "The visual hook strategy (bold centered product reveal, lifestyle scene, before/after)"
+  - name: cta
+    required: false
+    default: "Shop Now"
+    description: "Call-to-action button text (Shop Now, Learn More, Get Yours)"
+template: |
+  A 9:16 vertical story advertisement for ${offer}.
+  Visual hook: ${visual_hook}. CTA label "${cta}" anchored at the bottom quarter.
+  Subject centered vertically; top and bottom areas reserved for text overlays.
+  Vivid and saturated palette designed to stand out in a fast-scrolling feed.
+  Mobile-safe margins: 80px top, 250px bottom. High energy, immediate visual impact.
+  Photorealistic product rendering or compelling lifestyle image, professional quality.
+attribution: |
+  Derived from vertical story ad format guidelines in research §8.2.

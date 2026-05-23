@@ -1,0 +1,17 @@
+[
+  { "id": "S01", "expected_verdict": "pass", "expected_root_cause": "none", "description": "clean product photo on white bg" },
+  { "id": "S02", "expected_verdict": "pass", "expected_root_cause": "none", "description": "cinematic landscape, 4K" },
+  { "id": "S03", "expected_verdict": "pass", "expected_root_cause": "none", "description": "character portrait, 85mm" },
+  { "id": "S04", "expected_verdict": "pass", "expected_root_cause": "none", "description": "brand-compliant ad banner" },
+  { "id": "S05", "expected_verdict": "pass", "expected_root_cause": "none", "description": "scene composition with refs" },
+  { "id": "S06", "expected_verdict": "fail", "expected_root_cause": "text_typo", "description": "misspelled CTA on banner" },
+  { "id": "S07", "expected_verdict": "fail", "expected_root_cause": "brand_violation_color", "description": "off-palette product hero" },
+  { "id": "S08", "expected_verdict": "fail", "expected_root_cause": "brand_violation_logo", "description": "missing brand logo" },
+  { "id": "S09", "expected_verdict": "fail", "expected_root_cause": "brand_violation_font", "description": "wrong font in headline" },
+  { "id": "S10", "expected_verdict": "fail", "expected_root_cause": "semantic_object_wrong", "description": "wrong product type returned" },
+  { "id": "S11", "expected_verdict": "fail", "expected_root_cause": "semantic_color_wrong", "description": "wrong color of subject" },
+  { "id": "S12", "expected_verdict": "fail", "expected_root_cause": "composition_wrong", "description": "ref blending failed" },
+  { "id": "S13", "expected_verdict": "fail", "expected_root_cause": "temporal_drift", "description": "extension hop lost character identity" },
+  { "id": "S14", "expected_verdict": "fail", "expected_root_cause": "safety_blocked", "description": "prompt triggered safety filter" },
+  { "id": "S15", "expected_verdict": "fail", "expected_root_cause": "lipsync_miss", "description": "dialogue out of sync" }
+]

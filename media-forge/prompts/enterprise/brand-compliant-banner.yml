@@ -1,0 +1,26 @@
+id: enterprise/brand-compliant-banner
+domain: enterprise
+description: |
+  Wide-format banner using approved brand fonts, palette, and layout hierarchy.
+  Use for enterprise marketing collateral requiring strict adherence to brand standards.
+variables:
+  - name: campaign_theme
+    required: true
+    description: "The marketing campaign theme or message (e.g., Q4 product launch announcement)"
+  - name: approved_fonts
+    required: false
+    default: sans-serif geometric (Helvetica Neue or equivalent)
+    description: "Approved typeface family for text elements"
+  - name: secondary_color
+    required: false
+    default: "#E8F0FE (light accent)"
+    description: "Brand secondary color hex and name for background or accent panels"
+template: |
+  A 16:9 enterprise marketing banner for the campaign theme: ${campaign_theme}.
+  Typography: ${approved_fonts}, hierarchy respected (headline > subhead > body).
+  Secondary color ${secondary_color} applied to background panels or accent bars.
+  Layout follows a three-column grid with the headline in the left two-thirds.
+  All text within a 5% inset safe zone. No unauthorized imagery or off-brand iconography.
+  Suitable for web, email, and digital signage; exports at 1920x1080 pixels minimum.
+attribution: |
+  Derived from enterprise banner design governance in research §9.2.

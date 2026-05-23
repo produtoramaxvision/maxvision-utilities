@@ -1,0 +1,5 @@
+#!/usr/bin/env node
+import('../dist/cli/cli.js').then((m) => m.runCli(process.argv.slice(2))).catch((err) => {
+  console.error('media-forge fatal:', err instanceof Error ? err.message : err);
+  process.exit(1);
+});

@@ -1,0 +1,25 @@
+id: video-extension/continuation-prompt
+domain: video-extension
+description: |
+  Video extension continuation prompt with an 80-percent original-prompt preservation directive.
+  Use to extend an existing video clip while maintaining the established visual language.
+variables:
+  - name: original_prompt
+    required: true
+    description: "The full original generation prompt that produced the clip being extended"
+  - name: continuation_action
+    required: true
+    description: "The specific continuation action or scene evolution (e.g., camera continues pulling back)"
+  - name: duration
+    required: false
+    default: "4 seconds"
+    description: "Duration of the extension segment (2 seconds, 4 seconds, 8 seconds)"
+template: |
+  CONTINUATION DIRECTIVE: preserve at least 80% of the following original prompt verbatim.
+  Original prompt: ${original_prompt}
+  Continuation: ${continuation_action}.
+  Extension duration: ${duration}. Seamlessly match the color grade, camera motion, and scene content.
+  No abrupt visual discontinuity at the join point. Maintain lighting direction and atmosphere.
+  Treat the original clip's final frame as the starting reference for the extension.
+attribution: |
+  Derived from video extension continuity prompt patterns in research §7.7.

@@ -1,0 +1,26 @@
+id: hyperrealistic/scene-environmental
+domain: hyperrealistic
+description: |
+  Wide environmental scene with strong depth cues and photorealistic atmospheric perspective.
+  Use for location establishing shots, concept visualization, or virtual production plates.
+variables:
+  - name: location
+    required: true
+    description: "The environment to depict (e.g., foggy mountain valley at dawn)"
+  - name: time_of_day
+    required: false
+    default: golden hour
+    description: "Time of day governing light quality (golden hour, overcast midday, blue hour)"
+  - name: foreground_element
+    required: false
+    default: natural ground cover (rocks and moss)
+    description: "A tangible foreground anchor element to establish depth (rocks, tall grass, water)"
+template: |
+  A hyperrealistic wide-angle environmental photograph of ${location}.
+  Time of day: ${time_of_day}. Foreground: ${foreground_element} in sharp focus.
+  Depth layers progress from crisp foreground through detailed midground to atmospheric haze.
+  Atmospheric perspective softens the far distance; volumetric light interacts with particles.
+  Ultra-high resolution, 4:3 aspect ratio, realistic lens distortion, no HDR over-processing.
+  Texture of every surface — soil, bark, stone, water — rendered with documentary fidelity.
+attribution: |
+  Derived from environmental scene photography realism standards in research §3.2.

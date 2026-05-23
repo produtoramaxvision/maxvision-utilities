@@ -1,0 +1,25 @@
+id: product/hero-macro
+domain: product
+description: |
+  Close-up macro hero shot that highlights material texture, finish, and craftsmanship details.
+  Use when the product story depends on surface quality or fine detail rather than overall form.
+variables:
+  - name: subject
+    required: true
+    description: "The product and specific detail to emphasize (e.g., leather wallet stitching)"
+  - name: background
+    required: false
+    default: dark gradient
+    description: "Background treatment (dark gradient, light marble, neutral grey)"
+  - name: focal_point
+    required: false
+    default: material texture
+    description: "The specific detail to pull focus on (material texture, logo emboss, clasp)"
+template: |
+  An extreme close-up macro photograph of ${subject}, focusing on ${focal_point}.
+  Background: ${background}. Lens compression at 100mm equivalent, f/2.8 aperture.
+  Rim lighting from two sides reveals surface texture and depth.
+  Shot tack-sharp at the focal plane, creamy bokeh transitions behind.
+  High-end commercial quality, photorealistic, 4K resolution, no post-processing artifacts.
+attribution: |
+  Derived from macro product photography techniques in research §6.3.

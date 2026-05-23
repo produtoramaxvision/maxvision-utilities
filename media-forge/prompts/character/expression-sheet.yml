@@ -1,0 +1,25 @@
+id: character/expression-sheet
+domain: character
+description: |
+  Five-mood expression sheet showing a character's face across a range of emotions.
+  Use to establish emotional range for animation, game assets, or storyboard work.
+variables:
+  - name: name
+    required: true
+    description: "Character name used as label on the sheet"
+  - name: description
+    required: true
+    description: "Character appearance description (age, gender, features, style)"
+  - name: moods
+    required: false
+    default: "happy, sad, angry, surprised, neutral"
+    description: "Comma-separated list of five moods to render (e.g., happy, sad, angry, surprised, neutral)"
+template: |
+  A character expression reference sheet for ${name}: ${description}.
+  Five portrait crops arranged in a 2-3 grid, each labeled with its mood.
+  Moods depicted: ${moods}.
+  Consistent head angle (slight 3/4 turn), identical lighting across all panels.
+  Clean white background per panel, clear labeling beneath each expression.
+  Semi-realistic illustration style, high detail on facial muscles and micro-expressions.
+attribution: |
+  Derived from expression sheet conventions in animation pre-production research §4.3.

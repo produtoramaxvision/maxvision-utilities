@@ -1,0 +1,26 @@
+id: enterprise/brand-compliant-portrait
+domain: enterprise
+description: |
+  Corporate portrait constrained to approved palette, neutral background, and professional demeanor.
+  Use for employee headshots, executive profiles, and team pages requiring visual consistency.
+variables:
+  - name: subject
+    required: true
+    description: "Person description consistent with corporate appearance policy"
+  - name: background_color
+    required: false
+    default: "#F5F5F5 light neutral grey"
+    description: "Approved background color (e.g., #F5F5F5 light neutral grey, white, brand navy)"
+  - name: attire
+    required: false
+    default: business professional
+    description: "Dress code directive (business professional, business casual, branded apparel)"
+template: |
+  A corporate headshot portrait of ${subject}.
+  Background: ${background_color}, seamless and evenly lit.
+  Attire: ${attire}, consistent with company appearance standards.
+  Lighting: flat even studio illumination, no dramatic shadows or creative lighting.
+  Framing: chest to crown, subject centered, neutral expression.
+  Color-accurate skin tones, no heavy retouching, consistent with the full team portrait library.
+attribution: |
+  Derived from corporate portrait standards for enterprise visual identity in research §9.3.

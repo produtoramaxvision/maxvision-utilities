@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'media-forge-v*'
+
+defaults:
+  run:
+    working-directory: media-forge
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: pnpm
+          cache-dependency-path: media-forge/pnpm-lock.yaml
+
+      - name: Install
+        # --ignore-workspace: root pnpm-workspace.yaml lists media-forge as a
+        # workspace package but the repo intentionally has no root pnpm-lock.yaml,
+        # so without this flag pnpm resolves in workspace mode and fails with
+        # ERR_PNPM_NO_LOCKFILE. Mirrors the same fix in ci.yml.
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
+      - name: Validate
+        run: |
+          pnpm typecheck
+          pnpm lint
+          pnpm test
+          pnpm exec tsup
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/media-forge-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: media-forge v${{ steps.version.outputs.version }}
+          body: |
+            See [CHANGELOG.md](./media-forge/CHANGELOG.md) for full release notes.
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}

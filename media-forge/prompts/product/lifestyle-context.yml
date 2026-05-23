@@ -1,0 +1,24 @@
+id: product/lifestyle-context
+domain: product
+description: |
+  Lifestyle in-context product photograph showing the item integrated into a real-world scene.
+  Use when the goal is aspirational brand positioning rather than pure catalog presentation.
+variables:
+  - name: subject
+    required: true
+    description: "The product being featured (e.g., glass water bottle, brushed steel)"
+  - name: environment
+    required: false
+    default: modern kitchen countertop
+    description: "The setting or scene context (e.g., coffee shop table, gym bag)"
+  - name: mood
+    required: false
+    default: warm and inviting
+    description: "Emotional tone of the scene (minimal and clean, warm and inviting, energetic)"
+template: |
+  A lifestyle photograph of ${subject} placed in a ${environment}.
+  Mood: ${mood}. Natural ambient light with soft fill, shallow depth of field.
+  The product is the primary focal point; supporting props enhance the scene without competing.
+  Editorial quality, 16:9 crop, photorealistic, high dynamic range.
+attribution: |
+  Derived from lifestyle product photography frameworks in research §6.2.

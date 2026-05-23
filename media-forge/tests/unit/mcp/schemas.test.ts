@@ -1,0 +1,336 @@
+import { describe, it, expect } from 'vitest';
+import {
+  MCP_TOOLS,
+  getMCPToolByName,
+  listMCPToolNames,
+  // inline pipeline schemas (for direct parse tests)
+  DryRunPayloadInput,
+  EstimateCostInput,
+  ValidateEnvironmentInput,
+  CapabilityMatrixInput,
+  ListOutputsInput,
+  GetJobMetadataInput,
+  RunOcrInput,
+  CheckBrandComplianceInput,
+  MediaHelpInput,
+} from '../../../src/mcp/schemas.js';
+
+const EXPECTED_TOOL_NAMES = [
+  // image (6)
+  'media_generate_image',
+  'media_generate_imagen',
+  'media_edit_image',
+  'media_compose_scene',
+  'media_describe_image',
+  'media_extract_palette',
+  // video (7)
+  'media_generate_video_t2v',
+  'media_generate_video_i2v',
+  'media_generate_video_interpolate',
+  'media_generate_video_with_refs',
+  'media_extend_video',
+  'media_poll_video_operation',
+  'media_download_video',
+  // pipeline / utility (8)
+  'media_dry_run_payload',
+  'media_estimate_cost',
+  'media_validate_environment',
+  'media_capability_matrix',
+  'media_list_outputs',
+  'media_get_job_metadata',
+  'media_run_ocr',
+  'media_check_brand_compliance',
+  // help (1)
+  'media_help',
+] as const;
+
+// ---------------------------------------------------------------------------
+// Registry shape assertions
+// ---------------------------------------------------------------------------
+describe('MCP_TOOLS registry', () => {
+  it('contains exactly 22 tools', () => {
+    expect(MCP_TOOLS.length).toBe(22);
+  });
+
+  it('is frozen (Object.isFrozen)', () => {
+    expect(Object.isFrozen(MCP_TOOLS)).toBe(true);
+  });
+
+  it('every tool has a non-empty name', () => {
+    for (const tool of MCP_TOOLS) {
+      expect(typeof tool.name).toBe('string');
+      expect(tool.name.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('every tool name starts with media_', () => {
+    for (const tool of MCP_TOOLS) {
+      expect(tool.name.startsWith('media_')).toBe(true);
+    }
+  });
+
+  it('every tool has a non-empty description', () => {
+    for (const tool of MCP_TOOLS) {
+      expect(typeof tool.description).toBe('string');
+      expect(tool.description.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('every tool has an inputSchema', () => {
+    for (const tool of MCP_TOOLS) {
+      expect(tool.inputSchema).toBeDefined();
+    }
+  });
+
+  it('no duplicate tool names', () => {
+    const names = MCP_TOOLS.map((t) => t.name);
+    const unique = new Set(names);
+    expect(unique.size).toBe(names.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listMCPToolNames()
+// ---------------------------------------------------------------------------
+describe('listMCPToolNames()', () => {
+  it('returns an array of length 22', () => {
+    expect(listMCPToolNames().length).toBe(22);
+  });
+
+  it('contains all 22 expected tool names', () => {
+    const names = listMCPToolNames();
+    for (const expected of EXPECTED_TOOL_NAMES) {
+      expect(names).toContain(expected);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getMCPToolByName()
+// ---------------------------------------------------------------------------
+describe('getMCPToolByName()', () => {
+  it('returns the tool for a known name', () => {
+    const tool = getMCPToolByName('media_generate_image');
+    expect(tool).toBeDefined();
+    expect(tool?.name).toBe('media_generate_image');
+  });
+
+  it('returns undefined for an unknown name', () => {
+    expect(getMCPToolByName('nope')).toBeUndefined();
+  });
+
+  it('returns the tool for each expected name', () => {
+    for (const name of EXPECTED_TOOL_NAMES) {
+      const tool = getMCPToolByName(name);
+      expect(tool).toBeDefined();
+      expect(tool?.name).toBe(name);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// inputSchema parse tests — representative tools
+// ---------------------------------------------------------------------------
+describe('inputSchema parsing — image tool (media_generate_image)', () => {
+  it('parses valid nano-banana-pro input against inputSchema', () => {
+    const tool = getMCPToolByName('media_generate_image');
+    expect(tool).toBeDefined();
+    const r = tool!.inputSchema.safeParse({ op: 'nano-banana-pro', prompt: 'a landscape' });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects invalid input against inputSchema', () => {
+    const tool = getMCPToolByName('media_generate_image');
+    expect(tool).toBeDefined();
+    // empty prompt → fails min(1)
+    const r = tool!.inputSchema.safeParse({ op: 'nano-banana-pro', prompt: '' });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe('inputSchema parsing — video tool (media_generate_video_t2v)', () => {
+  it('parses valid t2v input against inputSchema', () => {
+    const tool = getMCPToolByName('media_generate_video_t2v');
+    expect(tool).toBeDefined();
+    const r = tool!.inputSchema.safeParse({ op: 't2v', prompt: 'a timelapse' });
+    expect(r.success).toBe(true);
+  });
+});
+
+describe('inputSchema parsing — pipeline tool (media_estimate_cost)', () => {
+  it('parses valid estimate_cost input against inputSchema', () => {
+    const tool = getMCPToolByName('media_estimate_cost');
+    expect(tool).toBeDefined();
+    const r = tool!.inputSchema.safeParse({
+      items: [{ op: 'nano-banana-pro', params: { prompt: 'test' } }],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects empty items array', () => {
+    const tool = getMCPToolByName('media_estimate_cost');
+    expect(tool).toBeDefined();
+    const r = tool!.inputSchema.safeParse({ items: [] });
+    expect(r.success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pipeline / utility schema unit tests
+// ---------------------------------------------------------------------------
+describe('DryRunPayloadInput', () => {
+  it('accepts valid op + params', () => {
+    const r = DryRunPayloadInput.safeParse({
+      op: 'nano-banana-pro',
+      params: { prompt: 'test' },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects unknown keys (strict)', () => {
+    const r = DryRunPayloadInput.safeParse({
+      op: 'nano-banana-pro',
+      params: {},
+      extra: 'ghost',
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects empty op', () => {
+    const r = DryRunPayloadInput.safeParse({ op: '', params: {} });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe('EstimateCostInput', () => {
+  it('accepts single item', () => {
+    const r = EstimateCostInput.safeParse({
+      items: [{ op: 't2v', params: {} }],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects empty items array (min 1)', () => {
+    const r = EstimateCostInput.safeParse({ items: [] });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe('ValidateEnvironmentInput', () => {
+  it('accepts empty object', () => {
+    const r = ValidateEnvironmentInput.safeParse({});
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects unknown keys (strict)', () => {
+    const r = ValidateEnvironmentInput.safeParse({ extra: 'val' });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe('CapabilityMatrixInput', () => {
+  it('accepts empty object (model optional)', () => {
+    const r = CapabilityMatrixInput.safeParse({});
+    expect(r.success).toBe(true);
+  });
+
+  it('accepts valid model filter', () => {
+    const r = CapabilityMatrixInput.safeParse({ model: 'veo-3.1-generate-preview' });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects unknown model', () => {
+    const r = CapabilityMatrixInput.safeParse({ model: 'gpt-5' });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe('ListOutputsInput', () => {
+  it('accepts empty object with defaults', () => {
+    const r = ListOutputsInput.safeParse({});
+    expect(r.success).toBe(true);
+    if (!r.success) return;
+    expect(r.data.limit).toBe(100);
+  });
+
+  it('rejects limit=0 (min 1)', () => {
+    const r = ListOutputsInput.safeParse({ limit: 0 });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects limit=1001 (max 1000)', () => {
+    const r = ListOutputsInput.safeParse({ limit: 1001 });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe('GetJobMetadataInput', () => {
+  it('accepts valid jobId', () => {
+    const r = GetJobMetadataInput.safeParse({ jobId: 'job-abc-123' });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects empty jobId (min 1)', () => {
+    const r = GetJobMetadataInput.safeParse({ jobId: '' });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe('RunOcrInput', () => {
+  it('accepts imagePath with default languages', () => {
+    const r = RunOcrInput.safeParse({ imagePath: '/img/scan.png' });
+    expect(r.success).toBe(true);
+    if (!r.success) return;
+    expect(r.data.languages).toEqual(['en']);
+  });
+
+  it('accepts custom languages array', () => {
+    const r = RunOcrInput.safeParse({ imagePath: '/img/scan.png', languages: ['pt', 'en'] });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects empty imagePath', () => {
+    const r = RunOcrInput.safeParse({ imagePath: '' });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe('CheckBrandComplianceInput', () => {
+  it('accepts valid paths', () => {
+    const r = CheckBrandComplianceInput.safeParse({
+      imagePath: '/img/ad.png',
+      brandGuidelinesPath: '/guidelines/brand.yaml',
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects empty imagePath', () => {
+    const r = CheckBrandComplianceInput.safeParse({
+      imagePath: '',
+      brandGuidelinesPath: '/guidelines/brand.yaml',
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects missing brandGuidelinesPath', () => {
+    const r = CheckBrandComplianceInput.safeParse({ imagePath: '/img/ad.png' });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe('MediaHelpInput', () => {
+  it('accepts empty object (topic optional)', () => {
+    const r = MediaHelpInput.safeParse({});
+    expect(r.success).toBe(true);
+  });
+
+  it('accepts with topic', () => {
+    const r = MediaHelpInput.safeParse({ topic: 'media_generate_image' });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects unknown keys (strict)', () => {
+    const r = MediaHelpInput.safeParse({ topic: 'x', extra: 'ghost' });
+    expect(r.success).toBe(false);
+  });
+});

@@ -1,0 +1,114 @@
+{
+  "name": "media-forge",
+  "version": "0.1.0",
+  "description": "Production-grade Claude Code plugin for image and video generation using top-tier Google AI models (Nano Banana Pro, Imagen 4 Ultra, Veo 3.1 Pro).",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "bin": {
+    "media-forge": "./bin/media-forge"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "agents",
+    "skills",
+    "commands",
+    "prompts",
+    "hooks",
+    ".claude-plugin",
+    ".mcp.json",
+    "scripts/install-deps.sh",
+    "scripts/install-deps.cmd",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "pnpm build:prompts && tsup",
+    "build:prompts": "tsx scripts/build-prompt-index.ts",
+    "prebuild": "rimraf dist",
+    "dev": "tsx watch src/index.ts",
+    "dev:claude": "pnpm build && claude --plugin-dir .",
+    "dev:mcp": "tsx watch src/mcp/server.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:fast": "vitest run --reporter=dot",
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:integration:live": "cross-env MEDIA_FORGE_RUN_LIVE_TESTS=true vitest run tests/integration/live-smoke.test.ts --config vitest.integration.config.ts",
+    "test:integration:dispatch": "cross-env RUN_INTEGRATION=1 vitest run tests/integration/plugin-dispatch.test.ts --config vitest.integration.config.ts",
+    "test:evals": "cross-env MEDIA_FORGE_RUN_EVALS=true vitest run --config vitest.evals.config.ts",
+    "test:coverage": "vitest run --coverage",
+    "hello": "tsx scripts/hello-smoke.ts",
+    "validate:plugin": "claude plugin validate . --strict",
+    "mcp:start": "node dist/mcp/server.js",
+    "cli": "node bin/media-forge",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md,yaml,yml}\"",
+    "prepublishOnly": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.98.0",
+    "@google-cloud/vision": "^5.3.6",
+    "@google/genai": "^2.0.1",
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.7",
+    "node-vibrant": "^4.0.3",
+    "pngjs": "^7.0.0",
+    "sharp": "^0.34.5",
+    "yaml": "^2.6.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pngjs": "^6.0.5",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "@vitest/coverage-v8": "^2.1.8",
+    "cross-env": "^10.1.0",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.4.2",
+    "rimraf": "^6.0.1",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "media-forge",
+    "nano-banana-pro",
+    "veo-3.1",
+    "imagen-4",
+    "google-ai",
+    "mcp"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "Produtora MaxVision",
+    "email": "produtoramaxvision@gmail.com",
+    "url": "https://github.com/produtoramaxvision"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/produtoramaxvision/maxvision-utilities.git",
+    "directory": "media-forge"
+  },
+  "homepage": "https://github.com/produtoramaxvision/maxvision-utilities/tree/main/media-forge"
+}

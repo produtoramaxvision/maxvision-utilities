@@ -1,0 +1,25 @@
+id: video-extension/character-continuity
+domain: video-extension
+description: |
+  Video extension with an explicit character continuity directive repeating key identity descriptors.
+  Use when identity drift across multiple extension rounds is a known risk.
+variables:
+  - name: character_description
+    required: true
+    description: "Comprehensive character appearance description to repeat as the continuity anchor"
+  - name: continued_action
+    required: true
+    description: "What the character does in the extension (e.g., continues walking and glances back)"
+  - name: anchor_shot
+    required: false
+    default: medium shot maintaining consistent framing
+    description: "Camera framing directive to lock identity in (close-up, medium shot, wide)"
+template: |
+  CHARACTER CONTINUITY ANCHOR: ${character_description}.
+  The above description must be treated as the authoritative identity reference for this extension.
+  Continued action: ${continued_action}. Camera: ${anchor_shot}.
+  Do not alter hair color, skin tone, clothing, or body proportions from the source clip.
+  Facial features remain consistent with the source clip's final frame.
+  Environment and lighting from the previous clip carry forward unchanged unless the action dictates otherwise.
+attribution: |
+  Derived from multi-round character continuity directives in research §7.9.
