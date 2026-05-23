@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { estimateImageCost, estimateVideoCost, estimateWithRetries, dailyTotal } from '../../core/cost.js';
+import { estimateImageCost, estimateVideoCost, estimateWithRetries, dailyTotal, monthlyTotal, allTimeTotal } from '../../core/cost.js';
 import { IMAGE_MODEL_NANO_BANANA_PRO, IMAGE_MODEL_IMAGEN_4_ULTRA, VIDEO_MODEL_VEO_3_1_PRO } from '../../core/models.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -81,9 +81,22 @@ export function registerCostCommands(program: Command): void {
           path.join(process.cwd(), '.media-forge');
         const logPath = path.join(projectDir, 'cost.jsonl');
         const today = new Date().toISOString().slice(0, 10);
-        const { usd, entries } = dailyTotal({ logPath, date: opts.today ? today : undefined });
+        const month = new Date().toISOString().slice(0, 7);
+        let label: string;
+        let usd: number;
+        let entries: number;
+        if (opts.month) {
+          ({ usd, entries } = monthlyTotal({ logPath, month }));
+          label = month;
+        } else if (opts.today) {
+          ({ usd, entries } = dailyTotal({ logPath, date: today }));
+          label = today;
+        } else {
+          ({ usd, entries } = allTimeTotal({ logPath }));
+          label = 'all-time';
+        }
 
-        const result = { date: opts.today ? today : 'all-time', usd, entries };
+        const result = { date: label, usd, entries };
         if (opts.json) {
           process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
         } else {

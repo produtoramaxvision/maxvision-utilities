@@ -5,16 +5,39 @@ import * as path from 'node:path';
 export interface JobSummary {
   jobId: string;
   jobDir: string;
+  versionDir?: string;
+  version?: string;
   verdict?: string;
   costUsd?: number;
   error?: string;
+}
+
+/**
+ * OutputManager persists per-version artifacts under `<jobDir>/v<N>/`
+ * (`metadata.json`, `verdict.json`, `trace.jsonl`, ...). The audit command
+ * inspects the latest version on disk; if the job has no version directories
+ * yet (e.g. dry-run or pre-write failure) it falls back to the job root.
+ */
+async function pickLatestVersionDir(jobDir: string): Promise<string> {
+  const entries = await fs.readdir(jobDir).catch(() => [] as string[]);
+  const versions = entries
+    .filter((e) => /^v\d+$/.test(e))
+    .map((e) => ({ name: e, n: parseInt(e.slice(1), 10) }))
+    .sort((a, b) => b.n - a.n);
+  return versions.length > 0 ? path.join(jobDir, versions[0]!.name) : jobDir;
 }
 
 export async function readJobSummary(jobDir: string, jobId: string): Promise<JobSummary> {
   const summary: JobSummary = { jobId, jobDir };
 
   try {
-    const metaPath = path.join(jobDir, 'metadata.json');
+    const targetDir = await pickLatestVersionDir(jobDir);
+    if (targetDir !== jobDir) {
+      summary.versionDir = targetDir;
+      summary.version = path.basename(targetDir);
+    }
+
+    const metaPath = path.join(targetDir, 'metadata.json');
     const metaRaw = await fs.readFile(metaPath, 'utf8').catch(() => null);
     if (metaRaw) {
       const meta = JSON.parse(metaRaw) as Record<string, unknown>;
@@ -22,8 +45,8 @@ export async function readJobSummary(jobDir: string, jobId: string): Promise<Job
       if (typeof meta['verdict'] === 'string') summary.verdict = meta['verdict'];
     }
 
-    // Try verdict.json
-    const verdictPath = path.join(jobDir, 'verdict.json');
+    // Try verdict.json (latest version)
+    const verdictPath = path.join(targetDir, 'verdict.json');
     const verdictRaw = await fs.readFile(verdictPath, 'utf8').catch(() => null);
     if (verdictRaw) {
       const verdict = JSON.parse(verdictRaw) as Record<string, unknown>;
@@ -91,6 +114,9 @@ export function registerAuditCommand(program: Command): void {
         } else {
           process.stdout.write(`jobId: ${summary.jobId}\n`);
           process.stdout.write(`dir: ${summary.jobDir}\n`);
+          if (summary.versionDir) {
+            process.stdout.write(`version: ${summary.version}\n`);
+          }
           process.stdout.write(`verdict: ${summary.verdict ?? 'n/a'}\n`);
           process.stdout.write(`cost: ${summary.costUsd != null ? `$${summary.costUsd.toFixed(4)}` : 'n/a'}\n`);
           if (summary.error) {

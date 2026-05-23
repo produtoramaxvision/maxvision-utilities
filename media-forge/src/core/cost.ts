@@ -110,6 +110,58 @@ export function dailyTotal(opts: DailyTotalOpts): { usd: number; entries: number
   return { usd, entries };
 }
 
+/**
+ * Total cost across entries whose ISO `date` field starts with `month`
+ * (format `YYYY-MM`). Used by `media-forge cost summary --month`.
+ */
+export function monthlyTotal(opts: {
+  logPath: string;
+  month?: string;
+}): { usd: number; entries: number } {
+  const target = opts.month ?? new Date().toISOString().slice(0, 7);
+  if (!fs.existsSync(opts.logPath)) return { usd: 0, entries: 0 };
+  const lines = fs.readFileSync(opts.logPath, 'utf8').split('\n').filter((l) => l.trim() !== '');
+  let usd = 0;
+  let entries = 0;
+  for (const line of lines) {
+    try {
+      const obj = JSON.parse(line) as { date?: string; usd?: number };
+      if (typeof obj.date === 'string' && obj.date.startsWith(target) && typeof obj.usd === 'number') {
+        usd += obj.usd;
+        entries++;
+      }
+    } catch {
+      // skip malformed lines
+    }
+  }
+  return { usd, entries };
+}
+
+/**
+ * Total cost across every entry in the log regardless of date.
+ * Used by `media-forge cost summary` without `--today` / `--month`.
+ */
+export function allTimeTotal(opts: {
+  logPath: string;
+}): { usd: number; entries: number } {
+  if (!fs.existsSync(opts.logPath)) return { usd: 0, entries: 0 };
+  const lines = fs.readFileSync(opts.logPath, 'utf8').split('\n').filter((l) => l.trim() !== '');
+  let usd = 0;
+  let entries = 0;
+  for (const line of lines) {
+    try {
+      const obj = JSON.parse(line) as { usd?: number };
+      if (typeof obj.usd === 'number') {
+        usd += obj.usd;
+        entries++;
+      }
+    } catch {
+      // skip malformed lines
+    }
+  }
+  return { usd, entries };
+}
+
 export type CostBreakdown = string | Record<string, number>;
 
 export function appendCostLogEntry(
