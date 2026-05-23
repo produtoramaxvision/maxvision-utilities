@@ -447,13 +447,15 @@ export function registerVideoCommands(program: Command): void {
       }
       const config = loadConfig(process.env as Record<string, string | undefined>);
       const client = createClient({ config, dryRun: opts.dryRun ?? false });
+      const intervalMs =
+        opts.intervalMs !== undefined ? parseInt(opts.intervalMs, 10) : 10000;
       const result = await pollVideoOperation({
         client,
         operationName,
-        intervalMs: opts.intervalMs !== undefined ? parseInt(opts.intervalMs, 10) : 10000,
+        intervalMs,
         maxAttempts:
           opts.timeoutMs !== undefined
-            ? Math.ceil(parseInt(opts.timeoutMs, 10) / 10000)
+            ? Math.ceil(parseInt(opts.timeoutMs, 10) / intervalMs)
             : 90,
       });
       exitOk(result, opts);
@@ -515,23 +517,34 @@ export function registerVideoCommands(program: Command): void {
       const client = createClient({ config, dryRun: opts.dryRun ?? false });
 
       // Step 1: poll
+      const intervalMs =
+        opts.intervalMs !== undefined ? parseInt(opts.intervalMs, 10) : 10000;
       const pollResult = await pollVideoOperation({
         client,
         operationName,
-        intervalMs: opts.intervalMs !== undefined ? parseInt(opts.intervalMs, 10) : 10000,
+        intervalMs,
         maxAttempts:
           opts.timeoutMs !== undefined
-            ? Math.ceil(parseInt(opts.timeoutMs, 10) / 10000)
+            ? Math.ceil(parseInt(opts.timeoutMs, 10) / intervalMs)
             : 90,
       });
 
-      // Step 2: extract videoUri from poll result
+      // Step 2: extract videoUri from the poll result. The SDK normalizes the
+      // mldev response into `response.generatedVideos[0].video.uri`; the legacy
+      // raw API shape `response.generateVideoResponse.generatedSamples[...]` is
+      // kept as a secondary fallback for callers wiring the operation manually.
+      // If neither is present we treat the supplied operationName as a URI
+      // (some callers pass the URI directly into `wait` to skip polling).
       const op = pollResult.operation as {
-        response?: { generateVideoResponse?: { generatedSamples?: Array<{ video?: { uri?: string } }> } };
+        response?: {
+          generatedVideos?: Array<{ video?: { uri?: string } }>;
+          generateVideoResponse?: { generatedSamples?: Array<{ video?: { uri?: string } }> };
+        };
       };
       const videoUri =
+        op?.response?.generatedVideos?.[0]?.video?.uri ??
         op?.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri ??
-        operationName; // fallback: if caller passed a URI directly
+        operationName;
 
       // Step 3: download
       const downloadResult = await downloadVideo({

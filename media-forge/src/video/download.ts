@@ -37,7 +37,13 @@ export async function downloadVideo(opts: DownloadOpts): Promise<DownloadResult>
     }
   }
 
-  const url = opts.apiKey ? `${opts.videoUri}&key=${opts.apiKey}` : opts.videoUri;
+  // Append the API key with the correct query separator: `?key=...` when the
+  // base URI carries no query yet, `&key=...` when one is already present.
+  // SDK-emitted URIs typically include `?alt=media` so they need `&`, but the
+  // wait/manual flows can supply bare URIs that need `?`.
+  const url = opts.apiKey
+    ? `${opts.videoUri}${opts.videoUri.includes('?') ? '&' : '?'}key=${opts.apiKey}`
+    : opts.videoUri;
   const fetchFn = opts.fetchImpl ?? fetch;
   const resp = await fetchFn(url);
   if (!resp.ok) {

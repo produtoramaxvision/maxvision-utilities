@@ -85,7 +85,7 @@ describe('downloadVideo', () => {
     expect(result.sha256).toBe(expected);
   });
 
-  it('apiKey appended to URL as &key=...', async () => {
+  it('apiKey appended with & when URI already has a query string', async () => {
     let capturedUrl = '';
     const captureFetch: typeof fetch = async (url) => {
       capturedUrl = url.toString();
@@ -107,6 +107,30 @@ describe('downloadVideo', () => {
       fetchImpl: captureFetch,
     });
     expect(capturedUrl).toBe('https://example.com/video.mp4?foo=bar&key=MY_API_KEY');
+  });
+
+  it('apiKey appended with ? when URI has no query string', async () => {
+    let capturedUrl = '';
+    const captureFetch: typeof fetch = async (url) => {
+      capturedUrl = url.toString();
+      const buf = Buffer.from('x');
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        arrayBuffer: async () =>
+          buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer,
+      } as unknown as Response;
+    };
+
+    await downloadVideo({
+      client: makeClient(mock),
+      videoUri: 'https://example.com/video.mp4',
+      apiKey: 'MY_API_KEY',
+      outputDir: tmpDir,
+      fetchImpl: captureFetch,
+    });
+    expect(capturedUrl).toBe('https://example.com/video.mp4?key=MY_API_KEY');
   });
 
   it('createTime >36h ago → logger.warn fired', async () => {
