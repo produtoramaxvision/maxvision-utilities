@@ -32,6 +32,8 @@
  * that can trigger Google's Layer 2 RAI filter (finishReason: IMAGE_RECITATION,
  * blockReason: OTHER). See https://ai.google.dev/gemini-api/docs/safety-settings.
  */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { loadConfig } from '../../src/core/config.js';
 import { createClient } from '../../src/core/client.js';
@@ -69,6 +71,18 @@ describe.skipIf(!SHOULD_RUN)('Live API smoke (real network calls, cost-capped â‰
     const result = await generateImageNanoBananaPro(input, client);
     expect(result.base64.length).toBeGreaterThan(1000);
     expect(result.mimeType).toMatch(/^image\//);
+
+    // Persist to temp dir for parity with the video test below. Lets reviewers
+    // inspect the generated image after a real-API run without manual decoding.
+    const ext = result.mimeType.includes('jpeg') || result.mimeType.includes('jpg') ? '.jpg' : '.png';
+    const tmp = makeTempDir('live-smoke-');
+    const outPath = path.join(tmp.path, `live-smoke${ext}`);
+    fs.writeFileSync(outPath, Buffer.from(result.base64, 'base64'));
+    const stat = fs.statSync(outPath);
+    expect(stat.size).toBeGreaterThan(1000);
+    // Surface the path so the test log carries it for the reviewer.
+    // eslint-disable-next-line no-console
+    console.log(`[live-smoke] image persisted: ${outPath} (${stat.size} bytes, ${result.mimeType})`);
   }, 120_000);
 
   it('Veo 3.1 Pro 720p 4s video generation + poll + download', async () => {
