@@ -166,7 +166,11 @@ export async function reviewAsset(opts: ReviewOpts): Promise<ReviewResult> {
       imagePath: opts.assetPath,
       guidelinesPath: opts.brandGuidelinesPath,
       ocrText: ocrResult?.detectedText,
-      enableLogoDetection: false,
+      // Enterprise mode runs the full brand contract: color delta + font
+      // keyword scan + logo identity check (when guidelines.logo is set).
+      // The reviewer always opts in here so logo rules in brand-guidelines.yml
+      // are honored — checkBrand still no-ops when guidelines.logo is absent.
+      enableLogoDetection: true,
     });
 
     if (!brandResult.ok) {

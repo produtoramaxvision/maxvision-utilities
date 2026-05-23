@@ -153,8 +153,8 @@ describe('checkBrand', () => {
     expect(colorViolations[0]?.severity).toBe('major');
   });
 
-  // 4. Logo detection enabled + mock returns logo with confidence 0.9 → ok=true (for logo)
-  it('passes logo check when confident logo detected', async () => {
+  // 4. Logo detection enabled + mock returns matching-name logo with confidence 0.9 → no violation
+  it('passes logo check when confident logo detected with matching name', async () => {
     writeGuidelines(tmp.guidelinesPath, GUIDELINES_WITH_LOGO);
     // extractPalette returns matching color
     mockExtractPalette.mockResolvedValueOnce({
@@ -163,7 +163,8 @@ describe('checkBrand', () => {
       format: 'hex',
       imagePath: tmp.imgPath,
     });
-    const client = makeVisionClient([{ score: 0.9 }]);
+    // GUIDELINES_WITH_LOGO references './brand/logo.png' → expected name 'logo'.
+    const client = makeVisionClient([{ description: 'logo', score: 0.9 }]);
     const result = await checkBrand({
       imagePath: tmp.imgPath,
       guidelinesPath: tmp.guidelinesPath,
@@ -172,6 +173,28 @@ describe('checkBrand', () => {
     });
     const logoViolations = result.violations.filter((v) => v.class === 'logo');
     expect(logoViolations).toHaveLength(0);
+  });
+
+  // 4b. Logo detection enabled + confident but WRONG-name logo → violation
+  it('records logo violation when detected logo name does not match expected', async () => {
+    writeGuidelines(tmp.guidelinesPath, GUIDELINES_WITH_LOGO);
+    mockExtractPalette.mockResolvedValueOnce({
+      colors: ['#FF6B35'],
+      colorCount: 8,
+      format: 'hex',
+      imagePath: tmp.imgPath,
+    });
+    // Detected 'unrelated-brand' instead of expected 'logo' (from filename).
+    const client = makeVisionClient([{ description: 'unrelated-brand', score: 0.95 }]);
+    const result = await checkBrand({
+      imagePath: tmp.imgPath,
+      guidelinesPath: tmp.guidelinesPath,
+      enableLogoDetection: true,
+      _visionClient: client,
+    });
+    const logoViolations = result.violations.filter((v) => v.class === 'logo');
+    expect(logoViolations).toHaveLength(1);
+    expect(logoViolations[0]?.detail).toContain('expected logo');
   });
 
   // 5. Logo detection enabled + mock returns no logos → violation class='logo'

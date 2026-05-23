@@ -16,6 +16,15 @@ const BrandGuidelinesSchema = z.object({
   colors: z.record(z.string(), z.string().regex(/^#[0-9A-Fa-f]{6}$/)).optional(),
   logo: z.object({
     referenceImage: z.string(),
+    /**
+     * Brand name as Cloud Vision logoDetection would report it (e.g. 'Nike',
+     * 'Google'). When set, the check requires AT LEAST one detected logo
+     * with matching description above minConfidence. When omitted, the
+     * referenceImage filename (without extension) is used as the expected
+     * name so a guideline like `referenceImage: assets/nike.png` enforces
+     * identity automatically.
+     */
+    expectedName: z.string().optional(),
     minConfidence: z.number().min(0).max(1).default(0.8),
   }).optional(),
   fonts: z.object({
@@ -266,8 +275,19 @@ export async function checkBrand(opts: BrandCheckOpts): Promise<BrandCheckResult
 
   // Stage 4: logo check (only when explicitly enabled)
   if (opts.enableLogoDetection === true && guidelines.logo) {
-    const { minConfidence } = guidelines.logo;
-    logger.debug('checkBrand: running logo detection', { imagePath: opts.imagePath });
+    const { minConfidence, referenceImage, expectedName } = guidelines.logo;
+    // Cloud Vision logoDetection returns a brand name string in `description`
+    // ('Nike', 'Google', ...). We require BOTH a high-confidence detection
+    // AND a matching name so an unrelated third-party logo cannot satisfy
+    // the check. The expected name is the guideline's expectedName field
+    // when set, otherwise derived from the referenceImage filename
+    // (e.g. assets/nike.png → 'nike').
+    const refBaseName = path.basename(referenceImage, path.extname(referenceImage));
+    const expected = (expectedName ?? refBaseName).toLowerCase().trim();
+    logger.debug('checkBrand: running logo detection', {
+      imagePath: opts.imagePath,
+      expected,
+    });
     try {
       const bytes = readBase64(opts.imagePath);
       const client = getVisionClient(opts._visionClient);
@@ -275,14 +295,21 @@ export async function checkBrand(opts: BrandCheckOpts): Promise<BrandCheckResult
         image: { content: bytes },
       });
       const logos = result?.logoAnnotations ?? [];
-      const hasConfidentLogo = logos.some(
-        (l) => (l.score ?? 0) >= minConfidence,
+      const aboveConfidence = logos.filter((l) => (l.score ?? 0) >= minConfidence);
+      const hasMatch = aboveConfidence.some(
+        (l) => (l.description ?? '').toLowerCase().trim() === expected,
       );
-      if (!hasConfidentLogo) {
+      if (!hasMatch) {
+        const detected = aboveConfidence
+          .map((l) => l.description)
+          .filter((d): d is string => Boolean(d))
+          .join(', ');
         violations.push({
           class: 'logo',
           severity: 'critical',
-          detail: `no logo detected above confidence threshold ${minConfidence}`,
+          detail: aboveConfidence.length > 0
+            ? `expected logo '${expected}' not detected (above-confidence detections: ${detected || 'unnamed'})`
+            : `no logo detected above confidence threshold ${minConfidence}`,
         });
       }
     } catch (err) {

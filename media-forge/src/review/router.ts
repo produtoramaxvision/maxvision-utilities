@@ -131,11 +131,13 @@ function resolveAgent(agent: string, originalGeneratorAgent: string): string {
 // ---------------------------------------------------------------------------
 
 export function route(opts: RouteOpts): RouteDecision {
-  const maxAttempts =
-    opts.maxAttempts ??
-    (process.env['MEDIA_FORGE_MAX_FIX_ATTEMPTS']
-      ? parseInt(process.env['MEDIA_FORGE_MAX_FIX_ATTEMPTS'], 10)
-      : 3);
+  // Parse the env override but reject NaN/<=0 so a typo in the env var
+  // (e.g. MEDIA_FORGE_MAX_FIX_ATTEMPTS=abc) cannot collapse retry gating —
+  // attemptCount >= NaN is always false, which would allow indefinite retries.
+  const envRaw = process.env['MEDIA_FORGE_MAX_FIX_ATTEMPTS'];
+  const envParsed = envRaw !== undefined ? parseInt(envRaw, 10) : NaN;
+  const envValid = Number.isFinite(envParsed) && envParsed > 0;
+  const maxAttempts = opts.maxAttempts ?? (envValid ? envParsed : 3);
 
   const remainingBudget = Math.max(0, maxAttempts - opts.attemptCount - 1);
 
