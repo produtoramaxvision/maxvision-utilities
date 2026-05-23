@@ -56,10 +56,23 @@ function makeFakeConfig(overrides: Partial<MediaForgeConfig> = {}): MediaForgeCo
 }
 
 function makeFakeClient(): MediaForgeClient {
+  // models.list() returns a Pager-like object whose `page` array contains the
+  // three LOCKED model identifiers, so media_validate_environment reports
+  // all three reachable. Tests that need to simulate unreachable models can
+  // override `ai` directly.
+  const lockedModels = [
+    { name: 'models/gemini-3-pro-image-preview' },
+    { name: 'models/imagen-4.0-ultra-generate-001' },
+    { name: 'models/veo-3.1-generate-preview' },
+  ];
   return Object.freeze({
     mode: 'gemini' as const,
     dryRun: false,
-    ai: {} as never,
+    ai: {
+      models: {
+        list: () => Promise.resolve({ page: lockedModels }),
+      },
+    } as never,
   });
 }
 

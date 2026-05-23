@@ -430,18 +430,21 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           let breakdown = `Unknown op: ${item.op}`;
 
           const op = item.op.toLowerCase();
-          if (op.includes('nano-banana') || op.includes('nano_banana') || op.includes('generate_image')) {
-            const params = item.params as { imageSize?: string };
-            const imageSize = (params.imageSize as '1K' | '2K' | '4K') ?? '4K';
-            const est = estimateImageCost({ model: IMAGE_MODEL_NANO_BANANA_PRO, imageSize });
-            usd = est.usd;
-            breakdown = est.breakdown;
-          } else if (op.includes('imagen') || op.includes('imagen4')) {
+          // Imagen takes priority over the generic generate_image fallback so
+          // ops like `media_generate_image_imagen4_ultra` route to the Imagen
+          // estimator instead of being mispriced as Nano Banana Pro.
+          if (op.includes('imagen')) {
             const params = item.params as { numberOfImages?: number };
             const est = estimateImageCost({
               model: IMAGE_MODEL_IMAGEN_4_ULTRA,
               numberOfImages: params.numberOfImages ?? 1,
             });
+            usd = est.usd;
+            breakdown = est.breakdown;
+          } else if (op.includes('nano-banana') || op.includes('nano_banana') || op.includes('generate_image')) {
+            const params = item.params as { imageSize?: string };
+            const imageSize = (params.imageSize as '1K' | '2K' | '4K') ?? '4K';
+            const est = estimateImageCost({ model: IMAGE_MODEL_NANO_BANANA_PRO, imageSize });
             usd = est.usd;
             breakdown = est.breakdown;
           } else if (op.includes('video') || op.includes('veo') || op.includes('t2v') || op.includes('i2v')) {
@@ -482,8 +485,41 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           missing.push('GOOGLE_API_KEY (or GEMINI_API_KEY, or GOOGLE_GENAI_USE_VERTEXAI + GOOGLE_CLOUD_PROJECT)');
         }
 
-        const ok = missing.length === 0;
-        return asResult({ ok, missing });
+        // Reachability check: confirm each LOCKED model id is reported by the
+        // SDK's models.list endpoint. Catches the "valid key but model not
+        // enabled / wrong region" false positive that pure credential checks
+        // miss. If list itself fails (network/quota/403) record the error
+        // rather than silently flipping ok=true.
+        const lockedModels = [
+          IMAGE_MODEL_NANO_BANANA_PRO,
+          IMAGE_MODEL_IMAGEN_4_ULTRA,
+          VIDEO_MODEL_VEO_3_1_PRO,
+        ];
+        const unreachable: string[] = [];
+        let modelsListError: string | undefined;
+        if (missing.length === 0) {
+          try {
+            const seen = new Set<string>();
+            const pager = await client.ai.models.list();
+            const page = pager as unknown as { page?: Array<{ name?: string }> };
+            for (const m of page.page ?? []) {
+              if (m.name) seen.add(m.name.replace(/^models\//, ''));
+            }
+            for (const id of lockedModels) {
+              if (!seen.has(id)) unreachable.push(id);
+            }
+          } catch (err) {
+            modelsListError = err instanceof Error ? err.message : String(err);
+          }
+        }
+
+        const ok = missing.length === 0 && unreachable.length === 0 && !modelsListError;
+        return asResult({
+          ok,
+          missing,
+          ...(unreachable.length > 0 ? { unreachableModels: unreachable } : {}),
+          ...(modelsListError ? { modelsListError } : {}),
+        });
       }),
     );
   }
@@ -512,13 +548,34 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     reg(
       t.name,
       { title: 'List Outputs', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (_input) => {
-        // OutputManager does not currently expose a listJobs method.
-        // v0.1.0 placeholder — P9/P10 will implement job listing.
-        return asResult({
-          jobs: [],
-          note: 'list helper not yet implemented — will be available in a future phase',
-        });
+      wrap(t.name, async (input) => {
+        const inp = input as { project?: string; limit?: number };
+        const limit = Math.max(1, Math.min(1000, inp.limit ?? 100));
+        const jobsDir = path.join(config.projectDir, 'jobs');
+        try {
+          const entries = await fs.readdir(jobsDir);
+          // Filter to directories that match the OutputManager jobId pattern.
+          const jobs: Array<{ jobId: string; jobDir: string }> = [];
+          for (const entry of entries) {
+            if (!JOB_ID_PATTERN.test(entry)) continue;
+            const jobDir = path.join(jobsDir, entry);
+            const stat = await fs.stat(jobDir).catch(() => null);
+            if (stat?.isDirectory()) {
+              jobs.push({ jobId: entry, jobDir });
+              if (jobs.length >= limit) break;
+            }
+          }
+          // Most recent first — jobId starts with an ISO-like timestamp so a
+          // reverse lexicographic sort is a good approximation of newest-first.
+          jobs.sort((a, b) => b.jobId.localeCompare(a.jobId));
+          return asResult({ jobs, count: jobs.length, jobsDir });
+        } catch (err) {
+          // Directory missing simply means no jobs run yet — return empty.
+          if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+            return asResult({ jobs: [], count: 0, jobsDir });
+          }
+          throw err;
+        }
       }),
     );
   }
