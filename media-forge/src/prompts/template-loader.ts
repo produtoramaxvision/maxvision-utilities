@@ -1,6 +1,5 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import { z } from 'zod';
 import { parse as parseYaml } from 'yaml';
 import { ValidationError } from '../core/errors.js';
@@ -183,7 +182,13 @@ export async function buildIndex(promptsDir: string): Promise<PromptIndex> {
 export async function writeIndex(promptsDir: string): Promise<PromptIndex> {
   const index = await buildIndex(promptsDir);
   const outFile = path.join(promptsDir, '_index.json');
-  const tmpFile = path.join(os.tmpdir(), `_index_${Date.now()}_${process.pid}.json`);
+  // Place the temp file alongside the destination so the rename stays within
+  // the same volume. On Windows CI runners os.tmpdir() lives on C: but the
+  // workspace clone is on D:, which breaks rename with EXDEV.
+  const tmpFile = path.join(
+    promptsDir,
+    `.${path.basename(outFile)}.tmp.${process.pid}.${Date.now()}`,
+  );
 
   await fs.promises.writeFile(tmpFile, JSON.stringify(index, null, 2), 'utf-8');
   await fs.promises.rename(tmpFile, outFile);

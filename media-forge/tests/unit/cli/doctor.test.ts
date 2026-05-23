@@ -236,10 +236,14 @@ describe('runDoctor — aggregate result', () => {
   });
 
   it('result.ok=false when output dir fails', async () => {
+    // Fail-fast paths per platform without hangs:
+    //   Windows: unmounted drive letter → ENOENT immediately
+    //   POSIX:   /dev/null is a char device, mkdir of a child returns ENOTDIR
+    //            immediately. /proc/sys/... can hang on some Linux configs.
     const badPath =
       process.platform === 'win32'
         ? 'Z:\\nonexistent-drive\\outputs-xyz'
-        : '/proc/sys/nonexistent/outputs';
+        : '/dev/null/outputs-xyz';
     const result = await runDoctor({
       env: { GOOGLE_API_KEY: 'test-key' },
       skipNetwork: true,
