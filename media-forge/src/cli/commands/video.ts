@@ -453,9 +453,12 @@ export function registerVideoCommands(program: Command): void {
         if (dispatched) process.exit(0);
       }
       const hopIndex = opts.hopIndex !== undefined ? parseInt(opts.hopIndex, 10) : 0;
-      if (hopIndex < 0 || hopIndex > 19) {
+      // parseInt returns NaN for non-numeric input ('abc'); NaN < 0 and NaN > 19
+      // are BOTH false, so the range check alone would let malformed values
+      // through. Explicit Number.isFinite gate forces a fail-fast.
+      if (!Number.isFinite(hopIndex) || hopIndex < 0 || hopIndex > 19) {
         throw new ValidationError(
-          `--hop-index ${hopIndex} is out of range (0-19); max 20 hops allowed`,
+          `--hop-index must be an integer in 0-19, got '${opts.hopIndex ?? ''}'`,
         );
       }
       if (opts.estimateCost) {

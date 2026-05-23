@@ -376,16 +376,24 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           outputDir?: string;
           filename?: string;
         };
-        // Heuristic: if it looks like a GCS / HTTP URI, pass it directly.
-        // If it looks like an operation name (e.g. "projects/.../operations/..."), warn.
-        const isUri =
-          inp.operationName.startsWith('https://') ||
-          inp.operationName.startsWith('gs://') ||
-          inp.operationName.startsWith('http://');
-        if (!isUri) {
+        // downloadVideo uses fetch() under the hood and only supports HTTP(S)
+        // URIs in this runtime. gs:// URIs (common in Vertex outputs) would
+        // need to be signed first; reject with a clear actionable error
+        // instead of failing late inside fetch.
+        const isHttpUri =
+          inp.operationName.startsWith('https://') || inp.operationName.startsWith('http://');
+        const isGsUri = inp.operationName.startsWith('gs://');
+        if (isGsUri) {
           return asResult({
             ok: false,
-            note: 'media_download_video requires a resolved video URI (https:// or gs://). Re-poll the operation with media_poll_video_operation to get the videoUri from the response, then call this tool.',
+            note: 'media_download_video does not yet support gs:// URIs. Sign the GCS object to an https:// URL first (gsutil signurl or Cloud Storage signed URL API) and pass that here.',
+            operationName: inp.operationName,
+          });
+        }
+        if (!isHttpUri) {
+          return asResult({
+            ok: false,
+            note: 'media_download_video requires a resolved https:// video URI. Re-poll the operation with media_poll_video_operation to get the videoUri from the response, then call this tool.',
             operationName: inp.operationName,
           });
         }
