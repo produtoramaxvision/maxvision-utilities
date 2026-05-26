@@ -2,7 +2,7 @@
 -- Parallel pgvector table for Marengo 3.0 embeddings (512-dim).
 -- Separate from refs_index (1024-dim Voyage) so dims never conflict.
 -- Apply: psql "$PGVECTOR_ADMIN_URL" -f migrations/002-refs-index-marengo.sql
--- Then: psql "$PGVECTOR_ADMIN_URL" -c "GRANT SELECT, INSERT, UPDATE, DELETE ON media_forge_refs.refs_index_marengo TO media_forge_refs_rw;"
+-- Grants to media_forge_refs_rw are applied by the DO block at the bottom of this file.
 
 CREATE TABLE IF NOT EXISTS media_forge_refs.refs_index_marengo (
   object_key   TEXT PRIMARY KEY,
