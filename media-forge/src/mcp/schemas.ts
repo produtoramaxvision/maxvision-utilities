@@ -216,6 +216,34 @@ export const VideoCostReportInput = z.object({
 
 export type VideoCostReportInputT = z.infer<typeof VideoCostReportInput>;
 
+// video_route — pick optimal provider+model for a video generation request
+// (P13: Veo-only heuristic; extended in P14-P16 as more provider adapters land).
+// `preferProvider` accepts the full Provider type union (including not-yet-wired
+// names) so future-facing callers can specify a preference today; the handler
+// throws a clear error when the preference has no candidate in the current
+// registry.
+export const VideoRouteInput = z.object({
+  mode: z.enum([
+    't2v',
+    'i2v',
+    'interpolate',
+    'extend',
+    'with-refs',
+    'multi-shot',
+    'lip-sync',
+    'motion-brush',
+    'elements',
+    'targeted-edit',
+  ]),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive(),
+  resolution: z.enum(['720p', '1080p', '2k', '4k']),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']).optional(),
+  preferProvider: z.enum(['google', 'higgsfield', 'kling', 'bytedance']).optional(),
+});
+
+export type VideoRouteInputT = z.infer<typeof VideoRouteInput>;
+
 // ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
@@ -228,8 +256,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 29 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost = 29
+// MCP_TOOLS registry — 30 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route = 30
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -398,6 +426,14 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description:
       'Aggregate cost report from the local SQLite ledger. Returns totals and per-provider breakdowns for the specified period.',
     inputSchema: VideoCostReportInput,
+  },
+
+  // ---- Routing (1 — P13 cross-provider routing heuristic; Veo-only today) ----
+  {
+    name: 'media_video_route',
+    description:
+      'Pick the optimal provider+model for a video generation request (P13: Veo-only; extended in P14-P16).',
+    inputSchema: VideoRouteInput,
   },
 ] as const) as readonly MCPTool[];
 

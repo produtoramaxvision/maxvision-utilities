@@ -62,8 +62,17 @@ import {
 import type { WebhookRouter } from '../video/providers/webhook-router.js';
 import { GoogleVeoProvider } from '../video/providers/google-veo.js';
 import { VIDEO_MODELS } from '../core/models.js';
-import { VideoCostEstimateInput, type VideoCostEstimateInputT, VideoCostReportInput, type VideoCostReportInputT } from './schemas.js';
+import {
+  VideoCostEstimateInput,
+  type VideoCostEstimateInputT,
+  VideoCostReportInput,
+  type VideoCostReportInputT,
+  VideoRouteInput,
+  type VideoRouteInputT,
+} from './schemas.js';
 import { queryReport, type CostReport } from '../core/cost-tracker.js';
+import { normalizeCostUSD } from '../core/pricing.js';
+import type { Provider } from '../core/models.js';
 import { join } from 'node:path';
 
 // ---------------------------------------------------------------------------
@@ -133,6 +142,75 @@ export async function handleVideoCostEstimate(rawInput: unknown): Promise<{
 export async function handleVideoCostReport(rawInput: unknown): Promise<CostReport> {
   const input: VideoCostReportInputT = VideoCostReportInput.parse(rawInput);
   return queryReport({ dbPath: defaultDbPath(), periodDays: input.periodDays });
+}
+
+// ---------------------------------------------------------------------------
+// handleVideoRoute — pick optimal provider+model for a video generation request
+// ---------------------------------------------------------------------------
+// Cross-provider routing heuristic. In P13 the registry contains only Veo, so
+// every supported-mode call resolves to `google/veo-3.1-generate-preview`.
+// P14-P16 will add Higgsfield (credits-per-video), Kling (usd-per-second), and
+// Seedance (usd-per-video) — the sort already uses `normalizeCostUSD` so cross-
+// unit comparison stays correct without re-architecture.
+
+export interface VideoRouteResult {
+  readonly provider: Provider;
+  readonly modelId: string;
+  readonly mode: string;
+  readonly estimatedCostUSD: number;
+  readonly rationale: string;
+}
+
+export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteResult> {
+  const input: VideoRouteInputT = VideoRouteInput.parse(rawInput);
+
+  const candidates = Object.values(VIDEO_MODELS).filter((spec) =>
+    spec.modes.includes(input.mode as never),
+  );
+  if (candidates.length === 0) {
+    throw new Error(`no provider supports mode ${input.mode} in current registry`);
+  }
+  const filtered = input.preferProvider
+    ? candidates.filter((c) => c.provider === input.preferProvider)
+    : candidates;
+  if (filtered.length === 0) {
+    throw new Error(
+      `preferProvider ${input.preferProvider} has no model supporting mode ${input.mode}`,
+    );
+  }
+
+  // Sort by USD-equivalent cost (cross-unit aware via normalizeCostUSD).
+  // For credits-per-video providers (P14+ Higgsfield), the caller can pass
+  // input.usdPerCredit in extras; for P13 (Veo only, usd-per-second) the helper
+  // is duration-aware and produces a meaningful sort. Sorting by raw
+  // `pricing.rate` would silently mis-rank across providers with heterogeneous
+  // units the moment P14+ adapters land — never reintroduce that shortcut.
+  const sorted = [...filtered].sort(
+    (a, b) =>
+      normalizeCostUSD(a, { durationSec: input.durationSec }) -
+      normalizeCostUSD(b, { durationSec: input.durationSec }),
+  );
+  const picked = sorted[0]!;
+
+  const provider = new GoogleVeoProvider({ dbPath: defaultDbPath() });
+  const estimatedCostUSD =
+    picked.provider === 'google'
+      ? provider.estimateCostUSD({
+          modelId: picked.id,
+          mode: input.mode as never,
+          prompt: input.prompt,
+          durationSec: input.durationSec,
+          resolution: input.resolution,
+        })
+      : normalizeCostUSD(picked, { durationSec: input.durationSec });
+
+  return {
+    provider: picked.provider,
+    modelId: picked.id,
+    mode: input.mode,
+    estimatedCostUSD,
+    rationale: `P13: only google/Veo is wired. Selected ${picked.id} for mode ${input.mode}.`,
+  };
 }
 
 export interface HandlersDeps {
@@ -963,6 +1041,17 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Video Cost Report', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleVideoCostReport(input))),
+    );
+  }
+
+  // ---- Routing (1 — P13 cross-provider routing heuristic; Veo-only today) ----
+
+  {
+    const t = getTool('media_video_route');
+    reg(
+      t.name,
+      { title: 'Video Provider Routing', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleVideoRoute(input))),
     );
   }
 }
