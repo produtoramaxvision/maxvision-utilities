@@ -28,6 +28,20 @@ Onboarding wizard. Run this once after installing media-forge to configure your 
    - Both must be set and non-empty. The setup wizard will prompt and validate that neither is blank.
    - **Never echo the secret in full** — only confirm the last 4 chars when storing.
    - **Never echo the generated secret back in full** — only show the last 4 chars when confirming the value was stored.
+   **Default provider (P13)**:
+   - Ask the user which provider they want as their default. In P13 only `google` (Veo via GCS polling) is functional; other values are reserved for P14+.
+   - Set `MEDIA_FORGE_DEFAULT_PROVIDER=google` in their environment or `.env`.
+   - If the user does not specify a value, default to `google` silently. Do not error on omission.
+   - Inform the user: "In P14+ you will be able to change this to `higgsfield`, `kling`, or `seedance` once those providers are fully wired."
 4. After configuration, display the doctor check results.
 5. On success, suggest the first generation command as an example.
 6. On failure, display the specific error and a troubleshooting tip.
+
+## Note: Higgsfield official MCP connector (optional, user-side)
+
+Higgsfield publishes an official OAuth-based MCP connector at `https://mcp.higgsfield.ai/mcp`. This is a **separate product** from the media-forge plugin server and its Higgsfield provider integration:
+
+- The official connector is user-installed and authenticates via Higgsfield's own OAuth flow (no `HF_API_KEY` / `HF_API_SECRET` env vars needed on your side).
+- The media-forge plugin uses the Higgsfield platform REST API directly with `HF_API_KEY` + `HF_API_SECRET` (two-header auth, as documented in step 4 above).
+- Both can coexist — they operate independently. The official MCP connector is not required for media-forge to call Higgsfield; it is simply another way to access Higgsfield capabilities from an MCP client.
+- To explore the official connector, visit `https://mcp.higgsfield.ai/mcp` and follow the OAuth pairing instructions provided there.
