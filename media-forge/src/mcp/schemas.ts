@@ -49,6 +49,20 @@ export type {
   VideoInputT,
 } from '../video/video-schemas.js';
 
+// Refs schemas (Phase 1+)
+export {
+  RefsSearchInput,
+  RefsComposeMoodboardInput,
+  RefsPresignInput,
+  RefsIndexInput,
+} from '../refs/refs-schemas.js';
+export type {
+  RefsSearchInputT,
+  RefsComposeMoodboardInputT,
+  RefsPresignInputT,
+  RefsIndexInputT,
+} from '../refs/refs-schemas.js';
+
 // Re-import for internal use in MCP_TOOLS definitions
 import {
   NanoBananaProInput,
