@@ -67,6 +67,7 @@
     "@aws-sdk/s3-request-presigner": "^3.700.0",
     "@google-cloud/vision": "^5.3.6",
     "@google/genai": "^2.0.1",
+    "@higgsfield/client": "0.2.1",
     "@modelcontextprotocol/sdk": "^1.0.4",
     "commander": "^12.1.0",
     "dotenv": "^16.4.7",

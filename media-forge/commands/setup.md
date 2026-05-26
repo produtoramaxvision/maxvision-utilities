@@ -19,6 +19,14 @@ Onboarding wizard. Run this once after installing media-forge to configure your 
      - `openssl rand -hex 32`
      - `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`
    - **Graceful degradation**: if `MEDIA_FORGE_WEBHOOK_SECRET` is unset, the router stays disabled and the `media_video_webhook_status` MCP tool reports `running: false`. P13 (Veo only) works fine without it — Veo polls GCS for completion. P14+ providers will fall back to polling when callbacks are unavailable.
+4. Higgsfield API setup (P14+, required only if you plan to use Higgsfield video generation):
+   - The Higgsfield platform API requires two separate credentials — an API key and an API secret.
+   - Auth format verified from `@higgsfield/client@0.2.1` (`dist/client.js`): two custom headers `hf-api-key` and `hf-secret`. No Bearer token.
+   - Set in your environment (or `.env`):
+     - `HF_API_KEY` — your Higgsfield API key ID
+     - `HF_API_SECRET` — your Higgsfield API secret
+   - Both must be set and non-empty. The setup wizard will prompt and validate that neither is blank.
+   - **Never echo the secret in full** — only confirm the last 4 chars when storing.
    - **Never echo the generated secret back in full** — only show the last 4 chars when confirming the value was stored.
 4. After configuration, display the doctor check results.
 5. On success, suggest the first generation command as an example.
