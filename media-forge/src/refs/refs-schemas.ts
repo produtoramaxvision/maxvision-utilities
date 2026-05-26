@@ -20,11 +20,16 @@ export const RefsSearchInput = z.object({
   seed: z.number().int().default(0),
   ttlSeconds: z.number().int().min(60).max(3600).default(3000),
   refsDisabled: z.boolean().default(false),
+  // Snake-case alias populated by inject-refs.mjs hook and prompt-engineer agent.
+  // Coalesced with refsDisabled in the media_refs_search handler (no ZodEffects — DEBT-008).
+  refs_disabled: z.boolean().optional(),
 });
 export type RefsSearchInputT = z.infer<typeof RefsSearchInput>;
 
 export const RefsComposeMoodboardInput = z.object({
-  refKeys: z.array(z.string().min(1)).min(1).max(10),
+  // min(1) relaxed to allow subject-only moodboard requests (refKeys=[], subjectImagePaths non-empty).
+  // The service enforces "at least one ref or subject image" at runtime.
+  refKeys: z.array(z.string().min(1)).max(10).default([]),
   subjectImagePaths: z.array(z.string().min(1)).max(4).default([]),
   effectTags: z.array(z.string().min(1)).min(1),
   outputSize: z.enum(['1024', '2048', '4096']).default('2048'),

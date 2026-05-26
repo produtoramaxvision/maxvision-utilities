@@ -105,7 +105,10 @@ async function main() {
     );
 
     // 8. Search refs and build additionalContext
-    const svc = createRefsService(cfg);
+    // Stub mfClient — hook only uses searchRefs (not composeMoodboardFromKeys which needs NBP).
+    // createRefsService(cfg, mfClient) signature requires mfClient; stub avoids construction throw.
+    const mfClientStub = { mode: 'dryRun', dryRun: true, ai: {} };
+    const svc = createRefsService(cfg, mfClientStub);
     const refs = await svc.searchRefs({
       tags: [...matched].slice(0, 3),
       mode: 'tag',

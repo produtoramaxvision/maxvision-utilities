@@ -6,6 +6,7 @@ function fakeClient(objectsByPrefix: Record<string, { key: string; size: number 
   return {
     listObjects: vi.fn(async (prefix: string) => ({
       objects: objectsByPrefix[prefix] ?? [],
+      commonPrefixes: [],
       truncated: false,
     })),
     headObject: vi.fn(),
@@ -61,5 +62,39 @@ describe('sampleByCategory', () => {
     await expect(
       sampleByCategory(client, ['not-a-real-category'], { limitPerCategory: 1, seed: 1, ttlSeconds: 3000 }),
     ).rejects.toThrow(/unknown category/i);
+  });
+
+  // R2: pagination — two pages merged before shuffle
+  it('paginates listObjects and includes objects from both pages', async () => {
+    const page1Objs = [
+      { key: 'dolly-zoom/page1-a.gif', size: 10 },
+      { key: 'dolly-zoom/page1-b.gif', size: 20 },
+    ];
+    const page2Objs = [
+      { key: 'dolly-zoom/page2-a.gif', size: 30 },
+      { key: 'dolly-zoom/page2-b.gif', size: 40 },
+    ];
+    let callCount = 0;
+    const paginatedClient: MinioClient = {
+      listObjects: vi.fn(async (_prefix: string, _max?: number, token?: string) => {
+        callCount++;
+        if (token === undefined) {
+          // First page: truncated, returns continuation token
+          return { objects: page1Objs, commonPrefixes: [], truncated: true, nextContinuationToken: 'tok2' };
+        }
+        // Second page: not truncated
+        return { objects: page2Objs, commonPrefixes: [], truncated: false };
+      }),
+      headObject: vi.fn(),
+      presignObject: vi.fn(async (k: string) => `https://signed.example/${k}`),
+      downloadObject: vi.fn(),
+    } as unknown as MinioClient;
+
+    // limitPerCategory=4 so all 4 objects can appear
+    const refs = await sampleByCategory(paginatedClient, ['dolly-zoom'], { limitPerCategory: 4, seed: 1, ttlSeconds: 3000 });
+    expect(callCount).toBe(2); // both pages fetched
+    const keys = refs.map((r) => r.objectKey).sort();
+    const allKeys = [...page1Objs, ...page2Objs].map((o) => o.key).sort();
+    expect(keys).toEqual(allKeys);
   });
 });

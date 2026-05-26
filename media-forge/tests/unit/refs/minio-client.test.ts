@@ -49,6 +49,25 @@ describe('minio-client', () => {
     expect(result.objects[0].key).toBe('dolly-zoom/aaa.gif');
     expect(result.objects[0].size).toBe(1000);
     expect(result.truncated).toBe(false);
+    // R4: commonPrefixes always present (empty when no Delimiter or no common prefixes)
+    expect(result.commonPrefixes).toEqual([]);
+  });
+
+  it('listObjects with Delimiter returns commonPrefixes', async () => {
+    sendMock.mockResolvedValueOnce({
+      Contents: [],
+      CommonPrefixes: [
+        { Prefix: 'dolly-zoom/' },
+        { Prefix: 'bullet-time/' },
+        { Prefix: 'slow-motion/' },
+      ],
+      IsTruncated: false,
+    });
+    const client = createMinioClient(cfg);
+    const result = await client.listObjects('', 1000, undefined, '/');
+    expect(result.objects).toHaveLength(0);
+    expect(result.commonPrefixes).toEqual(['dolly-zoom/', 'bullet-time/', 'slow-motion/']);
+    expect(result.truncated).toBe(false);
   });
 
   it('listObjects throws on missing access credentials', async () => {

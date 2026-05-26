@@ -26,12 +26,13 @@ export interface MinioObject {
 
 export interface ListObjectsResult {
   objects: MinioObject[];
+  commonPrefixes: string[];
   truncated: boolean;
   nextContinuationToken?: string;
 }
 
 export interface MinioClient {
-  listObjects(prefix: string, max?: number, continuationToken?: string): Promise<ListObjectsResult>;
+  listObjects(prefix: string, max?: number, continuationToken?: string, delimiter?: string): Promise<ListObjectsResult>;
   headObject(key: string): Promise<{ size: number; contentType?: string }>;
   presignObject(key: string, ttlSeconds: number): Promise<string>;
   downloadObject(key: string): Promise<Buffer>;
@@ -55,13 +56,14 @@ export function createMinioClient(cfg: MinioConfig): MinioClient {
   });
 
   return {
-    async listObjects(prefix, max = 1000, continuationToken) {
+    async listObjects(prefix, max = 1000, continuationToken, delimiter) {
       const resp = await client.send(
         new ListObjectsV2Command({
           Bucket: cfg.bucket,
           Prefix: prefix,
           MaxKeys: max,
           ContinuationToken: continuationToken,
+          ...(delimiter !== undefined ? { Delimiter: delimiter } : {}),
         }),
       );
       const objects: MinioObject[] = (resp.Contents ?? []).map((o) => ({
@@ -69,8 +71,10 @@ export function createMinioClient(cfg: MinioConfig): MinioClient {
         size: o.Size ?? 0,
         etag: o.ETag,
       }));
+      const commonPrefixes: string[] = (resp.CommonPrefixes ?? []).map((p) => p.Prefix ?? '').filter(Boolean);
       return {
         objects,
+        commonPrefixes,
         truncated: resp.IsTruncated ?? false,
         nextContinuationToken: resp.NextContinuationToken,
       };

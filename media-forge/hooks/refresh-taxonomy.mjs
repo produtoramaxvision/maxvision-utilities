@@ -54,13 +54,10 @@ async function main() {
     );
 
     const client = createMinioClient(cfg);
-    // List top-level prefixes by paging with max keys — best-effort (first 5000 objects)
-    const { objects } = await client.listObjects('', 5000);
-    const remoteCats = new Set();
-    for (const obj of objects) {
-      const idx = obj.key.indexOf('/');
-      if (idx > 0) remoteCats.add(obj.key.slice(0, idx));
-    }
+    // Use Delimiter='/' to enumerate top-level prefixes natively via CommonPrefixes.
+    // This is O(1) regardless of bucket size — avoids the 5000-object page limit.
+    const { commonPrefixes } = await client.listObjects('', 1000, undefined, '/');
+    const remoteCats = new Set(commonPrefixes.map((p) => p.replace(/\/$/, '')));
     const added = [...remoteCats].filter((c) => !CATEGORIES.includes(c));
     const removed = CATEGORIES.filter((c) => !remoteCats.has(c));
 

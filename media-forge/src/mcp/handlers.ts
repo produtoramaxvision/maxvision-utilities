@@ -37,7 +37,7 @@ import {
   downloadVideo,
 } from '../video/video-service.js';
 import { OcrValidator, checkBrand } from '../review/review-service.js';
-import { estimateImageCost, estimateVideoCost } from '../core/cost.js';
+import { estimateImageCost, estimateVideoCost, estimateRefsCost, type RefsEstimate } from '../core/cost.js';
 import { createRefsService } from '../refs/refs-service.js';
 import type {
   RefsSearchInputT,
@@ -439,16 +439,41 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       wrap(t.name, async (input) => {
         const inp = input as { items: Array<{ op: string; params: Record<string, unknown> }> };
         let totalUsd = 0;
-        const perItem: Array<{ op: string; usd: number; breakdown: string }> = [];
+        const perItem: Array<{ op: string; usd: number; breakdown: string; refsBreakdown?: unknown }> = [];
         for (const item of inp.items) {
           let usd = 0;
           let breakdown = `Unknown op: ${item.op}`;
+          let refsBreakdown: RefsEstimate | undefined;
 
           const op = item.op.toLowerCase();
+
+          // Refs/moodboard operations — checked before generic image/video branches.
+          // Triggered when params.refMode is set (MOODBOARD | SUBJECT_REF | TEXT_ONLY).
+          const params_r = item.params as {
+            refMode?: string;
+            refCount?: number;
+            subjectCount?: number;
+            outputSize?: string;
+            searchMode?: string;
+          };
+          if (params_r.refMode) {
+            const mode = (['MOODBOARD', 'SUBJECT_REF', 'TEXT_ONLY'].includes(params_r.refMode ?? '')
+              ? params_r.refMode
+              : 'TEXT_ONLY') as 'MOODBOARD' | 'SUBJECT_REF' | 'TEXT_ONLY';
+            const est = estimateRefsCost({
+              mode,
+              refCount: params_r.refCount ?? 0,
+              subjectCount: params_r.subjectCount ?? 0,
+              outputSize: (['1024', '2048', '4096'].includes(params_r.outputSize ?? '') ? params_r.outputSize : '2048') as '1024' | '2048' | '4096',
+              searchMode: (params_r.searchMode === 'semantic' ? 'semantic' : 'tag'),
+            });
+            usd = est.totalUsd;
+            breakdown = `refs/${mode}: lookup=$${est.refsLookupUsd.toFixed(4)} compose=$${est.moodboardComposeUsd.toFixed(4)} total=$${est.totalUsd.toFixed(4)}`;
+            refsBreakdown = est;
           // Imagen takes priority over the generic generate_image fallback so
           // ops like `media_generate_image_imagen4_ultra` route to the Imagen
           // estimator instead of being mispriced as Nano Banana Pro.
-          if (op.includes('imagen')) {
+          } else if (op.includes('imagen')) {
             const params = item.params as { numberOfImages?: number };
             const est = estimateImageCost({
               model: IMAGE_MODEL_IMAGEN_4_ULTRA,
@@ -479,7 +504,9 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           }
 
           totalUsd += usd;
-          perItem.push({ op: item.op, usd, breakdown });
+          const entry: { op: string; usd: number; breakdown: string; refsBreakdown?: unknown } = { op: item.op, usd, breakdown };
+          if (refsBreakdown !== undefined) entry.refsBreakdown = refsBreakdown;
+          perItem.push(entry);
         }
         return asResult({ totalUsd, perItem });
       }),
@@ -772,7 +799,10 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       { title: 'Search reference assets in media-forge-refs', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
         const parsed = validateInput<RefsSearchInputT>(t, input);
-        if (parsed.refsDisabled === true) {
+        // Coalesce snake_case alias (from hook / prompt-engineer) with camelCase field.
+        // Default for refsDisabled is false, so we must OR both fields (not ??) to avoid
+        // clobbering a refs_disabled=true that got parsed alongside a default-false refsDisabled.
+        if (parsed.refsDisabled === true || parsed.refs_disabled === true) {
           return asResult({ enabled: true, refs: [], reason: 'refs_disabled=true on this call' });
         }
         if (!deps.config.refsEnabled) {

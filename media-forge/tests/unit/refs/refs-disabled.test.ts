@@ -19,6 +19,7 @@ vi.mock('../../../src/image/image-service.js', async () => {
 import { createRefsServiceWithClient } from '../../../src/refs/refs-service.js';
 import type { MinioClient } from '../../../src/refs/minio-client.js';
 import type { MediaForgeClient } from '../../../src/core/client.js';
+import { RefsSearchInput } from '../../../src/refs/refs-schemas.js';
 
 // ---------------------------------------------------------------------------
 // Minimal stubs
@@ -56,5 +57,31 @@ describe('searchRefs — refsDisabled opt-out', () => {
     expect(result).toEqual([]);
     expect(sampleByCategoryMock).not.toHaveBeenCalled();
     expect(minio.listObjects).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// R1: RefsSearchInput accepts both refsDisabled and refs_disabled
+// ---------------------------------------------------------------------------
+
+describe('RefsSearchInput — snake_case alias (R1)', () => {
+  it('parses refs_disabled=true without dropping it', () => {
+    const parsed = RefsSearchInput.parse({ tags: ['dolly-zoom'], refs_disabled: true });
+    // schema preserves the snake_case field
+    expect(parsed.refs_disabled).toBe(true);
+    // default for camelCase remains false (snake_case is the override)
+    expect(parsed.refsDisabled).toBe(false);
+  });
+
+  it('parses refsDisabled=true normally', () => {
+    const parsed = RefsSearchInput.parse({ tags: ['dolly-zoom'], refsDisabled: true });
+    expect(parsed.refsDisabled).toBe(true);
+    expect(parsed.refs_disabled).toBeUndefined();
+  });
+
+  it('both fields absent → refsDisabled defaults to false', () => {
+    const parsed = RefsSearchInput.parse({ tags: ['dolly-zoom'] });
+    expect(parsed.refsDisabled).toBe(false);
+    expect(parsed.refs_disabled).toBeUndefined();
   });
 });

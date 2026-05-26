@@ -34,6 +34,7 @@ import { createRefsService, createRefsServiceWithClient } from '../../../src/ref
 import { SafetyRejectedError } from '../../../src/refs/moodboard-composer.js';
 import type { MinioClient } from '../../../src/refs/minio-client.js';
 import type { MediaForgeClient } from '../../../src/core/client.js';
+import { RefsComposeMoodboardInput } from '../../../src/refs/refs-schemas.js';
 
 // ---------------------------------------------------------------------------
 // Shared test fixtures
@@ -352,6 +353,7 @@ describe('refs-service — refsUsed accuracy (Copilot Finding 2)', () => {
 // ---------------------------------------------------------------------------
 // Suite 8 — Finding 3: semantic mode canonicalises aliases before pgvector filter
 // ---------------------------------------------------------------------------
+// (no change to suite 8 content; new suites added below)
 
 describe('refs-service — semantic mode alias resolution (Finding 3)', () => {
   beforeEach(() => {
@@ -377,5 +379,47 @@ describe('refs-service — semantic mode alias resolution (Finding 3)', () => {
     // Must receive resolved canonical name, NOT the raw alias
     expect(callArgs.categoryFilter).toContain('dolly-zoom');
     expect(callArgs.categoryFilter).not.toContain('vertigo-effect');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite 9 — R3: createRefsService(cfg, stub) does not throw at construction
+// ---------------------------------------------------------------------------
+
+describe('refs-service — R3: mfClient stub construction', () => {
+  it('createRefsService with minimal stub does not throw', () => {
+    const stub = { mode: 'dryRun', dryRun: true, ai: {} } as unknown as MediaForgeClient;
+    expect(() => createRefsService(cfg, stub)).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite 10 — R5: RefsComposeMoodboardInput accepts empty refKeys with subjects
+// ---------------------------------------------------------------------------
+
+describe('RefsComposeMoodboardInput — R5: subject-only schema parse', () => {
+  it('parses successfully when refKeys=[] and subjectImagePaths non-empty', () => {
+    const result = RefsComposeMoodboardInput.safeParse({
+      refKeys: [],
+      subjectImagePaths: ['/tmp/subj.jpg'],
+      effectTags: ['dolly-zoom'],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.refKeys).toEqual([]);
+      expect(result.data.subjectImagePaths).toEqual(['/tmp/subj.jpg']);
+    }
+  });
+
+  it('service rejects empty refKeys AND empty subjectImagePaths at runtime', async () => {
+    const svc = createRefsServiceWithClient(makeFakeMinioClient(), fakeMfClient);
+    await expect(
+      svc.composeMoodboardFromKeys({
+        refKeys: [],
+        subjectImagePaths: [],
+        effectTags: ['dolly-zoom'],
+        outputSize: '1024',
+      }),
+    ).rejects.toThrow(/at least one ref or subject/i);
   });
 });

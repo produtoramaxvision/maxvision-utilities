@@ -6,6 +6,7 @@ import {
   estimateImageCost,
   estimateVideoCost,
   estimateWithRetries,
+  estimateRefsCost,
   dailyTotal,
   appendCostLogEntry,
 } from '../../../src/core/cost.js';
@@ -91,6 +92,33 @@ describe('estimateWithRetries (C4 fix — retry budget visible)', () => {
     expect(r.maxTotalUsd).toBeCloseTo(0.72, 5);
     expect(r.retryMultiplier).toBe(3);
     expect(r.breakdown).toContain('max 3x retries');
+  });
+});
+
+describe('estimateRefsCost (R6)', () => {
+  it('MOODBOARD mode returns non-zero moodboardComposeUsd', () => {
+    const est = estimateRefsCost({ mode: 'MOODBOARD', refCount: 5, subjectCount: 1, outputSize: '2048' });
+    expect(est.mode).toBe('MOODBOARD');
+    expect(est.moodboardComposeUsd).toBeGreaterThan(0);
+    expect(est.refsLookupUsd).toBe(0); // tag mode, no voyage query
+    expect(est.totalUsd).toBeCloseTo(est.refsLookupUsd + est.moodboardComposeUsd, 5);
+  });
+
+  it('TEXT_ONLY mode returns zero compose cost', () => {
+    const est = estimateRefsCost({ mode: 'TEXT_ONLY', refCount: 0, subjectCount: 0, outputSize: '2048' });
+    expect(est.moodboardComposeUsd).toBe(0);
+    expect(est.totalUsd).toBe(0);
+  });
+
+  it('semantic search mode adds voyage query cost', () => {
+    const est = estimateRefsCost({ mode: 'TEXT_ONLY', refCount: 0, subjectCount: 0, outputSize: '2048', searchMode: 'semantic' });
+    expect(est.refsLookupUsd).toBeGreaterThan(0);
+  });
+
+  it('4096 output size costs more than 2048', () => {
+    const est2k = estimateRefsCost({ mode: 'MOODBOARD', refCount: 3, subjectCount: 1, outputSize: '2048' });
+    const est4k = estimateRefsCost({ mode: 'MOODBOARD', refCount: 3, subjectCount: 1, outputSize: '4096' });
+    expect(est4k.moodboardComposeUsd).toBeGreaterThan(est2k.moodboardComposeUsd);
   });
 });
 

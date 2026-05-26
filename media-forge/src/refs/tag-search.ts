@@ -1,8 +1,12 @@
 // src/refs/tag-search.ts
 // Phase 1 search: list-objects per category prefix, deterministically sample N,
 // presign each, return structured refs.
-import type { MinioClient } from './minio-client.js';
+import type { MinioClient, MinioObject } from './minio-client.js';
 import { isCategory, resolveAliases } from './taxonomy.js';
+
+const MAX_OBJECTS_PER_CATEGORY = Number(
+  process.env['MEDIA_FORGE_MAX_OBJECTS_PER_CATEGORY'] ?? '10000',
+);
 
 export interface SampleOptions {
   limitPerCategory: number;
@@ -57,8 +61,16 @@ export async function sampleByCategory(
 
   const all: RefRecord[] = [];
   for (const cat of resolved) {
-    const { objects } = await client.listObjects(`${cat}/`, 1000);
-    const picks = seededShuffle(objects, opts.seed).slice(0, opts.limitPerCategory);
+    const allObjects: MinioObject[] = [];
+    let token: string | undefined;
+    do {
+      const page = await client.listObjects(`${cat}/`, 1000, token);
+      allObjects.push(...page.objects);
+      token = page.truncated ? page.nextContinuationToken : undefined;
+      if (allObjects.length >= MAX_OBJECTS_PER_CATEGORY) break;
+    } while (token);
+
+    const picks = seededShuffle(allObjects, opts.seed).slice(0, opts.limitPerCategory);
     for (let rank = 0; rank < picks.length; rank++) {
       const obj = picks[rank] as NonNullable<(typeof picks)[number]>;
       const url = await client.presignObject(obj.key, opts.ttlSeconds);

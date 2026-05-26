@@ -270,6 +270,26 @@ describe('registerAllTools()', () => {
     expect(result.structuredContent.perItem).toHaveLength(1);
   });
 
+  // Test R6: media_estimate_cost with refMode=MOODBOARD returns refsBreakdown
+  it('media_estimate_cost with refMode=MOODBOARD includes refsBreakdown in perItem', async () => {
+    const tool = tools.find((t) => t.name === 'media_estimate_cost');
+    expect(tool).toBeDefined();
+    const result = await tool!.handler({
+      items: [{ op: 'video', params: { refMode: 'MOODBOARD', refCount: 5, subjectCount: 1, outputSize: '2048' } }],
+    }) as {
+      structuredContent: { totalUsd: number; perItem: Array<{ op: string; usd: number; breakdown: string; refsBreakdown?: Record<string, unknown> }> };
+    };
+    const item = result.structuredContent.perItem[0];
+    expect(item).toBeDefined();
+    expect(item!.refsBreakdown).toBeDefined();
+    expect((item!.refsBreakdown as Record<string, unknown>)?.mode).toBe('MOODBOARD');
+    expect(result.structuredContent.totalUsd).toBeGreaterThan(0);
+    // Total must include moodboardComposeUsd
+    const rb = item!.refsBreakdown as { moodboardComposeUsd: number; refsLookupUsd: number; totalUsd: number };
+    expect(rb.moodboardComposeUsd).toBeGreaterThan(0);
+    expect(result.structuredContent.totalUsd).toBeCloseTo(rb.totalUsd, 5);
+  });
+
   // Test 11: media_help with specific topic returns help containing the tool name
   it('media_help with topic="media_generate_image" returns text with that name', async () => {
     const tool = tools.find((t) => t.name === 'media_help');
