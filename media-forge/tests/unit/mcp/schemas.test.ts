@@ -49,14 +49,16 @@ const EXPECTED_TOOL_NAMES = [
   'media_refs_index',
   // webhook (1 — P13 scaffold for P14+ provider callbacks)
   'media_video_webhook_status',
+  // cost estimation (1 — P13 provider-registry cost tool)
+  'media_video_cost_estimate',
 ] as const;
 
 // ---------------------------------------------------------------------------
 // Registry shape assertions
 // ---------------------------------------------------------------------------
 describe('MCP_TOOLS registry', () => {
-  it('contains exactly 27 tools', () => {
-    expect(MCP_TOOLS.length).toBe(27);
+  it('contains exactly 28 tools', () => {
+    expect(MCP_TOOLS.length).toBe(28);
   });
 
   it('is frozen (Object.isFrozen)', () => {
@@ -100,11 +102,11 @@ describe('MCP_TOOLS registry', () => {
 // listMCPToolNames()
 // ---------------------------------------------------------------------------
 describe('listMCPToolNames()', () => {
-  it('returns an array of length 27', () => {
-    expect(listMCPToolNames().length).toBe(27);
+  it('returns an array of length 28', () => {
+    expect(listMCPToolNames().length).toBe(28);
   });
 
-  it('contains all 27 expected tool names', () => {
+  it('contains all 28 expected tool names', () => {
     const names = listMCPToolNames();
     for (const expected of EXPECTED_TOOL_NAMES) {
       expect(names).toContain(expected);

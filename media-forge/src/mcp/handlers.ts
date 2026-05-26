@@ -60,6 +60,10 @@ import {
   VIDEO_DURATION_SECONDS,
 } from '../core/models.js';
 import type { WebhookRouter } from '../video/providers/webhook-router.js';
+import { GoogleVeoProvider } from '../video/providers/google-veo.js';
+import { VIDEO_MODELS } from '../core/models.js';
+import { VideoCostEstimateInput, type VideoCostEstimateInputT } from './schemas.js';
+import { join } from 'node:path';
 
 // ---------------------------------------------------------------------------
 // Webhook router module-level handle (P13 scaffold for P14+ provider callbacks)
@@ -87,6 +91,38 @@ export async function handleVideoWebhookStatus(): Promise<VideoWebhookStatusResu
     address: _webhookRouter.address,
     handlers: Array.from(_webhookRouter.handlers.keys()),
   };
+}
+
+// ---------------------------------------------------------------------------
+// defaultDbPath — resolves the SQLite cost DB path from env or cwd default
+// ---------------------------------------------------------------------------
+
+function defaultDbPath(): string {
+  const projectDir =
+    process.env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
+  return join(projectDir, 'cost.db');
+}
+
+// ---------------------------------------------------------------------------
+// handleVideoCostEstimate — estimate USD cost for a video generation request
+// ---------------------------------------------------------------------------
+
+export async function handleVideoCostEstimate(rawInput: unknown): Promise<{
+  estimatedCostUSD: number;
+  provider: string;
+  modelId: string;
+}> {
+  const input: VideoCostEstimateInputT = VideoCostEstimateInput.parse(rawInput);
+  const spec = VIDEO_MODELS[input.modelId];
+  if (!spec) throw new Error(`unknown model: ${input.modelId}`);
+  if (spec.provider !== 'google') {
+    throw new Error(
+      `provider ${spec.provider} not yet wired in P13 — only google/Veo supported`,
+    );
+  }
+  const provider = new GoogleVeoProvider({ dbPath: defaultDbPath() });
+  const usd = provider.estimateCostUSD(input);
+  return { estimatedCostUSD: usd, provider: spec.provider, modelId: input.modelId };
 }
 
 export interface HandlersDeps {
@@ -897,6 +933,17 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Webhook Router Status', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async () => asResult(await handleVideoWebhookStatus())),
+    );
+  }
+
+  // ---- Cost estimation (1 — P13 provider-registry cost tool) ----
+
+  {
+    const t = getTool('media_video_cost_estimate');
+    reg(
+      t.name,
+      { title: 'Video Cost Estimate', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleVideoCostEstimate(input))),
     );
   }
 }

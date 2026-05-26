@@ -197,6 +197,18 @@ export type MediaHelpInputT = z.infer<typeof MediaHelpInput>;
 export const VideoWebhookStatusInput = z.object({}).strict();
 export type VideoWebhookStatusInputT = z.infer<typeof VideoWebhookStatusInput>;
 
+// video_cost_estimate — estimate USD cost for a video generation request
+// (any provider in the registry; P13 supports google/Veo only)
+export const VideoCostEstimateInput = z.object({
+  modelId: z.string().min(1),
+  mode: z.enum(['t2v', 'i2v', 'interpolate', 'extend', 'with-refs']),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive(),
+  resolution: z.enum(['720p', '1080p', '2k', '4k']),
+});
+
+export type VideoCostEstimateInputT = z.infer<typeof VideoCostEstimateInput>;
+
 // ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
@@ -209,8 +221,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 27 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook = 27
+// MCP_TOOLS registry — 28 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 1 cost = 28
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -365,6 +377,14 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description:
       'Status of the local webhook router (P14+ provider callback endpoint). Reports running state, bind address, and registered handlers.',
     inputSchema: VideoWebhookStatusInput,
+  },
+
+  // ---- Cost estimation (1 — P13 provider-registry cost tool) ----
+  {
+    name: 'media_video_cost_estimate',
+    description:
+      'Estimate USD cost for a video generation request (any provider in the registry; P13 supports google/Veo only).',
+    inputSchema: VideoCostEstimateInput,
   },
 ] as const) as readonly MCPTool[];
 

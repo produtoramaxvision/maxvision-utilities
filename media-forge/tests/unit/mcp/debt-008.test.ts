@@ -2,7 +2,7 @@
  * Tests for DEBT-008: MCP tools/list inputSchema emission for ZodEffects-wrapped tools.
  *
  * Verifies that:
- * 1. All 26 tools expose a ZodObject as inputSchema (not ZodEffects).
+ * 1. All 28 tools expose a ZodObject as inputSchema (not ZodEffects).
  * 2. validateInput uses validationSchema (with superRefine) when present.
  * 3. validateInput falls back to inputSchema when validationSchema is absent.
  * 4. media_generate_video_t2v rejects 4k + durationSeconds=4 (superRefine rule).
@@ -30,7 +30,7 @@ function validateInput<T>(tool: MCPTool, input: unknown): T {
 
 describe('DEBT-008: tools/list inputSchema shape', () => {
   it('every tool exposes a ZodObject (not ZodEffects) as inputSchema', () => {
-    expect(MCP_TOOLS.length).toBe(27);
+    expect(MCP_TOOLS.length).toBe(28);
     for (const tool of MCP_TOOLS) {
       const isZodObject = tool.inputSchema instanceof ZodObject;
       expect(
