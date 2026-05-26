@@ -1,6 +1,9 @@
 import type { Command } from 'commander';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { loadConfig } from '../../core/config.js';
+import { createMinioClient } from '../../refs/minio-client.js';
+import { generateAuditGallery } from '../../refs/audit-gallery.js';
 
 export interface JobSummary {
   jobId: string;
@@ -84,7 +87,9 @@ export function registerAuditCommand(program: Command): void {
     .argument('<jobId>', 'Job ID or "all" for all jobs')
     .option('--json', 'Output as JSON')
     .option('--project-dir <dir>', 'Override .media-forge project dir')
-    .action(async (jobId: string, opts: { json?: boolean; projectDir?: string }) => {
+    .option('--gallery', 'Generate HTML gallery of ref thumbnails for this job')
+    .option('--gallery-dir <dir>', 'Output directory for gallery (default: job version dir)')
+    .action(async (jobId: string, opts: { json?: boolean; projectDir?: string; gallery?: boolean; galleryDir?: string }) => {
       const projectDir =
         opts.projectDir ??
         process.env['MEDIA_FORGE_PROJECT_DIR'] ??
@@ -122,6 +127,23 @@ export function registerAuditCommand(program: Command): void {
           if (summary.error) {
             process.stdout.write(`error: ${summary.error}\n`);
           }
+        }
+
+        if (opts.gallery) {
+          const targetDir = summary.versionDir ?? summary.jobDir;
+          const tracePath = path.join(targetDir, 'trace.jsonl');
+          const outputDir = opts.galleryDir ?? targetDir;
+          const cfg = loadConfig();
+          const client = createMinioClient({
+            endpoint: cfg.minioEndpoint ?? '',
+            region: cfg.minioRegion,
+            accessKey: cfg.minioAccessKey,
+            secretKey: cfg.minioSecretKey,
+            bucket: cfg.minioBucket,
+            useSsl: cfg.minioUseSsl,
+          });
+          const gallery = await generateAuditGallery({ tracePath, outputDir, client });
+          process.stdout.write(`gallery: ${gallery.htmlPath} (${gallery.thumbCount} thumb(s))\n`);
         }
       }
     });

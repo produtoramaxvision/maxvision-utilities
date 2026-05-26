@@ -8,3 +8,4 @@ export * from './moodboard-composer.js';
 export * from './refs-schemas.js';
 export * from './taxonomy.js';
 export * from './refs-service.js';
+export * from './audit-gallery.js';
