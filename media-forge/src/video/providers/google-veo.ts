@@ -63,8 +63,16 @@ export class GoogleVeoProvider implements VideoProvider {
     return { jobId, state: 'pending' };
   }
 
-  async download(_jobIdOrPath: string): Promise<DownloadedAsset> {
-    throw new Error('download not yet wired to existing veo modules — wired in Task 7');
+  async download(jobIdOrPath: string): Promise<DownloadedAsset> {
+    const { readFile } = await import('node:fs/promises');
+    const buffer = await readFile(jobIdOrPath);
+    return {
+      buffer,
+      metadata: {
+        contentType: 'video/mp4',
+        sizeBytes: buffer.length,
+      },
+    };
   }
 
   estimateCostUSD(req: VideoGenerationRequest): number {

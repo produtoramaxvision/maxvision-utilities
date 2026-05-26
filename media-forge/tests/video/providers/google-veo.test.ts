@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { GoogleVeoProvider } from '../../../src/video/providers/google-veo.js';
@@ -67,5 +67,33 @@ describe('GoogleVeoProvider adapter', () => {
         resolution: '720p',
       }),
     ).toThrow(/unknown model/i);
+  });
+});
+
+describe('GoogleVeoProvider.download', () => {
+  let tmpDir: string;
+  let dbPath: string;
+  let provider: GoogleVeoProvider;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'mf-veo-dl-test-'));
+    dbPath = join(tmpDir, 'cost.db');
+    provider = new GoogleVeoProvider({ dbPath });
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns buffer + contentType + sizeBytes for a local file path', async () => {
+    const fakeMp4Path = join(tmpDir, 'fake.mp4');
+    writeFileSync(fakeMp4Path, 'FAKEMP4');
+    expect(existsSync(fakeMp4Path)).toBe(true);
+
+    const asset = await provider.download(fakeMp4Path);
+
+    expect(asset.buffer.toString()).toBe('FAKEMP4');
+    expect(asset.metadata.contentType).toBe('video/mp4');
+    expect(asset.metadata.sizeBytes).toBe(7);
   });
 });
