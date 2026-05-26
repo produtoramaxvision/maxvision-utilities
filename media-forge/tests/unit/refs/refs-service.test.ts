@@ -93,7 +93,7 @@ describe('refs-service — searchRefs', () => {
         presignedUrl: 'https://signed/x',
       },
     ]);
-    const svc = createRefsService(cfg);
+    const svc = createRefsService(cfg, fakeMfClient);
     const out = await svc.searchRefs({
       tags: ['dolly-zoom'],
       mode: 'tag',
@@ -106,7 +106,7 @@ describe('refs-service — searchRefs', () => {
   });
 
   it('rejects with error for semantic mode (Phase 2 not yet implemented)', async () => {
-    const svc = createRefsService(cfg);
+    const svc = createRefsService(cfg, fakeMfClient);
     await expect(
       svc.searchRefs({ tags: ['dolly-zoom'], mode: 'semantic', limit: 1, seed: 0, ttlSeconds: 600 }),
     ).rejects.toThrow(/semantic.*not yet implemented/i);

@@ -87,6 +87,12 @@ import {
   PollVideoOperationInput,
   DownloadVideoInput,
 } from '../video/video-schemas.js';
+import {
+  RefsSearchInput,
+  RefsComposeMoodboardInput,
+  RefsPresignInput,
+  RefsIndexInput,
+} from '../refs/refs-schemas.js';
 
 // ---------------------------------------------------------------------------
 // Pipeline / utility inline schemas (tool-specific, small shapes)
@@ -198,8 +204,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 22 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help = 22
+// MCP_TOOLS registry — 26 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs = 26
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -319,11 +325,33 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     inputSchema: CheckBrandComplianceInput,
   },
 
-  // ---- Help (1) — rounds to 22 ----
+  // ---- Help (1) ----
   {
     name: 'media_help',
     description: 'Built-in usage docs for any media-forge tool',
     inputSchema: MediaHelpInput,
+  },
+
+  // ---- Refs (4 — Phase 1+) ----
+  {
+    name: 'media_refs_search',
+    description: 'Search media-forge-refs bucket by tag or semantic embedding',
+    inputSchema: RefsSearchInput,
+  },
+  {
+    name: 'media_refs_compose_moodboard',
+    description: 'Compose a single moodboard keyframe from N refs + subjects via NBP',
+    inputSchema: RefsComposeMoodboardInput,
+  },
+  {
+    name: 'media_refs_presign',
+    description: 'Generate presigned GET URLs for ref objects (TTL 60-3600s)',
+    inputSchema: RefsPresignInput,
+  },
+  {
+    name: 'media_refs_index',
+    description: 'Batch index refs into pgvector for semantic search (Phase 2)',
+    inputSchema: RefsIndexInput,
   },
 ] as const) as readonly MCPTool[];
 

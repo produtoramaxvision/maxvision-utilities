@@ -36,20 +36,17 @@ export interface RefsService {
  * Create a refs service from raw MinIO config. MediaForgeClient is required
  * for composeMoodboardFromKeys (NBP call); it is passed as an explicit param
  * rather than built internally to keep the service testable without real creds.
- *
- * For searchRefs + presignKeys only, mfClient is not used — pass a stub or
- * omit (undefined) if those are the only methods called.
  */
 export function createRefsService(
   cfg: MinioConfig,
-  mfClient?: MediaForgeClient,
+  mfClient: MediaForgeClient,
 ): RefsService {
   return createRefsServiceWithClient(createMinioClient(cfg), mfClient);
 }
 
 export function createRefsServiceWithClient(
   minio: MinioClient,
-  mfClient?: MediaForgeClient,
+  mfClient: MediaForgeClient,
 ): RefsService {
   const cache = new PresignedUrlCache({ maxItems: 500, ttlMs: 50 * 60 * 1000 });
 
@@ -162,9 +159,7 @@ export function createRefsServiceWithClient(
               referenceImages,
               imageSize: sdkImageSize,
             });
-            // mfClient is required for the real SDK call; test mock intercepts before reaching here
-            const client = mfClient ?? (() => { throw new Error('MediaForgeClient required for composeMoodboardFromKeys'); })();
-            return await generateImageNanoBananaPro(nbpInput, client);
+            return await generateImageNanoBananaPro(nbpInput, mfClient);
           } catch (err) {
             const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
             if (/safety|blocked|filtered|prohibited/i.test(msg)) {

@@ -38,6 +38,13 @@ import {
 } from '../video/video-service.js';
 import { OcrValidator, checkBrand } from '../review/review-service.js';
 import { estimateImageCost, estimateVideoCost } from '../core/cost.js';
+import { createRefsService } from '../refs/refs-service.js';
+import type {
+  RefsSearchInputT,
+  RefsComposeMoodboardInputT,
+  RefsPresignInputT,
+  RefsIndexInputT,
+} from './schemas.js';
 import {
   IMAGE_MODEL_NANO_BANANA_PRO,
   IMAGE_MODEL_IMAGEN_4_ULTRA,
@@ -738,6 +745,75 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           content: [{ type: 'text' as const, text }],
           structuredContent: { topic: inp.topic ?? null, text },
         };
+      }),
+    );
+  }
+
+  // ---- Refs tools (Phase 1+) ----
+
+  const refsCfg = {
+    endpoint: deps.config.minioEndpoint ?? '',
+    region: deps.config.minioRegion,
+    bucket: deps.config.minioBucket,
+    accessKey: deps.config.minioAccessKey,
+    secretKey: deps.config.minioSecretKey,
+    useSsl: deps.config.minioUseSsl,
+  };
+  const refsService = createRefsService(refsCfg, deps.client);
+
+  {
+    const t = getTool('media_refs_search');
+    reg(
+      t.name,
+      { title: 'Search reference assets in media-forge-refs', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => {
+        if (!deps.config.refsEnabled) {
+          return asResult({ enabled: false, refs: [], reason: 'MEDIA_FORGE_REFS_ENABLED=false' });
+        }
+        const parsed = validateInput<RefsSearchInputT>(t, input);
+        const refs = await refsService.searchRefs(parsed);
+        return asResult({ enabled: true, refs });
+      }),
+    );
+  }
+
+  {
+    const t = getTool('media_refs_compose_moodboard');
+    reg(
+      t.name,
+      { title: 'Compose a moodboard keyframe from refs + subject images', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => {
+        const parsed = validateInput<RefsComposeMoodboardInputT>(t, input);
+        const result = await refsService.composeMoodboardFromKeys(parsed);
+        return asResult(result);
+      }),
+    );
+  }
+
+  {
+    const t = getTool('media_refs_presign');
+    reg(
+      t.name,
+      { title: 'Generate presigned URLs for ref objects', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => {
+        const parsed = validateInput<RefsPresignInputT>(t, input);
+        const items = await refsService.presignKeys(parsed);
+        return asResult({ items });
+      }),
+    );
+  }
+
+  {
+    const t = getTool('media_refs_index');
+    reg(
+      t.name,
+      { title: 'Index refs bucket into pgvector (Phase 2)', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => {
+        const _parsed = validateInput<RefsIndexInputT>(t, input);
+        return asResult({
+          enabled: false,
+          reason: 'Phase 2 not yet implemented. Tool reserved for future indexer.',
+        });
       }),
     );
   }
