@@ -2,7 +2,7 @@
  * Tests for src/mcp/handlers.ts (P8.2)
  *
  * Uses a mock McpServer (simple object with registerTool: vi.fn())
- * and mock deps to verify all 22 tools are registered correctly.
+ * and mock deps to verify all 26 tools are registered correctly.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -119,10 +119,10 @@ describe('registerAllTools()', () => {
     tools = getCapturedTools(server);
   });
 
-  // Test 1: exactly 22 tools registered
-  it('calls registerTool exactly 22 times', () => {
+  // Test 1: exactly 26 tools registered
+  it('calls registerTool exactly 26 times', () => {
     const mock = server as unknown as { registerTool: ReturnType<typeof vi.fn> };
-    expect(mock.registerTool).toHaveBeenCalledTimes(22);
+    expect(mock.registerTool).toHaveBeenCalledTimes(26);
   });
 
   // Test 2: set equality with listMCPToolNames()
@@ -281,8 +281,8 @@ describe('registerAllTools()', () => {
     expect(text).toContain('media_generate_image');
   });
 
-  // Test 12: media_help with no topic lists all 22 tool names
-  it('media_help with no topic lists all 22 tool names', async () => {
+  // Test 12: media_help with no topic lists all 26 tool names
+  it('media_help with no topic lists all 26 tool names', async () => {
     const tool = tools.find((t) => t.name === 'media_help');
     expect(tool).toBeDefined();
     const result = await tool!.handler({}) as {
