@@ -11,7 +11,7 @@
 // {outputPath, width, height, costUsd} (a synthetic shape). Bridging the real SDK is
 // the responsibility of refs-service.ts (Task 1.7). The typed alias below documents
 // the mismatch explicitly; TypeScript enforces the composer-internal contract.
-// TODO(Task 1.7): replace this boundary alias with proper MediaForgeClient wiring.
+// NOTE: production NBP call lives in refs-service.ts due to SDK signature differences. This module retains slot/safety logic for unit-test reuse.
 
 import { generateImageNanoBananaPro as _generateImageNanoBananaProSdk } from '../image/image-service.js';
 
