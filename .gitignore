@@ -14,7 +14,7 @@ $RECYCLE.BIN/
 .cursor/
 .windsurf/
 
-# --- Node.js (defensive - no package.json in this repo) ---
+# --- Node.js ---
 node_modules/
 npm-debug.log*
 yarn-debug.log*
@@ -22,7 +22,9 @@ yarn-error.log*
 pnpm-debug.log*
 package-lock.json
 yarn.lock
-pnpm-lock.yaml
+# pnpm-lock.yaml IS committed. CI uses --frozen-lockfile. Override global gitignore.
+!pnpm-lock.yaml
+!**/pnpm-lock.yaml
 
 # --- Secrets / env files ---
 .env
