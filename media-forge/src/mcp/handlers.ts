@@ -59,6 +59,35 @@ import {
   VIDEO_RESOLUTION,
   VIDEO_DURATION_SECONDS,
 } from '../core/models.js';
+import type { WebhookRouter } from '../video/providers/webhook-router.js';
+
+// ---------------------------------------------------------------------------
+// Webhook router module-level handle (P13 scaffold for P14+ provider callbacks)
+// ---------------------------------------------------------------------------
+// Owned by the runtime entrypoint (`startStdioServer` in src/mcp/server.ts) —
+// `buildServer()`-based tests do NOT start the router, so the handler reports
+// `{ running: false, handlers: [] }` in that path. This keeps the test suite
+// from binding TCP ports.
+let _webhookRouter: WebhookRouter | undefined;
+
+export function setWebhookRouter(r: WebhookRouter | undefined): void {
+  _webhookRouter = r;
+}
+
+export interface VideoWebhookStatusResult {
+  running: boolean;
+  address?: { address: string; port: number };
+  handlers: string[];
+}
+
+export async function handleVideoWebhookStatus(): Promise<VideoWebhookStatusResult> {
+  if (!_webhookRouter) return { running: false, handlers: [] };
+  return {
+    running: true,
+    address: _webhookRouter.address,
+    handlers: Array.from(_webhookRouter.handlers.keys()),
+  };
+}
 
 export interface HandlersDeps {
   client: MediaForgeClient;
@@ -852,6 +881,22 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           reason: 'Phase 2 not yet implemented. Tool reserved for future indexer.',
         });
       }),
+    );
+  }
+
+  // ---- Webhook (1 — P13 scaffold for P14+ provider callbacks) ----
+  //
+  // Status-only tool. The router itself is started in `startStdioServer()` from
+  // env vars (MEDIA_FORGE_WEBHOOK_PORT + MEDIA_FORGE_WEBHOOK_SECRET) — kept out
+  // of `buildServer()` so tests that instantiate via buildServer() do not need
+  // to bind a TCP port. When secret is unset, the router stays off and this tool
+  // reports `{ running: false, handlers: [] }`.
+  {
+    const t = getTool('media_video_webhook_status');
+    reg(
+      t.name,
+      { title: 'Webhook Router Status', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async () => asResult(await handleVideoWebhookStatus())),
     );
   }
 }

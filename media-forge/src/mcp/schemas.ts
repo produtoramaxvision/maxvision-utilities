@@ -192,6 +192,11 @@ export const MediaHelpInput = z
 
 export type MediaHelpInputT = z.infer<typeof MediaHelpInput>;
 
+// video_webhook_status — report runtime state of the local webhook router
+// (P14+ provider callback endpoint). Empty input — the tool is a pure query.
+export const VideoWebhookStatusInput = z.object({}).strict();
+export type VideoWebhookStatusInputT = z.infer<typeof VideoWebhookStatusInput>;
+
 // ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
@@ -204,8 +209,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 26 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs = 26
+// MCP_TOOLS registry — 27 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook = 27
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -352,6 +357,14 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     name: 'media_refs_index',
     description: 'Batch index refs into pgvector for semantic search (Phase 2)',
     inputSchema: RefsIndexInput,
+  },
+
+  // ---- Webhook (1 — P13 scaffold for P14+ provider callbacks) ----
+  {
+    name: 'media_video_webhook_status',
+    description:
+      'Status of the local webhook router (P14+ provider callback endpoint). Reports running state, bind address, and registered handlers.',
+    inputSchema: VideoWebhookStatusInput,
   },
 ] as const) as readonly MCPTool[];
 
