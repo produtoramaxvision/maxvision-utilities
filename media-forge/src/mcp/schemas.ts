@@ -209,6 +209,13 @@ export const VideoCostEstimateInput = z.object({
 
 export type VideoCostEstimateInputT = z.infer<typeof VideoCostEstimateInput>;
 
+// video_cost_report — aggregate cost report from the local SQLite ledger
+export const VideoCostReportInput = z.object({
+  periodDays: z.number().int().positive().default(30),
+}).strict();
+
+export type VideoCostReportInputT = z.infer<typeof VideoCostReportInput>;
+
 // ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
@@ -221,8 +228,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 28 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 1 cost = 28
+// MCP_TOOLS registry — 29 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost = 29
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -379,12 +386,18 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     inputSchema: VideoWebhookStatusInput,
   },
 
-  // ---- Cost estimation (1 — P13 provider-registry cost tool) ----
+  // ---- Cost estimation (2 — P13 provider-registry cost tools) ----
   {
     name: 'media_video_cost_estimate',
     description:
       'Estimate USD cost for a video generation request (any provider in the registry; P13 supports google/Veo only).',
     inputSchema: VideoCostEstimateInput,
+  },
+  {
+    name: 'media_video_cost_report',
+    description:
+      'Aggregate cost report from the local SQLite ledger. Returns totals and per-provider breakdowns for the specified period.',
+    inputSchema: VideoCostReportInput,
   },
 ] as const) as readonly MCPTool[];
 

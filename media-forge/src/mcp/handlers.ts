@@ -62,7 +62,8 @@ import {
 import type { WebhookRouter } from '../video/providers/webhook-router.js';
 import { GoogleVeoProvider } from '../video/providers/google-veo.js';
 import { VIDEO_MODELS } from '../core/models.js';
-import { VideoCostEstimateInput, type VideoCostEstimateInputT } from './schemas.js';
+import { VideoCostEstimateInput, type VideoCostEstimateInputT, VideoCostReportInput, type VideoCostReportInputT } from './schemas.js';
+import { queryReport, type CostReport } from '../core/cost-tracker.js';
 import { join } from 'node:path';
 
 // ---------------------------------------------------------------------------
@@ -123,6 +124,15 @@ export async function handleVideoCostEstimate(rawInput: unknown): Promise<{
   const provider = new GoogleVeoProvider({ dbPath: defaultDbPath() });
   const usd = provider.estimateCostUSD(input);
   return { estimatedCostUSD: usd, provider: spec.provider, modelId: input.modelId };
+}
+
+// ---------------------------------------------------------------------------
+// handleVideoCostReport — aggregate cost report from the local SQLite ledger
+// ---------------------------------------------------------------------------
+
+export async function handleVideoCostReport(rawInput: unknown): Promise<CostReport> {
+  const input: VideoCostReportInputT = VideoCostReportInput.parse(rawInput);
+  return queryReport({ dbPath: defaultDbPath(), periodDays: input.periodDays });
 }
 
 export interface HandlersDeps {
@@ -936,7 +946,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     );
   }
 
-  // ---- Cost estimation (1 — P13 provider-registry cost tool) ----
+  // ---- Cost estimation (2 — P13 provider-registry cost tools) ----
 
   {
     const t = getTool('media_video_cost_estimate');
@@ -944,6 +954,15 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Video Cost Estimate', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleVideoCostEstimate(input))),
+    );
+  }
+
+  {
+    const t = getTool('media_video_cost_report');
+    reg(
+      t.name,
+      { title: 'Video Cost Report', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleVideoCostReport(input))),
     );
   }
 }
