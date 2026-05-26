@@ -20,5 +20,27 @@
         }
       ]
     }
+  ],
+  "PreToolUse": [
+    {
+      "matcher": "mcp__media-forge__media_generate_video_(t2v|i2v|interpolate|with_refs)",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/hooks/inject-refs.mjs",
+          "timeout": 8
+        }
+      ]
+    },
+    {
+      "matcher": "mcp__media-forge__media_generate_(image|imagen)",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/hooks/inject-refs.mjs",
+          "timeout": 8
+        }
+      ]
+    }
   ]
 }

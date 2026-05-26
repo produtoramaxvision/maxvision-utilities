@@ -5,6 +5,10 @@ export default defineConfig({
     index: 'src/index.ts',
     'mcp/server': 'src/mcp/server.ts',
     'cli/cli': 'src/cli/cli.ts',
+    // Refs module — emitted as individual files so hooks/inject-refs.mjs can
+    // dynamically import them at runtime without requiring a full TS pipeline.
+    'refs/taxonomy': 'src/refs/taxonomy.ts',
+    'refs/refs-service': 'src/refs/refs-service.ts',
   },
   format: ['esm'],
   dts: true,
