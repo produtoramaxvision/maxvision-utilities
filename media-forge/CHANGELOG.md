@@ -21,7 +21,7 @@ First production release. Top-tier Google AI image+video generation as a Claude 
 
 - **CLI** (`media-forge` binary) — `doctor`, `image {generate,imagen,edit,compose,describe,palette}`, `video {t2v,i2v,interpolate,refs,extend,poll,download,wait}` (+ `--bg` background mode), `cost`, `audit`, `prompts`, `models`, `config` subcommands. Positional `<prompt>` arguments.
 
-- **10 domain-specialized subagents** (`agents/*.md`): cinematic-director, product-photographer, ad-designer, character-designer, hyperrealistic-artist, enterprise-corrector (Opus), prompt-engineer, scene-composer, video-editor, quality-reviewer (Opus, xhigh thinking, read-only).
+- **11 domain-specialized subagents** (`agents/*.md`): cinematic-director, product-photographer, ad-designer, character-designer, hyperrealistic-artist, enterprise-corrector (Opus), prompt-engineer, scene-composer, veo-director, video-router, quality-reviewer (Opus, xhigh thinking, read-only).
 
 - **11 skills** (`skills/<name>/SKILL.md`): 8 entry skills (create, setup, campaign, character-sheet, scene-compose, cinematic-short, extend-video, audit), 1 knowledge skill (capability-matrix), 2 internal skills (ocr-validate, brand-check).
 

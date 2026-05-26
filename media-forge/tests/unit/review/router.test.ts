@@ -138,8 +138,8 @@ describe('route', () => {
     expect(decision.fixDirective).toContain('composition');
   });
 
-  // 8. temporal_drift → video-editor
-  it('routes temporal_drift to video-editor', () => {
+  // 8. temporal_drift → veo-director
+  it('routes temporal_drift to veo-director', () => {
     const verdict = makeVerdict({ errors: [makeError('temporal_drift')] });
     const decision = route({
       verdict,
@@ -147,7 +147,7 @@ describe('route', () => {
       originalGeneratorAgent: 'media-forge:video-generator',
     });
     expect(decision.action).toBe('retry');
-    expect(decision.fixTargetAgent).toBe('media-forge:video-editor');
+    expect(decision.fixTargetAgent).toBe('media-forge:veo-director');
     expect(decision.fixDirective).toContain('extension hop');
   });
 

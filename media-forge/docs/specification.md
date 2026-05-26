@@ -184,7 +184,7 @@ Agents are defined as `.md` files in `agents/`. The plugin loader builds the ful
 | `enterprise-corrector.md` | `media-forge:enterprise-corrector` | opus | high | Brand guideline enforcement: palette ΔE2000, logo zone, approved fonts |
 | `prompt-engineer.md` | `media-forge:prompt-engineer` | sonnet | high | User intent → `refined_spec.json`; SCALIST framework + safety rephrasing |
 | `scene-composer.md` | `media-forge:scene-composer` | sonnet | high | Multi-image composition up to 14 references; background removal + white-balance pre-clean |
-| `video-editor.md` | `media-forge:video-editor` | sonnet | medium | Veo extension chains, frame interpolation, temporal-drift color anchoring |
+| `veo-director.md` | `media-forge:veo-director` | sonnet | medium | Veo extension chains, frame interpolation, temporal-drift color anchoring |
 | `quality-reviewer.md` | `media-forge:quality-reviewer` | opus | xhigh | READ-ONLY 3-stage reviewer: OCR → brand → LLM judge. Returns Verdict JSON. |
 
 **10 additional domain agents** (illustration-artist, cartoon-animator, 3d-render-artist, social-content-creator, motion-graphics, comic-panel-artist, infographic-designer, architectural-viz, food-photography, fashion-photographer) are deferred to v0.2.0.

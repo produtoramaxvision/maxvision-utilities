@@ -47,7 +47,7 @@ const ROUTING_TABLE: Record<string, RoutingTableEntry> = {
       'Re-do multi-image composition. Verify role labels and reference ordering.',
   },
   temporal_drift: {
-    fixTargetAgent: 'media-forge:video-editor',
+    fixTargetAgent: 'media-forge:veo-director',
     fixDirectiveTemplate:
       'Re-prompt the extension hop with full character/scene description repeated verbatim (≥80% of original prompt).',
   },
