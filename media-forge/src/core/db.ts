@@ -1,4 +1,8 @@
-import { DatabaseSync } from 'node:sqlite';
+import { createRequire } from 'node:module';
+import type * as NodeSqlite from 'node:sqlite';
+const _require = createRequire(import.meta.url);
+const { DatabaseSync } = _require('node:sqlite') as typeof NodeSqlite;
+type DSInstance = InstanceType<typeof DatabaseSync>;
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,10 +11,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = resolve(__dirname, '..', '..', 'migrations', 'sqlite');
 
 // Track DB filename per instance since DatabaseSync does not expose .name
-const POOL = new Map<string, { db: DatabaseSync; path: string; open: boolean }>();
+const POOL = new Map<string, { db: DSInstance; path: string; open: boolean }>();
 const MIGRATED = new Set<string>();
 
-export function openDb(path: string): DatabaseSync {
+export function openDb(path: string): DSInstance {
   const existing = POOL.get(path);
   if (existing && existing.open) return existing.db;
   const db = new DatabaseSync(path);
@@ -40,7 +44,7 @@ function splitStatements(script: string): string[] {
     .filter((s) => s.length > 0);
 }
 
-function runScript(db: DatabaseSync, script: string): void {
+function runScript(db: DSInstance, script: string): void {
   for (const stmt of splitStatements(script)) {
     db.prepare(stmt).run();
   }
@@ -50,7 +54,7 @@ function runScript(db: DatabaseSync, script: string): void {
  * Resolves the filesystem path used to open a DatabaseSync instance. Walks POOL
  * to find the matching entry (since DatabaseSync lacks a public name getter).
  */
-function getDbPath(db: DatabaseSync): string {
+function getDbPath(db: DSInstance): string {
   for (const entry of POOL.values()) {
     if (entry.db === db) return entry.path;
   }
@@ -62,7 +66,7 @@ function getDbPath(db: DatabaseSync): string {
  * node:sqlite (Node 22.5+) does not expose a db.transaction() wrapper like
  * better-sqlite3 does; we implement one using exec() calls directly.
  */
-function withTransaction(db: DatabaseSync, fn: () => void): void {
+function withTransaction(db: DSInstance, fn: () => void): void {
   db.exec('BEGIN');
   try {
     fn();
@@ -73,7 +77,7 @@ function withTransaction(db: DatabaseSync, fn: () => void): void {
   }
 }
 
-export function runMigrations(db: DatabaseSync): void {
+export function runMigrations(db: DSInstance): void {
   // Idempotent per-process: once a given DB filename has been migrated in this
   // process, subsequent calls are a no-op. Avoids re-querying schema_migrations
   // on every cost-tracker operation.
