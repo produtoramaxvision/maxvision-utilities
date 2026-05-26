@@ -4,7 +4,7 @@
   "description": "Production-grade Claude Code plugin for image and video generation using top-tier Google AI models (Nano Banana Pro, Imagen 4 Ultra, Veo 3.1 Pro).",
   "type": "module",
   "engines": {
-    "node": ">=20.0.0",
+    "node": ">=22.5.0",
     "pnpm": ">=9.0.0"
   },
   "packageManager": "pnpm@9.15.0",
