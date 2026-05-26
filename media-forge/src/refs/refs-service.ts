@@ -13,6 +13,8 @@
 // NOTE: production NBP call lives in refs-service.ts due to SDK signature differences. This module retains slot/safety logic for unit-test reuse.
 
 import { createMinioClient, type MinioClient, type MinioConfig } from './minio-client.js';
+// Re-export for hooks that dynamically import dist/refs/refs-service.js at runtime
+export { createMinioClient } from './minio-client.js';
 import { sampleByCategory, type RefRecord } from './tag-search.js';
 import { extractKeyframesFromBuffer, normaliseToJpeg } from './keyframe-extractor.js';
 import { SafetyRejectedError, type ComposeResult } from './moodboard-composer.js';

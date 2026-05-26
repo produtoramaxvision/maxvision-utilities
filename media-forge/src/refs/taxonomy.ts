@@ -2,6 +2,7 @@
 // Canonical 136-category taxonomy backing the media-forge-refs bucket.
 // Source: `mc ls local/media-forge-refs` snapshot 2026-05-26.
 // Aliases capture common synonyms users type in briefs (lay terms → canonical).
+import { readFile } from 'node:fs/promises';
 
 export const CATEGORIES: readonly string[] = [
   'aerial', 'anthropomorphism', 'arc-movement', 'architexture', 'as-object',
@@ -154,4 +155,17 @@ export function resolveAliases(input: string): string | null {
 
 export function getFilmlingoHint(category: string): FilmlingoHint | null {
   return FILMLINGO[category] ?? null;
+}
+
+// Reads a JSON file containing { categories: string[] } and returns the diff
+// against the hardcoded CATEGORIES set. Used by the SessionStart hook to detect
+// bucket drift without requiring a full taxonomy.ts rewrite.
+export async function diffAgainstSnapshot(snapshotPath: string): Promise<{ added: string[]; removed: string[] }> {
+  const raw = await readFile(snapshotPath, 'utf8');
+  const { categories } = JSON.parse(raw) as { categories: string[] };
+  const remote = new Set(categories);
+  const local = new Set(CATEGORIES);
+  const added = [...remote].filter((c) => !local.has(c));
+  const removed = [...local].filter((c) => !remote.has(c));
+  return { added, removed };
 }
