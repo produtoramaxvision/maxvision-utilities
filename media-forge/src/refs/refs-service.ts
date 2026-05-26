@@ -29,6 +29,9 @@ import type {
 } from './refs-schemas.js';
 import { appendRefsSelectionTrace } from '../trace/trace-writer.js';
 import { logger } from '../core/logger.js';
+import { logUnresolvedAlias } from './aliases-learn.js';
+import { isCategory, resolveAliases, CATEGORIES } from './taxonomy.js';
+import { join } from 'node:path';
 
 export interface RefsTraceCtx {
   jobId: string;
@@ -91,8 +94,40 @@ export function createRefsServiceWithClient(
           await pg.close();
         }
       }
+      // Pre-resolve tags: log unresolved ones (best-effort) and drop them so
+      // sampleByCategory never sees an unknown category and throws.
+      const resolvedTags: string[] = [];
+      for (const raw of input.tags) {
+        const cat = isCategory(raw) ? raw : resolveAliases(raw);
+        if (!cat) {
+          // Best-effort: find 3 closest categories via dumb substring match
+          const phrase = raw.trim().toLowerCase();
+          const candidates = (CATEGORIES as readonly string[])
+            .filter(
+              (c) =>
+                phrase.includes(c.split('-')[0] ?? '') ||
+                phrase.split(/\s+/).some((w) => c.includes(w)),
+            )
+            .slice(0, 3);
+          const logPath = join(
+            process.env['MEDIA_FORGE_PROJECT_DIR'] ?? '.media-forge',
+            'aliases-learn.jsonl',
+          );
+          logUnresolvedAlias({
+            logPath,
+            phrase,
+            briefSnippet: input.queryText ?? '',
+            candidateMatches: candidates,
+          }).catch((err: unknown) => {
+            logger.warn('aliases-learn log failed (best-effort)', { err: String(err) });
+          });
+        } else {
+          resolvedTags.push(cat);
+        }
+      }
+
       const t0 = Date.now();
-      const refs = await sampleByCategory(minio, input.tags, {
+      const refs = await sampleByCategory(minio, resolvedTags, {
         limitPerCategory: input.limit,
         seed: input.seed,
         ttlSeconds: input.ttlSeconds,

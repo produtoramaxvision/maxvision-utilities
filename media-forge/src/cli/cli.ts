@@ -8,6 +8,7 @@ import { registerAuditCommand } from './commands/audit.js';
 import { registerPromptsCommand } from './commands/prompts.js';
 import { registerModelsCommand } from './commands/models.js';
 import { registerConfigCommand } from './commands/config.js';
+import { registerAliasesCommand } from './commands/aliases-suggest.js';
 
 export function buildProgram(): Command {
   const program = new Command();
@@ -24,6 +25,7 @@ export function buildProgram(): Command {
   registerPromptsCommand(program);
   registerModelsCommand(program);
   registerConfigCommand(program);
+  registerAliasesCommand(program);
 
   return program;
 }
