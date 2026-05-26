@@ -19,6 +19,7 @@ export const RefsSearchInput = z.object({
     .optional(),
   seed: z.number().int().default(0),
   ttlSeconds: z.number().int().min(60).max(3600).default(3000),
+  refsDisabled: z.boolean().default(false),
 });
 export type RefsSearchInputT = z.infer<typeof RefsSearchInput>;
 

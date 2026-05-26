@@ -64,6 +64,7 @@ export function createRefsServiceWithClient(
     // searchRefs — tag-based (Phase 1) or semantic (Phase 2, not yet impl)
     // -----------------------------------------------------------------------
     async searchRefs(input: RefsSearchInputT, traceCtx?: RefsTraceCtx): Promise<RefRecord[]> {
+      if (input.refsDisabled) return [];
       if (input.mode === 'semantic') {
         throw new Error('semantic mode not yet implemented (Phase 2)');
       }

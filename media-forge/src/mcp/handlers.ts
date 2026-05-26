@@ -767,10 +767,13 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Search reference assets in media-forge-refs', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
+        const parsed = validateInput<RefsSearchInputT>(t, input);
+        if (parsed.refsDisabled === true) {
+          return asResult({ enabled: true, refs: [], reason: 'refs_disabled=true on this call' });
+        }
         if (!deps.config.refsEnabled) {
           return asResult({ enabled: false, refs: [], reason: 'MEDIA_FORGE_REFS_ENABLED=false' });
         }
-        const parsed = validateInput<RefsSearchInputT>(t, input);
         const refs = await refsService.searchRefs(parsed);
         return asResult({ enabled: true, refs });
       }),

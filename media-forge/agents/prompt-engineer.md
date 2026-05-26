@@ -59,3 +59,5 @@ Also populate:
 - `subject_image_paths`: list of local file paths the user attached (may be empty).
 
 If `MEDIA_FORGE_REFS_ENABLED=false` is observed in context, still emit `ref_mode` (`TEXT_ONLY` as fallback) so downstream agents have the field.
+
+Also populate `refs_disabled: boolean` (default `false`). When the user explicitly requests "no refs", "pure-text", or "ignore the library" in their brief, set `refs_disabled: true` — this instructs the hook and the `media_refs_search` tool to skip the reference search entirely for this call.
