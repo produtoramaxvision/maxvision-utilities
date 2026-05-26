@@ -164,6 +164,41 @@ export function allTimeTotal(opts: {
 
 export type CostBreakdown = string | Record<string, number>;
 
+// ---------------------------------------------------------------------------
+// Refs cost estimation (EA1 — Task 1.8)
+// ---------------------------------------------------------------------------
+
+const NBP_COMPOSE_BASE_USD = 0.04;          // approx per-call
+const NBP_PER_REF_USD = 0.003;              // marginal per ref slot
+const VOYAGE_QUERY_USD = 0.0001;            // semantic mode only
+
+export interface RefsEstimate {
+  mode: 'TEXT_ONLY' | 'SUBJECT_REF' | 'MOODBOARD';
+  refsLookupUsd: number;
+  moodboardComposeUsd: number;
+  totalUsd: number;
+}
+
+export function estimateRefsCost(input: {
+  mode: 'TEXT_ONLY' | 'SUBJECT_REF' | 'MOODBOARD';
+  refCount: number;
+  subjectCount: number;
+  outputSize: '1024' | '2048' | '4096';
+  searchMode?: 'tag' | 'semantic';
+}): RefsEstimate {
+  const refsLookup = input.searchMode === 'semantic' ? VOYAGE_QUERY_USD : 0;
+  const sizeMultiplier = input.outputSize === '4096' ? 1.5 : input.outputSize === '2048' ? 1.0 : 0.7;
+  const compose = input.mode === 'MOODBOARD'
+    ? (NBP_COMPOSE_BASE_USD + NBP_PER_REF_USD * (input.refCount + input.subjectCount)) * sizeMultiplier
+    : 0;
+  return {
+    mode: input.mode,
+    refsLookupUsd: Math.round(refsLookup * 10000) / 10000,
+    moodboardComposeUsd: Math.round(compose * 10000) / 10000,
+    totalUsd: Math.round((refsLookup + compose) * 10000) / 10000,
+  };
+}
+
 export function appendCostLogEntry(
   logPath: string,
   entry: {

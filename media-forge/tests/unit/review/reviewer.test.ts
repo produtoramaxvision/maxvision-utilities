@@ -30,6 +30,10 @@ vi.mock('../../../src/trace/lineage.js', () => ({
   recordLineage: vi.fn(async () => undefined),
 }));
 
+vi.mock('../../../src/refs/ref-match-checker.js', () => ({
+  computeRefMatchScore: vi.fn(),
+}));
+
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
@@ -40,11 +44,13 @@ import { checkBrand } from '../../../src/review/brand-checker.js';
 import { judgeAsset } from '../../../src/review/llm-judge.js';
 import { appendTrace } from '../../../src/trace/trace-writer.js';
 import { recordLineage } from '../../../src/trace/lineage.js';
+import { computeRefMatchScore } from '../../../src/refs/ref-match-checker.js';
 
 const mockJudgeAsset = vi.mocked(judgeAsset);
 const mockCheckBrand = vi.mocked(checkBrand);
 const mockAppendTrace = vi.mocked(appendTrace);
 const mockRecordLineage = vi.mocked(recordLineage);
+const mockComputeRefMatchScore = vi.mocked(computeRefMatchScore);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -319,6 +325,64 @@ describe('reviewAsset', () => {
     const result = await reviewAsset(opts);
 
     expect(mockJudgeAsset).toHaveBeenCalledOnce();
+    if ('verdict' in result.verdict) {
+      expect(result.verdict.verdict).toBe('pass');
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 3 — 4th stage: ref-match
+  // ---------------------------------------------------------------------------
+
+  it('4th stage runs when refMatchEnabled=true AND moodboardPath set, marks fail when score < threshold', async () => {
+    // Judge passes; ref-match score falls below threshold → verdict overridden to fail
+    mockJudgeAsset.mockResolvedValueOnce(PASS_VERDICT);
+    mockComputeRefMatchScore.mockResolvedValueOnce(0.42); // below default threshold 0.65
+
+    const fakeFrame = Buffer.from('fake-frame');
+    const fakeMoodboard = Buffer.from('fake-moodboard');
+
+    // Write a fake moodboard file the reviewer will read
+    const moodboardPath = path.join(tmp.dir, 'moodboard.jpg');
+    fs.writeFileSync(moodboardPath, fakeMoodboard);
+
+    const opts = makeOpts({
+      refMatchEnabled: true,
+      moodboardPath,
+      refMatchThreshold: 0.65,
+      voyageApiKey: 'test-key',
+      // Inject a test seam so real ffmpeg is not required
+      _extractFirstFrame: vi.fn().mockResolvedValue(fakeFrame),
+    });
+
+    const result = await reviewAsset(opts);
+
+    expect(mockComputeRefMatchScore).toHaveBeenCalledOnce();
+    expect(result.refMatchScore).toBeCloseTo(0.42);
+    expect(result.refMatchFailReason).toMatch(/0\.420 < threshold 0\.65/);
+    if ('verdict' in result.verdict) {
+      expect(result.verdict.verdict).toBe('fail');
+      expect(result.verdict.errors[0]?.class).toBe('ref_match_low');
+    }
+    expect(result.routeDecision?.action).toBe('retry');
+    expect(result.routeDecision?.fixTargetAgent).toBe('media-forge:cinematic-director');
+  });
+
+  it('4th stage skipped when refMatchEnabled=false (no Voyage call)', async () => {
+    mockJudgeAsset.mockResolvedValueOnce(PASS_VERDICT);
+
+    const moodboardPath = path.join(tmp.dir, 'moodboard.jpg');
+    fs.writeFileSync(moodboardPath, Buffer.from('fake-moodboard'));
+
+    const opts = makeOpts({
+      refMatchEnabled: false,
+      moodboardPath,
+    });
+
+    const result = await reviewAsset(opts);
+
+    expect(mockComputeRefMatchScore).not.toHaveBeenCalled();
+    expect(result.refMatchScore).toBeUndefined();
     if ('verdict' in result.verdict) {
       expect(result.verdict.verdict).toBe('pass');
     }

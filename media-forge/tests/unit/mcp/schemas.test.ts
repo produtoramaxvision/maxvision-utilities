@@ -42,14 +42,19 @@ const EXPECTED_TOOL_NAMES = [
   'media_check_brand_compliance',
   // help (1)
   'media_help',
+  // refs (4)
+  'media_refs_search',
+  'media_refs_compose_moodboard',
+  'media_refs_presign',
+  'media_refs_index',
 ] as const;
 
 // ---------------------------------------------------------------------------
 // Registry shape assertions
 // ---------------------------------------------------------------------------
 describe('MCP_TOOLS registry', () => {
-  it('contains exactly 22 tools', () => {
-    expect(MCP_TOOLS.length).toBe(22);
+  it('contains exactly 26 tools', () => {
+    expect(MCP_TOOLS.length).toBe(26);
   });
 
   it('is frozen (Object.isFrozen)', () => {
@@ -93,11 +98,11 @@ describe('MCP_TOOLS registry', () => {
 // listMCPToolNames()
 // ---------------------------------------------------------------------------
 describe('listMCPToolNames()', () => {
-  it('returns an array of length 22', () => {
-    expect(listMCPToolNames().length).toBe(22);
+  it('returns an array of length 26', () => {
+    expect(listMCPToolNames().length).toBe(26);
   });
 
-  it('contains all 22 expected tool names', () => {
+  it('contains all 26 expected tool names', () => {
     const names = listMCPToolNames();
     for (const expected of EXPECTED_TOOL_NAMES) {
       expect(names).toContain(expected);

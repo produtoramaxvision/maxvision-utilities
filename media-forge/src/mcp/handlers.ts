@@ -37,7 +37,14 @@ import {
   downloadVideo,
 } from '../video/video-service.js';
 import { OcrValidator, checkBrand } from '../review/review-service.js';
-import { estimateImageCost, estimateVideoCost } from '../core/cost.js';
+import { estimateImageCost, estimateVideoCost, estimateRefsCost, type RefsEstimate } from '../core/cost.js';
+import { createRefsService } from '../refs/refs-service.js';
+import type {
+  RefsSearchInputT,
+  RefsComposeMoodboardInputT,
+  RefsPresignInputT,
+  RefsIndexInputT,
+} from './schemas.js';
 import {
   IMAGE_MODEL_NANO_BANANA_PRO,
   IMAGE_MODEL_IMAGEN_4_ULTRA,
@@ -432,16 +439,41 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       wrap(t.name, async (input) => {
         const inp = input as { items: Array<{ op: string; params: Record<string, unknown> }> };
         let totalUsd = 0;
-        const perItem: Array<{ op: string; usd: number; breakdown: string }> = [];
+        const perItem: Array<{ op: string; usd: number; breakdown: string; refsBreakdown?: unknown }> = [];
         for (const item of inp.items) {
           let usd = 0;
           let breakdown = `Unknown op: ${item.op}`;
+          let refsBreakdown: RefsEstimate | undefined;
 
           const op = item.op.toLowerCase();
+
+          // Refs/moodboard operations — checked before generic image/video branches.
+          // Triggered when params.refMode is set (MOODBOARD | SUBJECT_REF | TEXT_ONLY).
+          const params_r = item.params as {
+            refMode?: string;
+            refCount?: number;
+            subjectCount?: number;
+            outputSize?: string;
+            searchMode?: string;
+          };
+          if (params_r.refMode) {
+            const mode = (['MOODBOARD', 'SUBJECT_REF', 'TEXT_ONLY'].includes(params_r.refMode ?? '')
+              ? params_r.refMode
+              : 'TEXT_ONLY') as 'MOODBOARD' | 'SUBJECT_REF' | 'TEXT_ONLY';
+            const est = estimateRefsCost({
+              mode,
+              refCount: params_r.refCount ?? 0,
+              subjectCount: params_r.subjectCount ?? 0,
+              outputSize: (['1024', '2048', '4096'].includes(params_r.outputSize ?? '') ? params_r.outputSize : '2048') as '1024' | '2048' | '4096',
+              searchMode: (params_r.searchMode === 'semantic' ? 'semantic' : 'tag'),
+            });
+            usd = est.totalUsd;
+            breakdown = `refs/${mode}: lookup=$${est.refsLookupUsd.toFixed(4)} compose=$${est.moodboardComposeUsd.toFixed(4)} total=$${est.totalUsd.toFixed(4)}`;
+            refsBreakdown = est;
           // Imagen takes priority over the generic generate_image fallback so
           // ops like `media_generate_image_imagen4_ultra` route to the Imagen
           // estimator instead of being mispriced as Nano Banana Pro.
-          if (op.includes('imagen')) {
+          } else if (op.includes('imagen')) {
             const params = item.params as { numberOfImages?: number };
             const est = estimateImageCost({
               model: IMAGE_MODEL_IMAGEN_4_ULTRA,
@@ -472,7 +504,9 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           }
 
           totalUsd += usd;
-          perItem.push({ op: item.op, usd, breakdown });
+          const entry: { op: string; usd: number; breakdown: string; refsBreakdown?: unknown } = { op: item.op, usd, breakdown };
+          if (refsBreakdown !== undefined) entry.refsBreakdown = refsBreakdown;
+          perItem.push(entry);
         }
         return asResult({ totalUsd, perItem });
       }),
@@ -738,6 +772,85 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           content: [{ type: 'text' as const, text }],
           structuredContent: { topic: inp.topic ?? null, text },
         };
+      }),
+    );
+  }
+
+  // ---- Refs tools (Phase 1+) ----
+
+  const refsCfg = {
+    endpoint: deps.config.minioEndpoint ?? '',
+    region: deps.config.minioRegion,
+    bucket: deps.config.minioBucket,
+    accessKey: deps.config.minioAccessKey,
+    secretKey: deps.config.minioSecretKey,
+    useSsl: deps.config.minioUseSsl,
+  };
+  const refsService = createRefsService(refsCfg, deps.client, {
+    pgvectorUrl: deps.config.pgvectorUrl,
+    voyageApiKey: deps.config.voyageApiKey,
+    projectDir: deps.config.projectDir,
+  });
+
+  {
+    const t = getTool('media_refs_search');
+    reg(
+      t.name,
+      { title: 'Search reference assets in media-forge-refs', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => {
+        const parsed = validateInput<RefsSearchInputT>(t, input);
+        // Coalesce snake_case alias (from hook / prompt-engineer) with camelCase field.
+        // Default for refsDisabled is false, so we must OR both fields (not ??) to avoid
+        // clobbering a refs_disabled=true that got parsed alongside a default-false refsDisabled.
+        if (parsed.refsDisabled === true || parsed.refs_disabled === true) {
+          return asResult({ enabled: true, refs: [], reason: 'refs_disabled=true on this call' });
+        }
+        if (!deps.config.refsEnabled) {
+          return asResult({ enabled: false, refs: [], reason: 'MEDIA_FORGE_REFS_ENABLED=false' });
+        }
+        const refs = await refsService.searchRefs(parsed);
+        return asResult({ enabled: true, refs });
+      }),
+    );
+  }
+
+  {
+    const t = getTool('media_refs_compose_moodboard');
+    reg(
+      t.name,
+      { title: 'Compose a moodboard keyframe from refs + subject images', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => {
+        const parsed = validateInput<RefsComposeMoodboardInputT>(t, input);
+        const result = await refsService.composeMoodboardFromKeys(parsed);
+        return asResult(result);
+      }),
+    );
+  }
+
+  {
+    const t = getTool('media_refs_presign');
+    reg(
+      t.name,
+      { title: 'Generate presigned URLs for ref objects', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => {
+        const parsed = validateInput<RefsPresignInputT>(t, input);
+        const items = await refsService.presignKeys(parsed);
+        return asResult({ items });
+      }),
+    );
+  }
+
+  {
+    const t = getTool('media_refs_index');
+    reg(
+      t.name,
+      { title: 'Index refs bucket into pgvector (Phase 2)', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => {
+        const _parsed = validateInput<RefsIndexInputT>(t, input);
+        return asResult({
+          enabled: false,
+          reason: 'Phase 2 not yet implemented. Tool reserved for future indexer.',
+        });
       }),
     );
   }

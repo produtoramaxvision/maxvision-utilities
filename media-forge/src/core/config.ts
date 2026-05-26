@@ -79,6 +79,23 @@ export interface MediaForgeConfig {
   readonly maxFixAttempts: number;
   readonly skipOcrWhenNoTextIntent: boolean;
   readonly region: string | undefined;
+
+  // Refs / MinIO (Phase 1+)
+  readonly minioEndpoint: string | undefined;
+  readonly minioRegion: string;
+  readonly minioBucket: string;
+  readonly minioAccessKey: string | undefined;
+  readonly minioSecretKey: string | undefined;
+  readonly minioUseSsl: boolean;
+
+  // Semantic search (Phase 2)
+  readonly voyageApiKey: string | undefined;
+  readonly pgvectorUrl: string | undefined;
+
+  // Runtime toggles
+  readonly refsEnabled: boolean;
+  readonly refMatchEnabled: boolean;
+  readonly refMatchThreshold: number;
 }
 
 function envStr(env: NodeJS.ProcessEnv, name: string): string | undefined {
@@ -174,5 +191,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MediaForgeConf
     maxFixAttempts: pickNumber(env['MEDIA_FORGE_MAX_FIX_ATTEMPTS'], file['maxFixAttempts'], 3),
     skipOcrWhenNoTextIntent: envBool(env, 'MEDIA_FORGE_SKIP_OCR_WHEN_NO_TEXT_INTENT', true),
     region: env['MEDIA_FORGE_REGION'] || undefined,
+
+    // Refs / MinIO (Phase 1+)
+    minioEndpoint: envStr(env, 'MINIO_ENDPOINT'),
+    minioRegion: envStr(env, 'MINIO_REGION') ?? 'us-east-1',
+    minioBucket: envStr(env, 'MINIO_BUCKET') ?? 'media-forge-refs',
+    minioAccessKey: envStr(env, 'MINIO_ACCESS_KEY'),
+    minioSecretKey: envStr(env, 'MINIO_SECRET_KEY'),
+    minioUseSsl: envBool(env, 'MINIO_USE_SSL', true),
+
+    // Semantic search (Phase 2)
+    voyageApiKey: envStr(env, 'VOYAGE_API_KEY'),
+    pgvectorUrl: envStr(env, 'PGVECTOR_URL'),
+
+    // Runtime toggles
+    refsEnabled: envBool(env, 'MEDIA_FORGE_REFS_ENABLED', true),
+    refMatchEnabled: envBool(env, 'MEDIA_FORGE_REF_MATCH_ENABLED', false),
+    refMatchThreshold: envFloat(env, 'MEDIA_FORGE_REF_MATCH_THRESHOLD', 0.65),
   });
 }

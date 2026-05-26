@@ -9,6 +9,7 @@ import { recordLineage } from '../trace/lineage.js';
 import { safeJoin } from '../utils/paths.js';
 import { ensureDir } from '../utils/files.js';
 import { logger } from '../core/logger.js';
+import { computeRefMatchScore } from '../refs/ref-match-checker.js';
 import type { OutputManager } from '../output/output-manager.js';
 import type { ValidateTextResult } from './ocr-validator.js';
 import type { BrandCheckResult } from './brand-checker.js';
@@ -32,6 +33,13 @@ export interface ReviewOpts {
   attemptCount: number;
   originalGeneratorAgent: string;
   outputManager: OutputManager;
+  // Phase 3 — ref-match (4th stage, optional)
+  moodboardPath?: string;
+  refMatchEnabled?: boolean;
+  refMatchThreshold?: number;
+  voyageApiKey?: string;
+  /** Test seam: override the frame extractor to avoid real ffmpeg in unit tests. */
+  _extractFirstFrame?: (assetPath: string) => Promise<Buffer>;
 }
 
 export interface ReviewResult {
@@ -40,6 +48,9 @@ export interface ReviewResult {
   brand?: BrandCheckResult;
   routeDecision?: RouteDecision;
   verdictPath: string;
+  // Phase 3 — populated when 4th stage (ref-match) runs
+  refMatchScore?: number;
+  refMatchFailReason?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,6 +117,49 @@ function brandViolationToErrorClass(
   }
 }
 
+function buildSyntheticRefMatchFailVerdict(detail: string): JudgeVerdict {
+  return {
+    verdict: 'fail',
+    scores: {
+      adherence: 3,
+      quality: 5,
+      alignment: 3,
+      safety: 10,
+      overall: 4,
+    },
+    rootCauseStage: 'cinematic-director',
+    errors: [
+      {
+        class: 'ref_match_low',
+        severity: 'major',
+        detail,
+      },
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// extractFirstFrame helper (Phase 3 — 4th review stage)
+// ---------------------------------------------------------------------------
+
+async function extractFirstFrame(videoPath: string): Promise<Buffer> {
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const { mkdtemp, readFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { default: ffmpegPath } = await import('ffmpeg-static');
+  const execFileP = promisify(execFile);
+  const dir = await mkdtemp(join(tmpdir(), 'mf-rev-'));
+  try {
+    const out = join(dir, 'first.jpg');
+    await execFileP(ffmpegPath!, ['-y', '-i', videoPath, '-vframes', '1', '-q:v', '3', out]);
+    return readFile(out);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main reviewer orchestrator
 // ---------------------------------------------------------------------------
@@ -124,6 +178,8 @@ export async function reviewAsset(opts: ReviewOpts): Promise<ReviewResult> {
   let brandResult: BrandCheckResult | undefined;
   let finalVerdict: JudgeVerdict | JudgeDirective;
   let routeDecision: RouteDecision | undefined;
+  let refMatchScore: number | undefined;
+  let refMatchFailReason: string | undefined;
 
   // -----------------------------------------------------------------------
   // Stage 1: OCR validation
@@ -153,6 +209,7 @@ export async function reviewAsset(opts: ReviewOpts): Promise<ReviewResult> {
       });
       return await persistAndReturn({
         opts, start, inputHash, finalVerdict, ocrResult, brandResult, routeDecision,
+        refMatchScore: undefined, refMatchFailReason: undefined,
       });
     }
   }
@@ -193,6 +250,7 @@ export async function reviewAsset(opts: ReviewOpts): Promise<ReviewResult> {
         });
         return await persistAndReturn({
           opts, start, inputHash, finalVerdict, ocrResult, brandResult, routeDecision,
+          refMatchScore: undefined, refMatchFailReason: undefined,
         });
       }
     }
@@ -216,6 +274,7 @@ export async function reviewAsset(opts: ReviewOpts): Promise<ReviewResult> {
     finalVerdict = judgeResult;
     return await persistAndReturn({
       opts, start, inputHash, finalVerdict, ocrResult, brandResult, routeDecision: undefined,
+      refMatchScore: undefined, refMatchFailReason: undefined,
     });
   }
 
@@ -227,8 +286,54 @@ export async function reviewAsset(opts: ReviewOpts): Promise<ReviewResult> {
     originalGeneratorAgent: opts.originalGeneratorAgent,
   });
 
+  // -----------------------------------------------------------------------
+  // Stage 4: Ref-match score (Phase 3 — optional, gated by flag + moodboard)
+  // Only runs when all prior stages pass (judge returned a non-fail JudgeVerdict).
+  // Short-circuits from OCR/brand already returned early above; directives returned
+  // early above as well. This stage therefore only executes on the full-pass path.
+  // -----------------------------------------------------------------------
+  if (
+    opts.refMatchEnabled === true &&
+    opts.moodboardPath != null &&
+    'verdict' in finalVerdict
+  ) {
+    logger.debug('reviewAsset: stage 4 — ref-match score', {
+      jobId: opts.jobId,
+      moodboardPath: opts.moodboardPath,
+    });
+    try {
+      const frameExtractor = opts._extractFirstFrame ?? extractFirstFrame;
+      const outputFrame = await frameExtractor(opts.assetPath);
+      const moodboard = await fs.promises.readFile(opts.moodboardPath);
+      const score = await computeRefMatchScore(outputFrame, moodboard, opts.voyageApiKey ?? '');
+      refMatchScore = score;
+      const threshold = opts.refMatchThreshold ?? 0.65;
+      if (score < threshold) {
+        refMatchFailReason = `cosine ${score.toFixed(3)} < threshold ${threshold}`;
+        logger.warn('reviewAsset: ref-match below threshold — overriding verdict to fail', {
+          jobId: opts.jobId,
+          score,
+          threshold,
+        });
+        const refMatchVerdict = buildSyntheticRefMatchFailVerdict(refMatchFailReason);
+        finalVerdict = refMatchVerdict;
+        routeDecision = route({
+          verdict: refMatchVerdict,
+          attemptCount: opts.attemptCount,
+          originalGeneratorAgent: opts.originalGeneratorAgent,
+        });
+      }
+    } catch (err) {
+      logger.error('reviewAsset: ref-match stage failed — skipping', {
+        jobId: opts.jobId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   return await persistAndReturn({
     opts, start, inputHash, finalVerdict, ocrResult, brandResult, routeDecision,
+    refMatchScore, refMatchFailReason,
   });
 }
 
@@ -244,10 +349,12 @@ interface PersistOpts {
   ocrResult: ValidateTextResult | undefined;
   brandResult: BrandCheckResult | undefined;
   routeDecision: RouteDecision | undefined;
+  refMatchScore: number | undefined;
+  refMatchFailReason: string | undefined;
 }
 
 async function persistAndReturn(p: PersistOpts): Promise<ReviewResult> {
-  const { opts, start, inputHash, finalVerdict, ocrResult, brandResult, routeDecision } = p;
+  const { opts, start, inputHash, finalVerdict, ocrResult, brandResult, routeDecision, refMatchScore, refMatchFailReason } = p;
   const durationMs = Date.now() - start;
 
   // Write verdict.json directly to version dir (pick (a) from spec — use fs.writeFile)
@@ -260,6 +367,8 @@ async function persistAndReturn(p: PersistOpts): Promise<ReviewResult> {
     ocr: ocrResult,
     brand: brandResult,
     routeDecision,
+    refMatchScore,
+    refMatchFailReason,
     writtenAt: new Date().toISOString(),
   };
 
@@ -322,5 +431,7 @@ async function persistAndReturn(p: PersistOpts): Promise<ReviewResult> {
     brand: brandResult,
     routeDecision,
     verdictPath,
+    refMatchScore,
+    refMatchFailReason,
   };
 }

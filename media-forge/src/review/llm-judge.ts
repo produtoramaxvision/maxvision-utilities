@@ -36,7 +36,8 @@ export interface JudgeError {
     | 'composition_wrong'
     | 'temporal_drift'
     | 'safety_blocked'
-    | 'lipsync_miss';
+    | 'lipsync_miss'
+    | 'ref_match_low';
   severity: 'critical' | 'major' | 'minor';
   detail: string;
 }
@@ -99,6 +100,7 @@ const JudgeErrorSchema = z.object({
     'temporal_drift',
     'safety_blocked',
     'lipsync_miss',
+    'ref_match_low',
   ]),
   severity: z.enum(['critical', 'major', 'minor']),
   detail: z.string(),

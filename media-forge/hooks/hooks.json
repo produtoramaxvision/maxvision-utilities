@@ -1,24 +1,59 @@
 {
-  "SubagentStart": [
-    {
-      "hooks": [
-        {
-          "type": "command",
-          "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/run-hook.cmd trace-injection",
-          "timeout": 10
-        }
-      ]
-    }
-  ],
-  "SessionEnd": [
-    {
-      "hooks": [
-        {
-          "type": "command",
-          "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/run-hook.cmd session-cleanup",
-          "timeout": 15
-        }
-      ]
-    }
-  ]
+  "hooks": {
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/run-hook.cmd trace-injection",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/hooks/refresh-taxonomy.mjs",
+            "timeout": 12
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/run-hook.cmd session-cleanup",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "mcp__media-forge__media_generate_video_(t2v|i2v|interpolate|with_refs)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/hooks/inject-refs.mjs",
+            "timeout": 8
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__media-forge__media_generate_(image|imagen)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/hooks/inject-refs.mjs",
+            "timeout": 8
+          }
+        ]
+      }
+    ]
+  }
 }
