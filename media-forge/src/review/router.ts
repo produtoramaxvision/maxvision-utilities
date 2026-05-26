@@ -61,6 +61,11 @@ const ROUTING_TABLE: Record<string, RoutingTableEntry> = {
     fixDirectiveTemplate:
       'Re-prompt with "medium close-up" framing and shortened dialogue (≤12s).',
   },
+  ref_match_low: {
+    fixTargetAgent: 'media-forge:cinematic-director',
+    fixDirectiveTemplate:
+      'Regenerate with stronger visual alignment to the moodboard reference. Emphasise the requested cinematic effect and composition.',
+  },
 };
 
 // ---------------------------------------------------------------------------
