@@ -13,8 +13,11 @@ export interface PresignedUrlCacheOpts {
 
 export class PresignedUrlCache {
   private readonly inner: LRUCache<string, string>;
+  /** Default TTL stored separately so per-entry setWithTtl can cap against it. */
+  private readonly defaultTtlMs: number;
 
   constructor(opts: PresignedUrlCacheOpts) {
+    this.defaultTtlMs = opts.ttlMs;
     this.inner = new LRUCache<string, string>({
       max: opts.maxItems,
       ttl: opts.ttlMs,
@@ -34,11 +37,23 @@ export class PresignedUrlCache {
 
   /**
    * TTL-aware set: encodes ttlSeconds into the cache key so that the same
-   * objectKey with different TTLs occupy independent slots. Use alongside
-   * getWithTtl to avoid serving a URL minted with the wrong TTL.
+   * objectKey with different TTLs occupy independent slots. The lru-cache entry
+   * lifetime is capped to min(defaultTtlMs, requestedTtlMs - safetyMargin) so
+   * a short-lived presigned URL (e.g. ttlSeconds=60) never outlives its MinIO
+   * validity window inside the cache. A 5-second safety margin guards against
+   * clock skew and processing latency. Requests shorter than the safety margin
+   * are not cached at all.
    */
   setWithTtl(objectKey: string, ttlSeconds: number, url: string): void {
-    this.inner.set(`${objectKey}|${ttlSeconds}`, url);
+    const compositeKey = `${objectKey}|${ttlSeconds}`;
+    const safetyMarginMs = 5_000;
+    const requestedTtlMs = Math.max(0, ttlSeconds * 1000 - safetyMarginMs);
+    const entryTtlMs = Math.min(this.defaultTtlMs, requestedTtlMs);
+    if (entryTtlMs <= 0) {
+      // Requested TTL too short to cache safely — skip to avoid returning a dead URL.
+      return;
+    }
+    this.inner.set(compositeKey, url, { ttl: entryTtlMs });
   }
 
   /**

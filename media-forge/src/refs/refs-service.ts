@@ -38,6 +38,19 @@ export interface RefsTraceCtx {
   jobDir: string;
 }
 
+/**
+ * Optional config overrides threaded from loadConfig() into the refs service.
+ * When a field is provided it takes precedence over the corresponding
+ * process.env[...] read, enabling tests and programmatic callers to inject
+ * values without mutating the real environment.
+ */
+export interface RefsServiceConfig {
+  pgvectorUrl?: string;
+  voyageApiKey?: string;
+  /** Corresponds to MEDIA_FORGE_PROJECT_DIR / MediaForgeConfig.projectDir. */
+  projectDir?: string;
+}
+
 export interface RefsService {
   searchRefs(input: RefsSearchInputT, traceCtx?: RefsTraceCtx): Promise<RefRecord[]>;
   composeMoodboardFromKeys(input: RefsComposeMoodboardInputT): Promise<ComposeResult>;
@@ -52,8 +65,9 @@ export interface RefsService {
 export function createRefsService(
   cfg: MinioConfig,
   mfClient: MediaForgeClient,
+  refsConfig?: RefsServiceConfig,
 ): RefsService {
-  return createRefsServiceWithClient(createMinioClient(cfg), mfClient);
+  return createRefsServiceWithClient(createMinioClient(cfg), mfClient, refsConfig);
 }
 
 /**
@@ -98,7 +112,14 @@ function resolveTagsWithLogging(rawTags: string[], queryText?: string): string[]
 export function createRefsServiceWithClient(
   minio: MinioClient,
   mfClient: MediaForgeClient,
+  refsConfig?: RefsServiceConfig,
 ): RefsService {
+  // Closure-scoped config values: prefer injected config, fall back to process.env
+  // for backwards compatibility when third arg is omitted (e.g. hook callers).
+  const pgvectorUrl = refsConfig?.pgvectorUrl ?? process.env['PGVECTOR_URL'] ?? '';
+  const voyageApiKey = refsConfig?.voyageApiKey ?? process.env['VOYAGE_API_KEY'];
+  const projectDir = refsConfig?.projectDir ?? process.env['MEDIA_FORGE_PROJECT_DIR'] ?? '.media-forge';
+
   const cache = new PresignedUrlCache({ maxItems: 500, ttlMs: 50 * 60 * 1000 });
 
   return {
@@ -110,7 +131,7 @@ export function createRefsServiceWithClient(
       if (input.mode === 'semantic') {
         const { createPgvectorClient } = await import('./pgvector-client.js');
         const { semanticSearch } = await import('./semantic-search.js');
-        const pg = createPgvectorClient(process.env['PGVECTOR_URL'] ?? '');
+        const pg = createPgvectorClient(pgvectorUrl);
         try {
           const resolvedTags = resolveTagsWithLogging(input.tags, input.queryText);
           const hits = await semanticSearch({
@@ -121,7 +142,7 @@ export function createRefsServiceWithClient(
             categoryFilter: resolvedTags,
             topK: input.limit,
             ttlSeconds: input.ttlSeconds,
-            voyageApiKey: process.env['VOYAGE_API_KEY'],
+            voyageApiKey,
           });
           return hits.map((h) => ({
             category: h.category,
@@ -204,19 +225,29 @@ export function createRefsServiceWithClient(
 
       const dir = await mkdtemp(join(tmpdir(), 'mf-moodboard-'));
       try {
-        // 1) Download each ref from MinIO → extract first keyframe → normalise to JPEG
+        // 1) Download each ref from MinIO → extract first keyframe → normalise to JPEG.
+        // Track the object key for each successfully prepared ref so refsUsed reflects
+        // only refs that actually reach NBP (not the full input list).
         const refPaths: string[] = [];
+        const refKeysSucceeded: string[] = [];
         for (let i = 0; i < input.refKeys.length; i++) {
           const refKey = input.refKeys[i];
           if (!refKey) continue;
-          const raw = await minio.downloadObject(refKey);
-          const frames = await extractKeyframesFromBuffer(raw, { maxFrames: 1 });
-          const frame = frames[0];
-          if (!frame) continue;
-          const norm = await normaliseToJpeg(frame, { minSide: 1024 });
-          const p = join(dir, `ref-${i}.jpg`);
-          await writeFile(p, norm);
-          refPaths.push(p);
+          try {
+            const raw = await minio.downloadObject(refKey);
+            const frames = await extractKeyframesFromBuffer(raw, { maxFrames: 1 });
+            const frame = frames[0];
+            if (!frame) continue;
+            const norm = await normaliseToJpeg(frame, { minSide: 1024 });
+            const p = join(dir, `ref-${refKeysSucceeded.length}.jpg`);
+            await writeFile(p, norm);
+            refPaths.push(p);
+            refKeysSucceeded.push(refKey);
+          } catch (err) {
+            // Download/extract/normalise failed — skip this ref so one bad asset
+            // never aborts the entire moodboard. Log best-effort for diagnostics.
+            logger.warn('refs: failed to prepare ref, skipping', { refKey, err: String(err) });
+          }
         }
 
         // 2) Read subject images from disk → normalise → write to tmpdir
@@ -236,7 +267,11 @@ export function createRefsServiceWithClient(
         const subjectSlots = subjectPaths.slice(0, NBP_MAX_REFS);
         const remaining = NBP_MAX_REFS - subjectSlots.length;
         const refSlots = refPaths.slice(0, Math.max(0, remaining));
-        const refsSkipped = Math.max(0, refPaths.length - refSlots.length);
+        // Map back to the object keys that actually made it into NBP slots.
+        const refKeysInSlots = refKeysSucceeded.slice(0, refSlots.length);
+        // refsSkipped = all inputs that did NOT end up in an NBP slot (download
+        // failures + overflow from the 14-slot cap + subject priority).
+        const refsSkipped = Math.max(0, input.refKeys.length - refKeysInSlots.length);
 
         const referenceImages = [...subjectSlots, ...refSlots].map((path, idx) => ({
           path,
@@ -317,10 +352,7 @@ export function createRefsServiceWithClient(
         const outputBuf = Buffer.from(nbpResult.base64, 'base64');
         const meta = await sharp(outputBuf).metadata();
 
-        const outputDir = join(
-          process.env['MEDIA_FORGE_PROJECT_DIR'] ?? '.media-forge',
-          'moodboards',
-        );
+        const outputDir = join(projectDir, 'moodboards');
         await mkdirP(outputDir, { recursive: true });
         const outputPath = join(outputDir, `moodboard-${Date.now()}.jpg`);
         await writeFile(outputPath, outputBuf);
@@ -330,7 +362,7 @@ export function createRefsServiceWithClient(
           width: meta.width ?? parseInt(input.outputSize, 10),
           height: meta.height ?? parseInt(input.outputSize, 10),
           costUsd: 0.05, // approximation; EA1 patch will wire estimateRefsCost
-          refsUsed: [...input.refKeys],
+          refsUsed: refKeysInSlots,
           refsSkipped,
           safetyRetryUsed,
         };

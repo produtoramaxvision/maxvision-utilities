@@ -759,7 +759,11 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     secretKey: deps.config.minioSecretKey,
     useSsl: deps.config.minioUseSsl,
   };
-  const refsService = createRefsService(refsCfg, deps.client);
+  const refsService = createRefsService(refsCfg, deps.client, {
+    pgvectorUrl: deps.config.pgvectorUrl,
+    voyageApiKey: deps.config.voyageApiKey,
+    projectDir: deps.config.projectDir,
+  });
 
   {
     const t = getTool('media_refs_search');
