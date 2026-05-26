@@ -19,6 +19,17 @@ vi.mock('../../../src/image/image-service.js', async () => {
   };
 });
 
+// Mocks for semantic mode (Finding 3)
+const semanticSearchMock = vi.fn();
+vi.mock('../../../src/refs/semantic-search.js', () => ({
+  semanticSearch: (...a: unknown[]) => semanticSearchMock(...a),
+}));
+
+const fakePgClient = { close: vi.fn().mockResolvedValue(undefined) };
+vi.mock('../../../src/refs/pgvector-client.js', () => ({
+  createPgvectorClient: () => fakePgClient,
+}));
+
 import { createRefsService, createRefsServiceWithClient } from '../../../src/refs/refs-service.js';
 import { SafetyRejectedError } from '../../../src/refs/moodboard-composer.js';
 import type { MinioClient } from '../../../src/refs/minio-client.js';
@@ -221,5 +232,53 @@ describe('refs-service — safety propagation (ET2)', () => {
     const err = thrown as InstanceType<typeof SafetyRejectedError>;
     expect(err.safetyCategories).toEqual(['datamosh']);
     expect(err.message).toContain('TEXT_ONLY');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite 5 — Finding 1: presignKeys re-presigns when TTL changes
+// ---------------------------------------------------------------------------
+
+describe('refs-service — presignKeys TTL-aware cache (Finding 1)', () => {
+  it('re-presigns when same key is requested with a different TTL', async () => {
+    const fakeClient = makeFakeMinioClient();
+    const svc = createRefsServiceWithClient(fakeClient, fakeMfClient);
+    // First call: TTL=600
+    await svc.presignKeys({ objectKeys: ['dolly-zoom/aaa.gif'], ttlSeconds: 600 });
+    // Second call: same key but different TTL — must NOT hit the first cache slot
+    await svc.presignKeys({ objectKeys: ['dolly-zoom/aaa.gif'], ttlSeconds: 3000 });
+    // presignObject must have been called twice (once per unique TTL)
+    expect((fakeClient.presignObject as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite 6 — Finding 3: semantic mode canonicalises aliases before pgvector filter
+// ---------------------------------------------------------------------------
+
+describe('refs-service — semantic mode alias resolution (Finding 3)', () => {
+  beforeEach(() => {
+    semanticSearchMock.mockReset();
+    fakePgClient.close.mockReset();
+    semanticSearchMock.mockResolvedValue([]);
+    fakePgClient.close.mockResolvedValue(undefined);
+  });
+
+  it('canonicalises aliases before passing categoryFilter to semanticSearch', async () => {
+    const svc = createRefsServiceWithClient(makeFakeMinioClient(), fakeMfClient);
+    await svc.searchRefs({
+      tags: ['vertigo-effect'], // alias → should resolve to 'dolly-zoom'
+      mode: 'semantic',
+      queryImagePath: undefined,
+      queryText: 'test brief',
+      limit: 3,
+      seed: 0,
+      ttlSeconds: 600,
+    });
+    expect(semanticSearchMock).toHaveBeenCalledOnce();
+    const callArgs = semanticSearchMock.mock.calls[0][0] as { categoryFilter: string[] };
+    // Must receive resolved canonical name, NOT the raw alias
+    expect(callArgs.categoryFilter).toContain('dolly-zoom');
+    expect(callArgs.categoryFilter).not.toContain('vertigo-effect');
   });
 });

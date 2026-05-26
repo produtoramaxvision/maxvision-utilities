@@ -32,6 +32,23 @@ export class PresignedUrlCache {
     this.inner.set(key, value);
   }
 
+  /**
+   * TTL-aware set: encodes ttlSeconds into the cache key so that the same
+   * objectKey with different TTLs occupy independent slots. Use alongside
+   * getWithTtl to avoid serving a URL minted with the wrong TTL.
+   */
+  setWithTtl(objectKey: string, ttlSeconds: number, url: string): void {
+    this.inner.set(`${objectKey}|${ttlSeconds}`, url);
+  }
+
+  /**
+   * TTL-aware get: retrieves the cached URL for the specific objectKey+TTL
+   * combination. Returns undefined when no entry was stored for that TTL.
+   */
+  getWithTtl(objectKey: string, ttlSeconds: number): string | undefined {
+    return this.inner.get(`${objectKey}|${ttlSeconds}`);
+  }
+
   size(): number {
     return this.inner.size;
   }

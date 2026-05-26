@@ -28,4 +28,19 @@ describe('PresignedUrlCache', () => {
     expect(cache.get('b')).toBe('url-b');
     expect(cache.get('c')).toBe('url-c');
   });
+
+  // --- TTL-aware composite key tests (Finding 1) ---
+
+  it('different TTL = different cache slot', () => {
+    const cache = new PresignedUrlCache({ maxItems: 10, ttlMs: 60_000 });
+    cache.setWithTtl('refs/a.gif', 600, 'https://signed.example/short-lived');
+    // Same object key, different TTL — must NOT hit the slot set above
+    expect(cache.getWithTtl('refs/a.gif', 3000)).toBeUndefined();
+  });
+
+  it('same key + same TTL hits TTL-aware cache slot', () => {
+    const cache = new PresignedUrlCache({ maxItems: 10, ttlMs: 60_000 });
+    cache.setWithTtl('refs/a.gif', 600, 'https://signed.example/short-lived');
+    expect(cache.getWithTtl('refs/a.gif', 600)).toBe('https://signed.example/short-lived');
+  });
 });

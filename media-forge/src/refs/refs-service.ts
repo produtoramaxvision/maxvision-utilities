@@ -56,6 +56,45 @@ export function createRefsService(
   return createRefsServiceWithClient(createMinioClient(cfg), mfClient);
 }
 
+/**
+ * Resolve raw tags from user input to canonical category names, logging
+ * unresolved aliases as a best-effort side effect.
+ *
+ * Preserves the same logUnresolvedAlias side-effect behavior as the tag-mode
+ * inline loop so both tag mode and semantic mode share identical alias handling.
+ */
+function resolveTagsWithLogging(rawTags: string[], queryText?: string): string[] {
+  const resolvedTags: string[] = [];
+  for (const raw of rawTags) {
+    const cat = isCategory(raw) ? raw : resolveAliases(raw);
+    if (!cat) {
+      const phrase = raw.trim().toLowerCase();
+      const candidates = (CATEGORIES as readonly string[])
+        .filter(
+          (c) =>
+            phrase.includes(c.split('-')[0] ?? '') ||
+            phrase.split(/\s+/).some((w) => c.includes(w)),
+        )
+        .slice(0, 3);
+      const logPath = join(
+        process.env['MEDIA_FORGE_PROJECT_DIR'] ?? '.media-forge',
+        'aliases-learn.jsonl',
+      );
+      logUnresolvedAlias({
+        logPath,
+        phrase,
+        briefSnippet: queryText ?? '',
+        candidateMatches: candidates,
+      }).catch((err: unknown) => {
+        logger.warn('aliases-learn log failed (best-effort)', { err: String(err) });
+      });
+    } else {
+      resolvedTags.push(cat);
+    }
+  }
+  return resolvedTags;
+}
+
 export function createRefsServiceWithClient(
   minio: MinioClient,
   mfClient: MediaForgeClient,
@@ -73,12 +112,13 @@ export function createRefsServiceWithClient(
         const { semanticSearch } = await import('./semantic-search.js');
         const pg = createPgvectorClient(process.env['PGVECTOR_URL'] ?? '');
         try {
+          const resolvedTags = resolveTagsWithLogging(input.tags, input.queryText);
           const hits = await semanticSearch({
             pg,
             minio,
             queryText: input.queryText,
             queryImagePath: input.queryImagePath,
-            categoryFilter: input.tags,
+            categoryFilter: resolvedTags,
             topK: input.limit,
             ttlSeconds: input.ttlSeconds,
             voyageApiKey: process.env['VOYAGE_API_KEY'],
@@ -96,35 +136,7 @@ export function createRefsServiceWithClient(
       }
       // Pre-resolve tags: log unresolved ones (best-effort) and drop them so
       // sampleByCategory never sees an unknown category and throws.
-      const resolvedTags: string[] = [];
-      for (const raw of input.tags) {
-        const cat = isCategory(raw) ? raw : resolveAliases(raw);
-        if (!cat) {
-          // Best-effort: find 3 closest categories via dumb substring match
-          const phrase = raw.trim().toLowerCase();
-          const candidates = (CATEGORIES as readonly string[])
-            .filter(
-              (c) =>
-                phrase.includes(c.split('-')[0] ?? '') ||
-                phrase.split(/\s+/).some((w) => c.includes(w)),
-            )
-            .slice(0, 3);
-          const logPath = join(
-            process.env['MEDIA_FORGE_PROJECT_DIR'] ?? '.media-forge',
-            'aliases-learn.jsonl',
-          );
-          logUnresolvedAlias({
-            logPath,
-            phrase,
-            briefSnippet: input.queryText ?? '',
-            candidateMatches: candidates,
-          }).catch((err: unknown) => {
-            logger.warn('aliases-learn log failed (best-effort)', { err: String(err) });
-          });
-        } else {
-          resolvedTags.push(cat);
-        }
-      }
+      const resolvedTags = resolveTagsWithLogging(input.tags, input.queryText);
 
       const t0 = Date.now();
       const refs = await sampleByCategory(minio, resolvedTags, {
@@ -334,13 +346,13 @@ export function createRefsServiceWithClient(
     async presignKeys(input: RefsPresignInputT): Promise<Array<{ key: string; url: string }>> {
       const out: Array<{ key: string; url: string }> = [];
       for (const key of input.objectKeys) {
-        const cached = cache.get(key);
+        const cached = cache.getWithTtl(key, input.ttlSeconds);
         if (cached) {
           out.push({ key, url: cached });
           continue;
         }
         const url = await minio.presignObject(key, input.ttlSeconds);
-        cache.set(key, url);
+        cache.setWithTtl(key, input.ttlSeconds, url);
         out.push({ key, url });
       }
       return out;
