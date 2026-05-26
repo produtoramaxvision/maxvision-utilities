@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import { join } from 'node:path';
 import sharp from 'sharp';
 
 // ---------------------------------------------------------------------------
@@ -8,6 +9,11 @@ import sharp from 'sharp';
 const sampleByCategoryMock = vi.fn();
 vi.mock('../../../src/refs/tag-search.js', () => ({
   sampleByCategory: (...a: unknown[]) => sampleByCategoryMock(...a),
+}));
+
+const logUnresolvedAliasMock = vi.fn().mockResolvedValue(undefined);
+vi.mock('../../../src/refs/aliases-learn.js', () => ({
+  logUnresolvedAlias: (...a: unknown[]) => logUnresolvedAliasMock(...a),
 }));
 
 const generateNbpMock = vi.fn();
@@ -421,5 +427,93 @@ describe('RefsComposeMoodboardInput — R5: subject-only schema parse', () => {
         outputSize: '1024',
       }),
     ).rejects.toThrow(/at least one ref or subject/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite 11 — R7: duplicate canonical tags result in a single sampleByCategory call per category
+// ---------------------------------------------------------------------------
+
+describe('refs-service — R7: deduplicate canonical tags before sampleByCategory', () => {
+  beforeEach(() => {
+    sampleByCategoryMock.mockReset();
+    sampleByCategoryMock.mockResolvedValue([]);
+  });
+
+  it('collapses alias + canonical to one unique category passed to sampleByCategory', async () => {
+    // 'vertigo-effect' aliases to 'dolly-zoom', so passing both should result in a single
+    // 'dolly-zoom' entry in the categories array forwarded to sampleByCategory.
+    const svc = createRefsServiceWithClient(makeFakeMinioClient(), fakeMfClient);
+    await svc.searchRefs({
+      tags: ['dolly-zoom', 'vertigo-effect'],
+      mode: 'tag',
+      limit: 3,
+      seed: 0,
+      ttlSeconds: 600,
+    });
+    expect(sampleByCategoryMock).toHaveBeenCalledOnce();
+    const categoriesArg = sampleByCategoryMock.mock.calls[0][1] as string[];
+    // Both inputs resolve to 'dolly-zoom' — must appear exactly once
+    expect(categoriesArg.filter((c) => c === 'dolly-zoom')).toHaveLength(1);
+  });
+
+  it('collapses duplicate canonical tags passed directly', async () => {
+    const svc = createRefsServiceWithClient(makeFakeMinioClient(), fakeMfClient);
+    await svc.searchRefs({
+      tags: ['dolly-zoom', 'dolly-zoom'],
+      mode: 'tag',
+      limit: 3,
+      seed: 0,
+      ttlSeconds: 600,
+    });
+    expect(sampleByCategoryMock).toHaveBeenCalledOnce();
+    const categoriesArg = sampleByCategoryMock.mock.calls[0][1] as string[];
+    expect(categoriesArg.filter((c) => c === 'dolly-zoom')).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite 12 — R8: resolveTagsWithLogging uses projectDir from refsConfig, not process.env
+// ---------------------------------------------------------------------------
+
+describe('refs-service — R8: alias log path respects refsConfig.projectDir', () => {
+  beforeEach(() => {
+    logUnresolvedAliasMock.mockClear();
+    logUnresolvedAliasMock.mockResolvedValue(undefined);
+    sampleByCategoryMock.mockReset();
+    sampleByCategoryMock.mockResolvedValue([]);
+  });
+
+  it('writes alias log to refsConfig.projectDir, not process.env MEDIA_FORGE_PROJECT_DIR', async () => {
+    const origEnv = process.env['MEDIA_FORGE_PROJECT_DIR'];
+    process.env['MEDIA_FORGE_PROJECT_DIR'] = '/env-should-not-be-used';
+
+    try {
+      const customDir = '/custom/project-dir';
+      const svc = createRefsServiceWithClient(makeFakeMinioClient(), fakeMfClient, {
+        projectDir: customDir,
+      });
+
+      // Pass an unknown tag so the unresolved branch fires and logUnresolvedAlias is called
+      await svc.searchRefs({
+        tags: ['totally-unknown-phrase-xyz'],
+        mode: 'tag',
+        limit: 1,
+        seed: 0,
+        ttlSeconds: 600,
+      });
+
+      // Allow the fire-and-forget promise to settle
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(logUnresolvedAliasMock).toHaveBeenCalled();
+      const callArg = logUnresolvedAliasMock.mock.calls[0][0] as { logPath: string };
+      expect(callArg.logPath).toBe(join(customDir, 'aliases-learn.jsonl'));
+      // Must NOT use the env-injected path
+      expect(callArg.logPath).not.toContain('env-should-not-be-used');
+    } finally {
+      if (origEnv === undefined) delete process.env['MEDIA_FORGE_PROJECT_DIR'];
+      else process.env['MEDIA_FORGE_PROJECT_DIR'] = origEnv;
+    }
   });
 });

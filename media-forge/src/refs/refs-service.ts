@@ -77,7 +77,7 @@ export function createRefsService(
  * Preserves the same logUnresolvedAlias side-effect behavior as the tag-mode
  * inline loop so both tag mode and semantic mode share identical alias handling.
  */
-function resolveTagsWithLogging(rawTags: string[], queryText?: string): string[] {
+function resolveTagsWithLogging(rawTags: string[], projectDir: string, queryText?: string): string[] {
   const resolvedTags: string[] = [];
   for (const raw of rawTags) {
     const cat = isCategory(raw) ? raw : resolveAliases(raw);
@@ -90,10 +90,7 @@ function resolveTagsWithLogging(rawTags: string[], queryText?: string): string[]
             phrase.split(/\s+/).some((w) => c.includes(w)),
         )
         .slice(0, 3);
-      const logPath = join(
-        process.env['MEDIA_FORGE_PROJECT_DIR'] ?? '.media-forge',
-        'aliases-learn.jsonl',
-      );
+      const logPath = join(projectDir, 'aliases-learn.jsonl');
       logUnresolvedAlias({
         logPath,
         phrase,
@@ -133,7 +130,7 @@ export function createRefsServiceWithClient(
         const { semanticSearch } = await import('./semantic-search.js');
         const pg = createPgvectorClient(pgvectorUrl);
         try {
-          const resolvedTags = resolveTagsWithLogging(input.tags, input.queryText);
+          const resolvedTags = Array.from(new Set(resolveTagsWithLogging(input.tags, projectDir, input.queryText)));
           const hits = await semanticSearch({
             pg,
             minio,
@@ -157,7 +154,7 @@ export function createRefsServiceWithClient(
       }
       // Pre-resolve tags: log unresolved ones (best-effort) and drop them so
       // sampleByCategory never sees an unknown category and throws.
-      const resolvedTags = resolveTagsWithLogging(input.tags, input.queryText);
+      const resolvedTags = Array.from(new Set(resolveTagsWithLogging(input.tags, projectDir, input.queryText)));
 
       const t0 = Date.now();
       const refs = await sampleByCategory(minio, resolvedTags, {
