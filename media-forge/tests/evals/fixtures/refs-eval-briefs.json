@@ -1,0 +1,12 @@
+[
+  { "id": "dolly-vertigo", "brief": "A character realises a terrible truth — dolly zoom à la Vertigo.", "effectTags": ["dolly-zoom"] },
+  { "id": "bullet-time-fight", "brief": "Two fighters frozen mid-strike, camera arcs 180 around them.", "effectTags": ["bullet-time"] },
+  { "id": "slow-mo-explosion", "brief": "Building collapses in slow motion, debris floating.", "effectTags": ["slow-motion"] },
+  { "id": "whip-pan-chase", "brief": "Whip pan transition from runner to pursuer.", "effectTags": ["whip-pan"] },
+  { "id": "overhead-dance", "brief": "Overhead bird's-eye shot of dancers forming geometric patterns.", "effectTags": ["overhead"] },
+  { "id": "dutch-angle-villain", "brief": "Dutch angle close-up of villain's smirk.", "effectTags": ["dutch-angle", "close-up"] },
+  { "id": "tilt-shift-city", "brief": "Tilt-shift miniature effect on a busy city street.", "effectTags": ["tilt-shift"] },
+  { "id": "tracking-corridor", "brief": "Long tracking shot down a hotel corridor.", "effectTags": ["tracking"] },
+  { "id": "fpv-drone-mountains", "brief": "FPV drone weaving between mountain peaks.", "effectTags": ["fpv-drone"] },
+  { "id": "kaleidoscope-trip", "brief": "Kaleidoscope visual transition into a dream sequence.", "effectTags": ["kaleidoscope"] }
+]
