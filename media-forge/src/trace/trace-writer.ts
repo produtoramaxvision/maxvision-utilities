@@ -74,6 +74,73 @@ export async function appendTrace(opts: TraceAppendOpts): Promise<void> {
   logger.debug('appendTrace: entry written', { jobId: opts.jobId, stage: validated.stage });
 }
 
+// ---------------------------------------------------------------------------
+// Refs selection trace — separate schema so it doesn't pollute the main
+// TraceEntry strict enum. Lines with `type: 'refs_selection'` live in the
+// same trace.jsonl file but are skip-warned by readTrace (tolerable for now).
+// ---------------------------------------------------------------------------
+
+export const RefsChosenItem = z
+  .object({
+    category: z.string(),
+    objectKey: z.string(),
+    rank: z.number().int().nonnegative().optional(),
+    cosineDistance: z.number().optional(),
+  })
+  .strict();
+
+export type RefsChosenItemT = z.infer<typeof RefsChosenItem>;
+
+export const RefsSelectionTraceEntry = z
+  .object({
+    type: z.literal('refs_selection'),
+    ts: z.string().datetime(),
+    jobId: z.string(),
+    refMode: z.enum(['tag', 'semantic']),
+    seedUsed: z.number().int(),
+    refsChosen: z.array(RefsChosenItem),
+    refsSkipped: z.number().int().nonnegative(),
+    searchLatencyMs: z.number().nonnegative(),
+  })
+  .strict();
+
+export type RefsSelectionTraceEntryT = z.infer<typeof RefsSelectionTraceEntry>;
+
+export interface RefsSelectionTraceAppendOpts {
+  jobId: string;
+  jobDir: string;
+  entry: Omit<RefsSelectionTraceEntryT, 'ts'> & { ts?: string };
+}
+
+export async function appendRefsSelectionTrace(opts: RefsSelectionTraceAppendOpts): Promise<void> {
+  const tracePath = safeJoin(opts.jobDir, 'trace.jsonl');
+
+  const ts = opts.entry.ts ?? new Date().toISOString();
+  const raw: Record<string, unknown> = { ts };
+  const entry = opts.entry as Record<string, unknown>;
+  for (const [k, v] of Object.entries(entry)) {
+    if (k !== 'ts' && v !== undefined) {
+      raw[k] = v;
+    }
+  }
+
+  let validated: RefsSelectionTraceEntryT;
+  try {
+    validated = RefsSelectionTraceEntry.parse(raw);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      throw new ValidationError(
+        `RefsSelectionTraceEntry validation failed:\n${prettyZodError(err)}`,
+        { issues: err.issues },
+      );
+    }
+    throw err;
+  }
+
+  await fs.promises.appendFile(tracePath, JSON.stringify(validated) + '\n', 'utf8');
+  logger.debug('appendRefsSelectionTrace: entry written', { jobId: opts.jobId });
+}
+
 export async function readTrace(opts: { jobDir: string }): Promise<TraceEntryT[]> {
   const tracePath = safeJoin(opts.jobDir, 'trace.jsonl');
 

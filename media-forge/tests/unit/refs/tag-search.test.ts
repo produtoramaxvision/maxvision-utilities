@@ -29,6 +29,9 @@ describe('sampleByCategory', () => {
     expect(refs[0].category).toBe('dolly-zoom');
     expect(refs[0].presignedUrl).toMatch(/^https:\/\/signed\.example\//);
     expect(refs[0].objectKey.startsWith('dolly-zoom/')).toBe(true);
+    expect(refs[0].rationale.mode).toBe('tag');
+    expect(refs[0].rationale.rank).toBeDefined();
+    expect(refs[0].rationale.seedUsed).toBe(42);
   });
 
   it('deterministic ordering across runs with same seed', async () => {

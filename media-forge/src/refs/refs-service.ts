@@ -27,9 +27,16 @@ import type {
   RefsComposeMoodboardInputT,
   RefsPresignInputT,
 } from './refs-schemas.js';
+import { appendRefsSelectionTrace } from '../trace/trace-writer.js';
+import { logger } from '../core/logger.js';
+
+export interface RefsTraceCtx {
+  jobId: string;
+  jobDir: string;
+}
 
 export interface RefsService {
-  searchRefs(input: RefsSearchInputT): Promise<RefRecord[]>;
+  searchRefs(input: RefsSearchInputT, traceCtx?: RefsTraceCtx): Promise<RefRecord[]>;
   composeMoodboardFromKeys(input: RefsComposeMoodboardInputT): Promise<ComposeResult>;
   presignKeys(input: RefsPresignInputT): Promise<Array<{ key: string; url: string }>>;
 }
@@ -56,15 +63,49 @@ export function createRefsServiceWithClient(
     // -----------------------------------------------------------------------
     // searchRefs — tag-based (Phase 1) or semantic (Phase 2, not yet impl)
     // -----------------------------------------------------------------------
-    async searchRefs(input: RefsSearchInputT): Promise<RefRecord[]> {
+    async searchRefs(input: RefsSearchInputT, traceCtx?: RefsTraceCtx): Promise<RefRecord[]> {
       if (input.mode === 'semantic') {
         throw new Error('semantic mode not yet implemented (Phase 2)');
       }
-      return sampleByCategory(minio, input.tags, {
+      const t0 = Date.now();
+      const refs = await sampleByCategory(minio, input.tags, {
         limitPerCategory: input.limit,
         seed: input.seed,
         ttlSeconds: input.ttlSeconds,
       });
+      const searchLatencyMs = Date.now() - t0;
+
+      // Best-effort trace emission — never fail refs delivery due to trace error
+      if (traceCtx) {
+        try {
+          const refsChosen = refs.map((r) => ({
+            category: r.category,
+            objectKey: r.objectKey,
+            rank: r.rationale.rank,
+            cosineDistance: r.rationale.cosineDistance,
+          }));
+          // Calculate how many objects were available but not chosen per category.
+          // We don't have that count here, so refsSkipped = 0 (conservative).
+          // A future patch can pass the full count through sampleByCategory.
+          await appendRefsSelectionTrace({
+            jobId: traceCtx.jobId,
+            jobDir: traceCtx.jobDir,
+            entry: {
+              type: 'refs_selection',
+              jobId: traceCtx.jobId,
+              refMode: input.mode === 'tag' ? 'tag' : 'semantic',
+              seedUsed: input.seed,
+              refsChosen,
+              refsSkipped: 0,
+              searchLatencyMs,
+            },
+          });
+        } catch (err) {
+          logger.warn('refs_selection trace failed (best-effort)', { err: String(err) });
+        }
+      }
+
+      return refs;
     },
 
     // -----------------------------------------------------------------------

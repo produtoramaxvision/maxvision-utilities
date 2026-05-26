@@ -10,11 +10,19 @@ export interface SampleOptions {
   ttlSeconds: number;
 }
 
+export interface RefRationale {
+  mode: 'tag' | 'semantic';
+  rank?: number;
+  cosineDistance?: number;
+  seedUsed: number;
+}
+
 export interface RefRecord {
   category: string;
   objectKey: string;
   size: number;
   presignedUrl: string;
+  rationale: RefRationale;
 }
 
 // Deterministic seeded shuffle (Mulberry32 PRNG) so identical (seed, input) → identical output.
@@ -51,9 +59,16 @@ export async function sampleByCategory(
   for (const cat of resolved) {
     const { objects } = await client.listObjects(`${cat}/`, 1000);
     const picks = seededShuffle(objects, opts.seed).slice(0, opts.limitPerCategory);
-    for (const obj of picks) {
+    for (let rank = 0; rank < picks.length; rank++) {
+      const obj = picks[rank] as NonNullable<(typeof picks)[number]>;
       const url = await client.presignObject(obj.key, opts.ttlSeconds);
-      all.push({ category: cat, objectKey: obj.key, size: obj.size, presignedUrl: url });
+      all.push({
+        category: cat,
+        objectKey: obj.key,
+        size: obj.size,
+        presignedUrl: url,
+        rationale: { mode: 'tag', rank, seedUsed: opts.seed },
+      });
     }
   }
   return all;
