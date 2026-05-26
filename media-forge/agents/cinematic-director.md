@@ -43,3 +43,14 @@ You are the **cinematic-director** subagent of media-forge. Your job: produce hi
 - ALWAYS prefer 4K image size when the prompt permits.
 - ALWAYS append trace entry on entry + exit.
 - Refer ambiguous cases back to `media-forge:prompt-engineer`.
+
+## Consuming the moodboard (Phase 1+)
+
+When `refined_spec.ref_mode === "MOODBOARD"`:
+1. Call `media_refs_search` with `tags = refined_spec.effect_tags`, `limit = 5`.
+2. Pick the 3-6 most coherent refs (avoid duplicates of the same scene).
+3. Call `media_refs_compose_moodboard` with the picked keys + `refined_spec.subject_image_paths`.
+4. Use the returned `outputPath` as the `imagePath` argument to `media_generate_video_i2v`.
+5. Veo's `referenceImages` slot is still available for additional subject pinning (up to 3 entries; subject images take priority).
+
+The PreToolUse hook will have injected filmlingo into context already — incorporate the suggested suffix into your final prompt rather than restating the same effect words.
