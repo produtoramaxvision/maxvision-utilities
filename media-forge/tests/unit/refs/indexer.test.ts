@@ -19,6 +19,8 @@ const minio: MinioClient = {
 const pg: PgvectorClient = {
   searchByEmbedding: vi.fn(),
   upsertBatch: vi.fn(async () => 1),
+  searchByEmbeddingMarengo: vi.fn(),
+  upsertBatchMarengo: vi.fn(async () => 1),
   close: vi.fn(),
 };
 

@@ -10,6 +10,8 @@ const pg: PgvectorClient = {
     { objectKey: 'dolly-zoom/b.gif', frameIdx: 1, category: 'dolly-zoom', distance: 0.10 },
   ]),
   upsertBatch: vi.fn(),
+  searchByEmbeddingMarengo: vi.fn(async () => []),
+  upsertBatchMarengo: vi.fn(async () => 0),
   close: vi.fn(),
 };
 
