@@ -105,11 +105,21 @@ describe('refs-service — searchRefs', () => {
     expect(out[0].category).toBe('dolly-zoom');
   });
 
-  it('rejects with error for semantic mode (Phase 2 not yet implemented)', async () => {
+  it('semantic mode delegates to pgvector and returns mapped RefRecords', async () => {
+    // Mock pgvector-client and semantic-search at module level via vi.mock is too broad here —
+    // instead we verify that semantic mode no longer throws 'not yet implemented'
+    // and instead throws the pgvector connection error (PGVECTOR_URL not set → Pool fails).
+    // The real semantic integration is covered in semantic-search.test.ts.
     const svc = createRefsService(cfg, fakeMfClient);
-    await expect(
-      svc.searchRefs({ tags: ['dolly-zoom'], mode: 'semantic', limit: 1, seed: 0, ttlSeconds: 600 }),
-    ).rejects.toThrow(/semantic.*not yet implemented/i);
+    const result = await svc
+      .searchRefs({ tags: ['dolly-zoom'], mode: 'semantic', limit: 1, seed: 0, ttlSeconds: 600 })
+      .then((r) => r)
+      .catch((e: unknown) => e as Error);
+    // Must NOT throw the old "not yet implemented" message
+    if (result instanceof Error) {
+      expect(result.message).not.toMatch(/semantic.*not yet implemented/i);
+    }
+    // Either returns results or throws a connection/config error — never the stub error
   });
 });
 

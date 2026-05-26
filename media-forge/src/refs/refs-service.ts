@@ -66,7 +66,30 @@ export function createRefsServiceWithClient(
     async searchRefs(input: RefsSearchInputT, traceCtx?: RefsTraceCtx): Promise<RefRecord[]> {
       if (input.refsDisabled) return [];
       if (input.mode === 'semantic') {
-        throw new Error('semantic mode not yet implemented (Phase 2)');
+        const { createPgvectorClient } = await import('./pgvector-client.js');
+        const { semanticSearch } = await import('./semantic-search.js');
+        const pg = createPgvectorClient(process.env['PGVECTOR_URL'] ?? '');
+        try {
+          const hits = await semanticSearch({
+            pg,
+            minio,
+            queryText: input.queryText,
+            queryImagePath: input.queryImagePath,
+            categoryFilter: input.tags,
+            topK: input.limit,
+            ttlSeconds: input.ttlSeconds,
+            voyageApiKey: process.env['VOYAGE_API_KEY'],
+          });
+          return hits.map((h) => ({
+            category: h.category,
+            objectKey: h.objectKey,
+            size: 0,
+            presignedUrl: h.presignedUrl,
+            rationale: { mode: 'semantic' as const, cosineDistance: h.distance, seedUsed: input.seed },
+          }));
+        } finally {
+          await pg.close();
+        }
       }
       const t0 = Date.now();
       const refs = await sampleByCategory(minio, input.tags, {
