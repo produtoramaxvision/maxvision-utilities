@@ -76,6 +76,16 @@ import type { Provider } from '../core/models.js';
 import { join } from 'node:path';
 
 // ---------------------------------------------------------------------------
+// ADAPTED_PROVIDERS — routing gate: only providers with a wired adapter here.
+// Prevents the router from selecting models that have no execution backend.
+//
+// P14: Higgsfield enters ADAPTED_PROVIDERS in Task 6 once HiggsfieldProvider lands.
+// P15: 'kling' will be appended when KlingProvider lands.
+// P16: 'bytedance' will be appended when SeedanceProvider lands.
+// ---------------------------------------------------------------------------
+const ADAPTED_PROVIDERS = new Set<Provider>(['google']);
+
+// ---------------------------------------------------------------------------
 // Webhook router module-level handle (P13 scaffold for P14+ provider callbacks)
 // ---------------------------------------------------------------------------
 // Owned by the runtime entrypoint (`startStdioServer` in src/mcp/server.ts) —
@@ -164,9 +174,12 @@ export interface VideoRouteResult {
 export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteResult> {
   const input: VideoRouteInputT = VideoRouteInput.parse(rawInput);
 
-  const candidates = Object.values(VIDEO_MODELS).filter((spec) =>
-    spec.modes.includes(input.mode as never),
-  );
+  const candidates = Object.values(VIDEO_MODELS)
+    .filter((spec) => spec.modes.includes(input.mode as never))
+    // Constrain to providers with a wired adapter. Models registered for
+    // future providers (Higgsfield P14, Kling P15, Seedance P16) must not
+    // be selected until their adapter is available in ADAPTED_PROVIDERS.
+    .filter((spec) => ADAPTED_PROVIDERS.has(spec.provider));
   if (candidates.length === 0) {
     throw new Error(`no provider supports mode ${input.mode} in current registry`);
   }
