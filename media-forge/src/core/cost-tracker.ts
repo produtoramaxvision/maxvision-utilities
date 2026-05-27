@@ -1,5 +1,6 @@
 import { openDb, runMigrations } from './db.js';
 import type { Provider, VideoMode } from './models.js';
+import type { JobState } from '../video/providers/base.js';
 
 export interface RecordJobInput {
   readonly dbPath: string;
@@ -17,6 +18,7 @@ export interface RecordActualInput {
   readonly jobId: string;
   readonly actualUsd: number;
   readonly durationMs?: number;
+  readonly finalStatus?: JobState; // ADD — default 'completed' preserves backward compat
 }
 
 export interface ProviderRollup {
@@ -52,11 +54,13 @@ export function recordJob(input: RecordJobInput): void {
 export function recordActualCost(input: RecordActualInput): void {
   const db = ensureDb(input.dbPath);
   const completedAt = new Date().toISOString();
+  const status = input.finalStatus ?? 'completed';
+  // Idempotency: only update if actual_usd not yet set (handles webhook retry/duplicate delivery)
   db.prepare(
     `UPDATE video_jobs
-     SET actual_usd = ?, duration_ms = ?, status = 'completed', completed_at = ?
-     WHERE id = ?`,
-  ).run(input.actualUsd, input.durationMs ?? null, completedAt, input.jobId);
+     SET actual_usd = ?, duration_ms = ?, status = ?, completed_at = ?
+     WHERE id = ? AND actual_usd IS NULL`,
+  ).run(input.actualUsd, input.durationMs ?? null, status, completedAt, input.jobId);
 }
 
 export function queryReport(opts: { dbPath: string; periodDays: number }): CostReport {

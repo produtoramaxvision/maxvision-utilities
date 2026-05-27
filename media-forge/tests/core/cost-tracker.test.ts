@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb, runMigrations, closeDb } from '../../src/core/db.js';
 import { recordJob, recordActualCost, queryReport } from '../../src/core/cost-tracker.js';
+import type { JobState } from '../../src/video/providers/base.js';
 
 describe('cost-tracker', () => {
   let tmpDir: string;
@@ -100,5 +101,65 @@ describe('cost-tracker', () => {
     expect(Object.keys(report.byProvider).sort()).toEqual(['google', 'kling']);
     expect(report.byProvider.google.estUsd).toBe(0.5);
     expect(report.byProvider.kling.estUsd).toBe(0.84);
+  });
+
+  it('recordActualCost with finalStatus: failed preserves failed status in DB', () => {
+    recordJob({
+      dbPath,
+      jobId: 'job-fail',
+      provider: 'google',
+      model: 'veo-3.1-generate-preview',
+      mode: 't2v',
+      paramsHash: 'fail1',
+      estUsd: 0.5,
+    });
+    const finalStatus: JobState = 'failed';
+    recordActualCost({ dbPath, jobId: 'job-fail', actualUsd: 0.0, durationMs: 5000, finalStatus });
+    const db = openDb(dbPath);
+    const row = db
+      .prepare('SELECT status FROM video_jobs WHERE id = ?')
+      .get('job-fail') as { status: string };
+    expect(row.status).toBe('failed');
+  });
+
+  it('recordActualCost with finalStatus: nsfw preserves nsfw status in DB', () => {
+    recordJob({
+      dbPath,
+      jobId: 'job-nsfw',
+      provider: 'google',
+      model: 'veo-3.1-generate-preview',
+      mode: 't2v',
+      paramsHash: 'nsfw1',
+      estUsd: 0.5,
+    });
+    const finalStatus: JobState = 'nsfw';
+    recordActualCost({ dbPath, jobId: 'job-nsfw', actualUsd: 0.0, durationMs: 3000, finalStatus });
+    const db = openDb(dbPath);
+    const row = db
+      .prepare('SELECT status FROM video_jobs WHERE id = ?')
+      .get('job-nsfw') as { status: string };
+    expect(row.status).toBe('nsfw');
+  });
+
+  it('recordActualCost is idempotent — second call on same jobId is a no-op', () => {
+    recordJob({
+      dbPath,
+      jobId: 'job-idempotent',
+      provider: 'google',
+      model: 'veo-3.1-generate-preview',
+      mode: 't2v',
+      paramsHash: 'idem1',
+      estUsd: 0.5,
+    });
+    // First call: sets actual_usd = 0.48
+    recordActualCost({ dbPath, jobId: 'job-idempotent', actualUsd: 0.48, durationMs: 10000 });
+    // Second call (webhook retry): should be ignored because actual_usd IS NOT NULL
+    recordActualCost({ dbPath, jobId: 'job-idempotent', actualUsd: 9.99, durationMs: 99999 });
+    const db = openDb(dbPath);
+    const row = db
+      .prepare('SELECT actual_usd, duration_ms FROM video_jobs WHERE id = ?')
+      .get('job-idempotent') as { actual_usd: number; duration_ms: number };
+    expect(row.actual_usd).toBe(0.48);
+    expect(row.duration_ms).toBe(10000);
   });
 });
