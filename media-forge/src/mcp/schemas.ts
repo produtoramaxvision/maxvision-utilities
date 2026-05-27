@@ -339,6 +339,15 @@ export const HiggsfieldRecastInput = z.object({
 });
 export type HiggsfieldRecastInputT = z.infer<typeof HiggsfieldRecastInput>;
 
+// HiggsfieldViralityPredictorInput — Virality Predictor: score an asset (P14 Task 14)
+// ---------------------------------------------------------------------------
+
+export const HiggsfieldViralityPredictorInput = z.object({
+  assetUrl: z.string().url(),
+  platform: z.enum(['tiktok', 'instagram', 'youtube-shorts', 'general']).default('general'),
+});
+export type HiggsfieldViralityPredictorInputT = z.infer<typeof HiggsfieldViralityPredictorInput>;
+
 // HiggsfieldMarketingStudioInput — Marketing Studio: 9 UGC templates from product URL (P14 Task 12)
 // ---------------------------------------------------------------------------
 
@@ -367,8 +376,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 36 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio + 1 higgsfield-recast = 36
+// MCP_TOOLS registry — 37 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio + 1 higgsfield-recast + 1 higgsfield-virality-predictor = 37
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -593,6 +602,14 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description: 'Higgsfield Recast Studio — swap character in existing video (Instadump / Character Swap).',
     inputSchema: HiggsfieldRecastInput,
     validationSchema: HiggsfieldRecastInput,
+  },
+
+  // ---- Higgsfield Virality Predictor (1 — P14 Task 14 score asset viral/audience/hook) ----
+  {
+    name: 'media_higgsfield_virality_predictor',
+    description: 'Higgsfield Virality Predictor — score an asset (viral / audience-fit / hook-strength).',
+    inputSchema: HiggsfieldViralityPredictorInput,
+    validationSchema: HiggsfieldViralityPredictorInput,
   },
 ] as const) as readonly MCPTool[];
 

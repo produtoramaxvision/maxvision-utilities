@@ -87,6 +87,8 @@ import { HiggsfieldCinemaStudioInput, type HiggsfieldCinemaStudioInputT } from '
 import { HiggsfieldSpeakInput, type HiggsfieldSpeakInputT } from './schemas.js';
 import { HiggsfieldMarketingStudioInput, type HiggsfieldMarketingStudioInputT } from './schemas.js';
 import { HiggsfieldRecastInput, type HiggsfieldRecastInputT } from './schemas.js';
+import { HiggsfieldViralityPredictorInput, type HiggsfieldViralityPredictorInputT } from './schemas.js';
+import { buildHiggsfieldHeaders } from '../video/providers/auth/higgsfield-headers.js';
 import { HiggsfieldProvider } from '../video/providers/higgsfield.js';
 
 // ---------------------------------------------------------------------------
@@ -362,6 +364,48 @@ export async function handleHiggsfieldRecast(rawInput: unknown): Promise<{
     jobId: handle.jobId,
     providerNativeId: handle.providerNativeId,
     estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldViralityPredictor — score an asset (viral/audience-fit/hook-strength)
+// Uses fetch DIRECTLY — no provider generate cycle, just a scoring POST.
+// ---------------------------------------------------------------------------
+
+export async function handleHiggsfieldViralityPredictor(rawInput: unknown): Promise<{
+  viralityScore: number;
+  audienceFit?: number;
+  hookStrength?: number;
+  raw: Record<string, unknown>;
+}> {
+  const input: HiggsfieldViralityPredictorInputT = HiggsfieldViralityPredictorInput.parse(rawInput);
+  const res = await fetch('https://platform.higgsfield.ai/higgsfield-ai/virality-predictor', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json',
+      ...buildHiggsfieldHeaders(),
+    },
+    body: JSON.stringify({ asset_url: input.assetUrl, platform: input.platform }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Higgsfield virality predictor failed: ${res.status} ${text.slice(0, 300)}`);
+  }
+  const data = (await res.json()) as Record<string, unknown>;
+  const num = (k: string): number | undefined => {
+    const v = data[k];
+    return typeof v === 'number' ? v : undefined;
+  };
+  const score = num('virality_score');
+  if (typeof score !== 'number') {
+    throw new Error('virality predictor response missing virality_score');
+  }
+  return {
+    viralityScore: score,
+    audienceFit: num('audience_fit'),
+    hookStrength: num('hook_strength'),
+    raw: data,
   };
 }
 
@@ -1414,6 +1458,17 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Higgsfield Recast', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldRecast(input))),
+    );
+  }
+
+  // ---- Higgsfield Virality Predictor (1 — P14 Task 14 score asset viral/audience/hook) ----
+
+  {
+    const t = getTool('media_higgsfield_virality_predictor');
+    reg(
+      t.name,
+      { title: 'Higgsfield Virality Predictor', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldViralityPredictor(input))),
     );
   }
 }

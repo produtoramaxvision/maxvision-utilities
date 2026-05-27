@@ -54,21 +54,22 @@ const EXPECTED_TOOL_NAMES = [
   'media_video_cost_report',
   // routing (1 — P13 cross-provider routing heuristic)
   'media_video_route',
-  // higgsfield (6 — P14 provider tools)
+  // higgsfield (7 — P14 provider tools)
   'media_higgsfield_soul_id',
   'media_higgsfield_dop',
   'media_higgsfield_cinema_studio',
   'media_higgsfield_speak',
   'media_higgsfield_marketing_studio',
   'media_higgsfield_recast',
+  'media_higgsfield_virality_predictor',
 ] as const;
 
 // ---------------------------------------------------------------------------
 // Registry shape assertions
 // ---------------------------------------------------------------------------
 describe('MCP_TOOLS registry', () => {
-  it('contains exactly 36 tools', () => {
-    expect(MCP_TOOLS.length).toBe(36);
+  it('contains exactly 37 tools', () => {
+    expect(MCP_TOOLS.length).toBe(37);
   });
 
   it('is frozen (Object.isFrozen)', () => {
@@ -112,11 +113,11 @@ describe('MCP_TOOLS registry', () => {
 // listMCPToolNames()
 // ---------------------------------------------------------------------------
 describe('listMCPToolNames()', () => {
-  it('returns an array of length 36', () => {
-    expect(listMCPToolNames().length).toBe(36);
+  it('returns an array of length 37', () => {
+    expect(listMCPToolNames().length).toBe(37);
   });
 
-  it('contains all 36 expected tool names', () => {
+  it('contains all 37 expected tool names', () => {
     const names = listMCPToolNames();
     for (const expected of EXPECTED_TOOL_NAMES) {
       expect(names).toContain(expected);
