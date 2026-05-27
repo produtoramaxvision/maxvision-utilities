@@ -94,3 +94,70 @@ describe('P14 — Higgsfield models registered', () => {
     expect(spec.modes).toContain('t2v');
   });
 });
+
+describe('P15 — Kling models registered', () => {
+  it('PROVIDERS runtime array includes "kling" alongside google + higgsfield', () => {
+    const providers: Provider[] = [...PROVIDERS];
+    expect(providers).toContain('google');
+    expect(providers).toContain('higgsfield'); // from P14
+    expect(providers).toContain('kling');
+  });
+
+  it('registers kling-v3-standard at $0.126/s (usd-per-second)', () => {
+    const spec = VIDEO_MODELS['kling-v3-standard'];
+    expect(spec).toBeDefined();
+    expect(spec.provider).toBe('kling');
+    expect(spec.pricing.unit).toBe('usd-per-second');
+    expect(spec.pricing.rate).toBeCloseTo(0.126, 4);
+    expect(spec.modes).toEqual(expect.arrayContaining(['t2v', 'i2v']));
+    expect(spec.resolutions).toEqual(expect.arrayContaining(['720p', '1080p']));
+    expect(spec.audioNative).toBe(true);
+  });
+
+  it('registers kling-v3-pro at $0.168/s with motion-brush + elements + lip-sync modes', () => {
+    const spec = VIDEO_MODELS['kling-v3-pro'];
+    expect(spec).toBeDefined();
+    expect(spec.pricing.rate).toBeCloseTo(0.168, 4);
+    expect(spec.modes).toEqual(
+      expect.arrayContaining(['t2v', 'i2v', 'motion-brush', 'elements', 'lip-sync']),
+    );
+    expect(spec.resolutions).toEqual(expect.arrayContaining(['1080p', '2k']));
+  });
+
+  it('registers kling-v3-master at 4K with t2v mode (pricing flagged volatile)', () => {
+    const spec = VIDEO_MODELS['kling-v3-master'];
+    expect(spec).toBeDefined();
+    expect(spec.resolutions).toContain('4k');
+    expect(spec.fps).toContain(60);
+    expect(spec.modes).toContain('t2v');
+    expect(spec.pricing.source).toBe('volatile-by-tier');
+    expect(spec.pricing.notes).toMatch(/verify on first live invocation/i);
+  });
+
+  it('registers kling-v3-omni with multi-shot mode (Omni differentiator)', () => {
+    const spec = VIDEO_MODELS['kling-v3-omni'];
+    expect(spec).toBeDefined();
+    expect(spec.modes).toContain('multi-shot');
+    expect(spec.pricing.source).toBe('volatile-by-tier');
+  });
+
+  it('ipRiskLevel is set on all 4 Kling models (Kuaishou is a Chinese provider — flag medium)', () => {
+    for (const id of ['kling-v3-standard', 'kling-v3-pro', 'kling-v3-master', 'kling-v3-omni']) {
+      const spec = VIDEO_MODELS[id];
+      expect(['medium', 'high']).toContain(spec.ipRiskLevel);
+    }
+  });
+
+  it('every Kling spec carries pricing.updatedAt for staleness detection', () => {
+    for (const id of ['kling-v3-standard', 'kling-v3-pro', 'kling-v3-master', 'kling-v3-omni']) {
+      expect(VIDEO_MODELS[id].pricing.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}/);
+    }
+  });
+
+  it('kling-v3-omni exposes limits.maxShots=6 and limits.maxDurationSec=30 (single source of truth)', () => {
+    const spec = VIDEO_MODELS['kling-v3-omni'];
+    expect(spec.limits?.maxShots).toBe(6);
+    expect(spec.limits?.maxDurationSec).toBe(30);
+    expect(spec.limits?.maxDurationPerShotSec).toBe(10);
+  });
+});

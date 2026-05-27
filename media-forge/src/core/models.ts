@@ -59,8 +59,8 @@ export type VideoDurationSeconds = (typeof VIDEO_DURATION_SECONDS)[number];
 // P14 appends `higgsfield`, P15 appends `kling`, P16 appends `bytedance`. The type
 // must NEVER promise providers without backing adapters — otherwise downstream code
 // type-checks against names that throw at runtime.
-export const PROVIDERS = ['google', 'higgsfield'] as const;
-export type Provider = (typeof PROVIDERS)[number] | 'higgsfield' | 'kling' | 'bytedance';
+export const PROVIDERS = ['google', 'higgsfield', 'kling'] as const;
+export type Provider = (typeof PROVIDERS)[number] | 'bytedance';
 // ^ Future-provider names are kept in the type union for forward-compatible
 // signatures (e.g. preferProvider in VideoRouteInput), but they are NOT in the
 // runtime PROVIDERS array. Guards must check `PROVIDERS.includes(name)` before
@@ -105,6 +105,18 @@ export interface VideoModelSpec {
     readonly notes?: string;    // e.g. "fal.ai tier; official Kuaishou differs"
   };
   readonly ipRiskLevel: IpRiskLevel;
+  /**
+   * Optional per-model capability caps. When present, downstream schemas + handlers MUST
+   * read from here rather than hardcoding constants. Currently used by:
+   *   - kling-v3-omni: maxShots / maxDurationSec / per-shot bounds (Task 9 Zod schema)
+   * Add new sub-fields as new providers / modes need explicit caps.
+   */
+  readonly limits?: {
+    readonly maxShots?: number;
+    readonly maxDurationSec?: number;
+    readonly minDurationPerShotSec?: number;
+    readonly maxDurationPerShotSec?: number;
+  };
 }
 
 export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
@@ -294,6 +306,84 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
       notes: 'Recast Studio — swap character in existing video (Instadump / Character Swap).',
     },
     ipRiskLevel: 'high',
+  },
+  'kling-v3-standard': {
+    id: 'kling-v3-standard',
+    provider: 'kling',
+    modes: ['t2v', 'i2v'],
+    maxDurationSec: 10,
+    resolutions: ['720p', '1080p'],
+    fps: [24, 30],
+    audioNative: true,
+    pricing: {
+      unit: 'usd-per-second',
+      rate: 0.126,
+      source: 'fixed-public-rate',
+      updatedAt: '2026-05-27',
+      notes: 'Kling V3 Standard tier per kling.ai pricing docs (context7 verified 2026-05-27)',
+    },
+    ipRiskLevel: 'medium',
+  },
+  'kling-v3-pro': {
+    id: 'kling-v3-pro',
+    provider: 'kling',
+    modes: ['t2v', 'i2v', 'motion-brush', 'elements', 'lip-sync', 'extend'],
+    maxDurationSec: 10,
+    resolutions: ['1080p', '2k'],
+    fps: [24, 30],
+    audioNative: true,
+    pricing: {
+      unit: 'usd-per-second',
+      rate: 0.168,
+      source: 'fixed-public-rate',
+      updatedAt: '2026-05-27',
+      notes: 'Kling V3 Pro tier per kling.ai pricing docs (context7 verified 2026-05-27)',
+    },
+    ipRiskLevel: 'medium',
+  },
+  'kling-v3-master': {
+    id: 'kling-v3-master',
+    provider: 'kling',
+    modes: ['t2v'],
+    maxDurationSec: 10,
+    resolutions: ['4k'],
+    fps: [24, 30, 60],
+    audioNative: true,
+    pricing: {
+      unit: 'usd-per-second',
+      rate: 0.18, // PLACEHOLDER — verify on first live invocation
+      source: 'volatile-by-tier',
+      updatedAt: '2026-05-27',
+      notes:
+        'Kling V3 Master (4K native, 60fps) pricing NOT confirmed by context7 fetch — verify on first live invocation and update rate via PRICING_OVERRIDES or commit a correction',
+    },
+    ipRiskLevel: 'medium',
+  },
+  'kling-v3-omni': {
+    id: 'kling-v3-omni',
+    provider: 'kling',
+    modes: ['t2v', 'i2v', 'multi-shot'],
+    maxDurationSec: 30, // 6 shots × 5s max each per Omni schema
+    resolutions: ['1080p'],
+    fps: [24, 30],
+    audioNative: true,
+    pricing: {
+      unit: 'usd-per-second',
+      rate: 0.168, // PLACEHOLDER — matches Pro tier; verify on first live invocation
+      source: 'volatile-by-tier',
+      updatedAt: '2026-05-27',
+      notes:
+        'Kling V3 Omni multi-shot pricing NOT confirmed by context7 fetch — assumed to match Pro tier per kling.ai pricing Q&A wording. Verify on first live invocation.',
+    },
+    // Single source of truth for Omni multi-shot caps. Task 9 schema + handler reference these
+    // (do NOT hardcode MAX_OMNI_SHOTS / MAX_OMNI_DURATION_SEC elsewhere).
+    limits: {
+      maxShots: 6,
+      maxDurationSec: 30,
+      minDurationPerShotSec: 1,
+      maxDurationPerShotSec: 10,
+    },
+    ipRiskLevel: 'medium',
   },
 };
 
