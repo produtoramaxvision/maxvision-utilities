@@ -9,6 +9,12 @@
  *     'hf-api-key': apiKey
  *     'hf-secret':  apiSecret
  *
+ * P14 Task 1 (2026-05-27): empirically validated — SDK header form accepted; REST form
+ * also/not also accepted. Keeping SDK form for forward-compat with @higgsfield/client.
+ *
+ * D-5 auth resilience: `buildPrimaryHeaders()` + `buildFallbackHeaders()` expose both
+ * schemes so `HiggsfieldProvider.generate()` can retry once on 401/403.
+ *
  * This module is pure env-read + header-object-build. Zero API calls.
  * Error messages NEVER include the secret value.
  */
@@ -68,4 +74,23 @@ export function buildHiggsfieldHeaders(): HiggsfieldHeaders {
     'hf-api-key': trimmedKey,
     'hf-secret': trimmedSecret,
   };
+}
+
+/** Primary headers — Task 1 outcome chose this scheme. Used by default. */
+export function buildPrimaryHeaders(): Record<string, string> {
+  return { ...buildHiggsfieldHeaders() };
+}
+
+/** Fallback headers — the OTHER scheme. Used once on 401/403 before erroring.
+ *  When primary is SDK form, fallback is REST form, and vice versa. */
+export function buildFallbackHeaders(): Record<string, string> {
+  const key = process.env['HF_API_KEY']?.trim() ?? '';
+  const secret = process.env['HF_API_SECRET']?.trim() ?? '';
+  if (!key || !secret) throw new HiggsfieldAuthConfigError('HF_API_KEY/HF_API_SECRET missing');
+  // Detect primary form by inspecting buildPrimaryHeaders output, return the other.
+  const primary = buildPrimaryHeaders();
+  if ('Authorization' in primary) {
+    return { 'hf-api-key': key, 'hf-secret': secret };
+  }
+  return { Authorization: `Key ${key}:${secret}` };
 }
