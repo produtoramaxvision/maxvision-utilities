@@ -119,6 +119,7 @@ import {
   deleteKlingElement,
 } from '../video/providers/kling-elements.js';
 import { openDb, runMigrations } from '../core/db.js';
+import { recordActualCost } from '../core/cost-tracker.js';
 
 // ---------------------------------------------------------------------------
 // ADAPTED_PROVIDERS — routing gate: only providers with a wired adapter here.
@@ -1032,6 +1033,7 @@ export async function handleKlingDownload(
   outputPath: string;
   sizeBytes: number;
   contentType: string;
+  actualUsd?: number;
 }> {
   const input: KlingDownloadInputT = KlingDownloadInput.parse(rawInput);
   const provider = new KlingProvider({
@@ -1054,11 +1056,30 @@ export async function handleKlingDownload(
     : `${input.jobIdOrUrl}.mp4`;
   const outputPath = join(outputsDir, baseName);
   writeFileSync(outputPath, asset.buffer);
+
+  // FIX (Codex P1 round 7, PR#11): manual completion path must flip the
+  // video_jobs row to terminal. Without this, jobs downloaded via
+  // media_kling_download stayed 'pending' forever (symmetric to the round 6
+  // webhook-handler bug). Use est_usd as the actualUsd fallback when no
+  // explicit duration is available locally.
+  let actualUsd: number | undefined;
+  if (!looksLikeUrl) {
+    const db = openDb(defaultDbPath());
+    runMigrations(db);
+    const row = db
+      .prepare('SELECT est_usd FROM video_jobs WHERE id = ?')
+      .get(input.jobIdOrUrl) as { est_usd?: number } | undefined;
+    actualUsd =
+      typeof row?.est_usd === 'number' && Number.isFinite(row.est_usd) ? row.est_usd : 0;
+    recordActualCost({ dbPath: defaultDbPath(), jobId: input.jobIdOrUrl, actualUsd });
+  }
+
   return {
     jobIdOrUrl: input.jobIdOrUrl,
     outputPath,
     sizeBytes: asset.metadata.sizeBytes ?? asset.buffer.length,
     contentType: asset.metadata.contentType,
+    ...(typeof actualUsd === 'number' ? { actualUsd } : {}),
   };
 }
 
