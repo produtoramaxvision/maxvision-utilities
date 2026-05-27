@@ -92,6 +92,20 @@ import { buildHiggsfieldHeaders } from '../video/providers/auth/higgsfield-heade
 import { HiggsfieldProvider } from '../video/providers/higgsfield.js';
 import { KlingProvider } from '../video/providers/kling.js';
 import { KlingMotionBrushInput, type KlingMotionBrushInputT } from './schemas.js';
+import {
+  KlingElementCreateInput,
+  type KlingElementCreateInputT,
+  KlingElementListInput,
+  type KlingElementListInputT,
+  KlingElementDeleteInput,
+  type KlingElementDeleteInputT,
+} from './schemas.js';
+import {
+  createKlingElement,
+  listKlingElementsFromBackend,
+  deleteKlingElement,
+} from '../video/providers/kling-elements.js';
+import { openDb, runMigrations } from '../core/db.js';
 
 // ---------------------------------------------------------------------------
 // ADAPTED_PROVIDERS — routing gate: only providers with a wired adapter here.
@@ -661,6 +675,107 @@ export async function handleKlingMotionBrush(
     modelId: handle.model,
     estimatedCostUSD: provider.estimateCostUSD(req),
   };
+}
+
+// ---------------------------------------------------------------------------
+// handleKlingElementCreate — create element from image URL or base64 (P15 Task 6.5)
+// Per-call construction (no singleton) — KlingProvider / kling-elements use env in call.
+// ---------------------------------------------------------------------------
+
+export async function handleKlingElementCreate(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{ elementId: string; displayName: string; category?: string; createdAt: string }> {
+  const input: KlingElementCreateInputT = KlingElementCreateInput.parse(rawInput);
+  const meta = await createKlingElement({
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+    imageUrl: input.imageUrl,
+    imageBase64: input.imageBase64,
+    displayName: input.displayName,
+    category: input.category,
+  });
+  const db = openDb(defaultDbPath());
+  runMigrations(db);
+  db.prepare(
+    `INSERT OR REPLACE INTO kling_elements (element_id, display_name, category, source_url, created_at, last_used_at)
+     VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`,
+  ).run(meta.elementId, meta.displayName, meta.category ?? null, input.imageUrl ?? null);
+  return meta;
+}
+
+// ---------------------------------------------------------------------------
+// handleKlingElementList — list elements from local cache (+ optional backend sync) (P15 Task 6.6)
+// ---------------------------------------------------------------------------
+
+export async function handleKlingElementList(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{
+  source: 'cache' | 'cache+backend';
+  elements: Array<{ elementId: string; displayName: string; category?: string; createdAt: string; lastUsedAt?: string }>;
+}> {
+  const input: KlingElementListInputT = KlingElementListInput.parse(rawInput);
+  const db = openDb(defaultDbPath());
+  runMigrations(db);
+
+  let where = input.includeDeleted ? '1=1' : 'deleted_at IS NULL';
+  const params: string[] = [];
+  if (input.category) {
+    where += ' AND category = ?';
+    params.push(input.category);
+  }
+  const localRows = db.prepare(`SELECT element_id, display_name, category, created_at, last_used_at FROM kling_elements WHERE ${where}`).all(...params) as Array<{
+    element_id: string;
+    display_name: string;
+    category?: string;
+    created_at: string;
+    last_used_at?: string;
+  }>;
+  type ElementRow = { elementId: string; displayName: string; category: string | undefined; createdAt: string; lastUsedAt: string | undefined };
+  let elements: ElementRow[] = localRows.map((r) => ({
+    elementId: r.element_id,
+    displayName: r.display_name,
+    category: r.category,
+    createdAt: r.created_at,
+    lastUsedAt: r.last_used_at,
+  }));
+
+  if (input.syncWithBackend) {
+    const remote = await listKlingElementsFromBackend({ env: process.env as never, fetchImpl: opts.fetchImpl });
+    const localById = new Map(elements.map((e) => [e.elementId, e]));
+    elements = remote.map((r) => ({ ...r, category: r.category, lastUsedAt: localById.get(r.elementId)?.lastUsedAt }));
+    const upsert = db.prepare(
+      `INSERT OR REPLACE INTO kling_elements (element_id, display_name, category, created_at, last_used_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+    for (const e of remote) {
+      upsert.run(e.elementId, e.displayName, e.category ?? null, e.createdAt, localById.get(e.elementId)?.lastUsedAt ?? null);
+    }
+    return { source: 'cache+backend', elements };
+  }
+  return { source: 'cache', elements };
+}
+
+// ---------------------------------------------------------------------------
+// handleKlingElementDelete — soft-delete locally + (default) hard-delete on backend (P15 Task 6.7)
+// Requires confirm:true — irreversible on backend.
+// ---------------------------------------------------------------------------
+
+export async function handleKlingElementDelete(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{ elementId: string; localDeleted: boolean; remoteDeleted: boolean }> {
+  const input: KlingElementDeleteInputT = KlingElementDeleteInput.parse(rawInput);
+  let remoteDeleted = false;
+  if (input.alsoDeleteRemote) {
+    await deleteKlingElement({ env: process.env as never, fetchImpl: opts.fetchImpl, elementId: input.elementId });
+    remoteDeleted = true;
+  }
+  const db = openDb(defaultDbPath());
+  runMigrations(db);
+  const result = db.prepare(`UPDATE kling_elements SET deleted_at = datetime('now') WHERE element_id = ?`).run(input.elementId);
+  return { elementId: input.elementId, localDeleted: result.changes > 0, remoteDeleted };
 }
 
 export interface HandlersDeps {
@@ -1594,6 +1709,35 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Kling Motion Brush', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingMotionBrush(input))),
+    );
+  }
+
+  // ---- Kling Elements CRUD (3 — P15 Tasks 6.5 / 6.6 / 6.7) ----
+
+  {
+    const t = getTool('media_kling_element_create');
+    reg(
+      t.name,
+      { title: 'Kling Element Create', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingElementCreate(input))),
+    );
+  }
+
+  {
+    const t = getTool('media_kling_element_list');
+    reg(
+      t.name,
+      { title: 'Kling Element List', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingElementList(input))),
+    );
+  }
+
+  {
+    const t = getTool('media_kling_element_delete');
+    reg(
+      t.name,
+      { title: 'Kling Element Delete', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingElementDelete(input))),
     );
   }
 }

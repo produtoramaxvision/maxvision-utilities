@@ -404,6 +404,42 @@ export const HiggsfieldMarketingStudioInput = z.object({
 export type HiggsfieldMarketingStudioInputT = z.infer<typeof HiggsfieldMarketingStudioInput>;
 
 // ---------------------------------------------------------------------------
+// Kling Elements — CRUD lifecycle (P15 Tasks 6.5 / 6.6 / 6.7)
+// ---------------------------------------------------------------------------
+
+// KlingElementCreateInput — base shape for tools/list (ZodObject, DEBT-008 compliant)
+// validationSchema = KlingElementCreateInput (ZodEffects with .refine for mutual-exclusion)
+export const _KlingElementCreateBase = z.object({
+  imageUrl: z.string().url().optional(),
+  imageBase64: z.string().min(1).optional(),
+  displayName: z.string().min(1).max(100),
+  category: z.enum(['character', 'product', 'location']).optional(),
+});
+
+export const KlingElementCreateInput = _KlingElementCreateBase.refine(
+  (v) => Boolean(v.imageUrl) !== Boolean(v.imageBase64),
+  { message: 'exactly one of imageUrl or imageBase64 required' },
+);
+export type KlingElementCreateInputT = z.infer<typeof KlingElementCreateInput>;
+
+// KlingElementListInput — list from local cache (+ optional backend sync)
+export const KlingElementListInput = z.object({
+  syncWithBackend: z.boolean().default(false),
+  category: z.enum(['character', 'product', 'location']).optional(),
+  includeDeleted: z.boolean().default(false),
+});
+export type KlingElementListInputT = z.infer<typeof KlingElementListInput>;
+
+// KlingElementDeleteInput — soft-delete locally + optionally hard-delete on backend
+// confirm:true is required (literal guard — irreversible on backend)
+export const KlingElementDeleteInput = z.object({
+  elementId: z.string().min(1),
+  confirm: z.literal(true, { errorMap: () => ({ message: 'confirm:true required to delete (irreversible)' }) }),
+  alsoDeleteRemote: z.boolean().default(true),
+});
+export type KlingElementDeleteInputT = z.infer<typeof KlingElementDeleteInput>;
+
+// ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
 export interface MCPTool {
@@ -415,8 +451,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 38 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio + 1 higgsfield-recast + 1 higgsfield-virality-predictor + 1 kling-motion-brush = 38
+// MCP_TOOLS registry — 41 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio + 1 higgsfield-recast + 1 higgsfield-virality-predictor + 1 kling-motion-brush + 3 kling-element-create/list/delete = 41
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -659,6 +695,27 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description:
       'Kling V3 Pro motion brush - paint regions of a still image with motion vectors. Returns a jobId; poll status or wait for webhook callback. Input: imageUrl, prompt, regions[].',
     inputSchema: KlingMotionBrushInput,
+  },
+
+  // ---- Kling Elements CRUD (3 — P15 Tasks 6.5 / 6.6 / 6.7) ----
+  {
+    name: 'media_kling_element_create',
+    description:
+      'Create a Kling element_id from an uploaded image (URL or base64). Returns element_id for use in media_kling_elements composition. Cached locally in kling_elements SQLite table.',
+    inputSchema: _KlingElementCreateBase,
+    validationSchema: KlingElementCreateInput,
+  },
+  {
+    name: 'media_kling_element_list',
+    description:
+      'List registered Kling element_ids. Defaults to local cache; pass syncWithBackend:true to refresh against Kling API.',
+    inputSchema: KlingElementListInput,
+  },
+  {
+    name: 'media_kling_element_delete',
+    description:
+      'Delete a Kling element_id from local cache + (default) Kling backend. Requires confirm:true (irreversible on backend). Local row is soft-deleted (deleted_at set) for audit.',
+    inputSchema: KlingElementDeleteInput,
   },
 ] as const) as readonly MCPTool[];
 
