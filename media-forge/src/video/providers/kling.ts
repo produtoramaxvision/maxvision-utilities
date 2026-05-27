@@ -264,6 +264,8 @@ function isKlingExtras(extras: ProviderExtras | undefined): extras is KlingExtra
 function pickEndpoint(mode: string, extras: KlingExtras | undefined): KlingEndpointKind {
   if (mode === 'multi-shot' || extras?.omniMultiShot) return 'omni-video';
   if (mode === 'motion-brush' || extras?.motionBrushRegions) return 'motion-brush';
+  // elements composition uses motion-brush endpoint per Kling motion API docs (context7) — element_list serialization shared
+  if (mode === 'elements' || (extras?.elementIds && extras.elementIds.length > 0)) return 'motion-brush';
   if (mode === 'lip-sync' || extras?.lipSync) return 'lip-sync';
   if (mode === 'extend') return 'video-extend';
   if (mode === 'i2v') return 'image2video';
@@ -368,8 +370,9 @@ function buildRequestBody(args: BuildBodyArgs): Record<string, unknown> {
     };
   }
 
-  // Motion brush — A8 endpoint /v1/motion/generate
-  if (req.mode === 'motion-brush' || extras?.motionBrushRegions) {
+  // Motion brush + elements — A8 endpoint /v1/motion/generate
+  // elements mode shares the same body shape: element_list is serialized from extras.elementIds
+  if (req.mode === 'motion-brush' || req.mode === 'elements' || extras?.motionBrushRegions) {
     return {
       model_name: modelName,
       prompt: req.prompt,

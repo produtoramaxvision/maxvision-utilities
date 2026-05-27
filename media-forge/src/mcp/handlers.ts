@@ -99,6 +99,8 @@ import {
   type KlingElementListInputT,
   KlingElementDeleteInput,
   type KlingElementDeleteInputT,
+  KlingElementsInput,
+  type KlingElementsInputT,
 } from './schemas.js';
 import {
   createKlingElement,
@@ -776,6 +778,46 @@ export async function handleKlingElementDelete(
   runMigrations(db);
   const result = db.prepare(`UPDATE kling_elements SET deleted_at = datetime('now') WHERE element_id = ?`).run(input.elementId);
   return { elementId: input.elementId, localDeleted: result.changes > 0, remoteDeleted };
+}
+
+// ---------------------------------------------------------------------------
+// handleKlingElements — compose up to 4 frame-locked element identities into one shot (P15 Task 7)
+// Per-call KlingProvider construction is intentional: KlingProvider takes env in constructor
+// and per-call construction ensures tests using tmp envs get isolated instances.
+// ---------------------------------------------------------------------------
+
+export async function handleKlingElements(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number }> {
+  const input: KlingElementsInputT = KlingElementsInput.parse(rawInput);
+  const provider = new KlingProvider({
+    dbPath: defaultDbPath(),
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+  });
+  const req = {
+    modelId: input.modelId,
+    mode: 'elements' as const,
+    prompt: input.prompt,
+    durationSec: input.durationSec,
+    resolution: '1080p' as const,
+    aspectRatio: input.aspectRatio,
+    firstFrameImagePath: input.imageUrl,
+    extras: {
+      providerKind: 'kling' as const,
+      elementIds: input.elementIds,
+      watermarkEnabled: input.watermarkEnabled,
+      klingMode: 'pro' as const,
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    jobId: handle.jobId,
+    provider: handle.provider,
+    modelId: handle.model,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
 }
 
 export interface HandlersDeps {
@@ -1738,6 +1780,17 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Kling Element Delete', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingElementDelete(input))),
+    );
+  }
+
+  // ---- Kling Elements composition (1 — P15 Task 7: compose up to 4 frame-locked identities into one shot) ----
+
+  {
+    const t = getTool('media_kling_elements');
+    reg(
+      t.name,
+      { title: 'Kling Elements', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingElements(input))),
     );
   }
 }

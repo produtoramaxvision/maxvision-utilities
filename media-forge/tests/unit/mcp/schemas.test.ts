@@ -68,14 +68,16 @@ const EXPECTED_TOOL_NAMES = [
   'media_kling_element_create',
   'media_kling_element_list',
   'media_kling_element_delete',
+  // kling elements composition (1 — P15 Task 7)
+  'media_kling_elements',
 ] as const;
 
 // ---------------------------------------------------------------------------
 // Registry shape assertions
 // ---------------------------------------------------------------------------
 describe('MCP_TOOLS registry', () => {
-  it('contains exactly 41 tools', () => {
-    expect(MCP_TOOLS.length).toBe(41);
+  it('contains exactly 42 tools', () => {
+    expect(MCP_TOOLS.length).toBe(42);
   });
 
   it('is frozen (Object.isFrozen)', () => {
@@ -119,8 +121,8 @@ describe('MCP_TOOLS registry', () => {
 // listMCPToolNames()
 // ---------------------------------------------------------------------------
 describe('listMCPToolNames()', () => {
-  it('returns an array of length 38', () => {
-    expect(listMCPToolNames().length).toBe(41);
+  it('returns an array of length 42', () => {
+    expect(listMCPToolNames().length).toBe(42);
   });
 
   it('contains all 38 expected tool names', () => {

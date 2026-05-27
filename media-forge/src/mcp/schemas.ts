@@ -439,6 +439,19 @@ export const KlingElementDeleteInput = z.object({
 });
 export type KlingElementDeleteInputT = z.infer<typeof KlingElementDeleteInput>;
 
+// KlingElementsInput — compose up to 4 frame-locked element identities into one shot (P15 Task 7)
+// elementIds: min 1, max 4 per Kling hard limit
+export const KlingElementsInput = z.object({
+  prompt: z.string().min(1),
+  imageUrl: z.string().url(),
+  elementIds: z.array(z.string().min(1)).min(1).max(4, 'max 4 elements per Kling spec'),
+  durationSec: z.number().positive().max(10),
+  modelId: z.enum(['kling-v3-pro']).default('kling-v3-pro'),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1']).default('16:9'),
+  watermarkEnabled: z.boolean().default(false),
+});
+export type KlingElementsInputT = z.infer<typeof KlingElementsInput>;
+
 // ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
@@ -451,8 +464,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 41 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio + 1 higgsfield-recast + 1 higgsfield-virality-predictor + 1 kling-motion-brush + 3 kling-element-create/list/delete = 41
+// MCP_TOOLS registry — 42 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio + 1 higgsfield-recast + 1 higgsfield-virality-predictor + 1 kling-motion-brush + 3 kling-element-create/list/delete + 1 kling-elements = 42
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -716,6 +729,14 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description:
       'Delete a Kling element_id from local cache + (default) Kling backend. Requires confirm:true (irreversible on backend). Local row is soft-deleted (deleted_at set) for audit.',
     inputSchema: KlingElementDeleteInput,
+  },
+
+  // ---- Kling Elements composition (1 — P15 Task 7: compose up to 4 frame-locked identities into one shot) ----
+  {
+    name: 'media_kling_elements',
+    description:
+      'Kling V3 Pro Elements - up to 4 frame-locked reference identities (characters, objects, locations) composed into one shot via base image + elementIds. Use for consistent multi-character scenes.',
+    inputSchema: KlingElementsInput,
   },
 ] as const) as readonly MCPTool[];
 
