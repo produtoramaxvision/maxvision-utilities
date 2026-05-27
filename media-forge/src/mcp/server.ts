@@ -29,11 +29,21 @@ export function buildServer(opts: BuildServerOpts = {}): McpServer {
   const client = opts.client ?? createClient({ config });
   // D-6: validate MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT before any handler fires.
   // Fail fast — server cannot price Higgsfield jobs without the validated constant.
-  try {
-    validateHiggsfieldPricingAtBoot();
-  } catch (err) {
-    process.stderr.write(`[boot-error] ${(err as Error).message}\n`);
-    process.exit(2);
+  //
+  // FIX (Codex P1, PR#10): only validate when Higgsfield is actually configured.
+  // P13 Google-only installs upgrading to v0.3.0-p14 must boot without setting
+  // MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT. Heuristic: validate iff at least one
+  // Higgsfield auth env var is set (HF_API_KEY or HIGGSFIELD_API_KEY).
+  const hasHiggsfieldAuth =
+    Boolean(process.env['HF_API_KEY']?.trim()) ||
+    Boolean(process.env['HIGGSFIELD_API_KEY']?.trim());
+  if (hasHiggsfieldAuth) {
+    try {
+      validateHiggsfieldPricingAtBoot();
+    } catch (err) {
+      process.stderr.write(`[boot-error] ${(err as Error).message}\n`);
+      process.exit(2);
+    }
   }
   // Honor MEDIA_FORGE_PRICING_OVERRIDES (enterprise/contract rates) BEFORE
   // registerAllTools — otherwise media_video_route + media_video_cost_estimate

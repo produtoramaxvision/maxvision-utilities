@@ -162,10 +162,24 @@ export class HiggsfieldProvider implements VideoProvider {
       return { jobId, state: 'pending' };
     }
     const url = `${BASE_URL}/requests/${encodeURIComponent(requestId)}/status`;
-    const res = await this.doFetch(url, {
+    // FIX (Codex P1, PR#10): mirror generate()'s primary→fallback auth handshake.
+    // If the platform required fallback headers for submit, polling must use the
+    // same scheme — otherwise jobs submitted via fallback become un-pollable.
+    // Sticky signal via env var set in generate(); also retry once on 401/403.
+    const fallbackInUse = process.env['MEDIA_FORGE_HF_AUTH_FALLBACK_USED'] === 'true';
+    const primaryHeaders = { accept: 'application/json', ...buildHiggsfieldHeaders() };
+    const fallbackHeaders = { accept: 'application/json', ...buildFallbackHeaders() };
+    let res = await this.doFetch(url, {
       method: 'GET',
-      headers: { accept: 'application/json', ...buildHiggsfieldHeaders() },
+      headers: fallbackInUse ? fallbackHeaders : primaryHeaders,
     });
+    if (!fallbackInUse && (res.status === 401 || res.status === 403)) {
+      process.stderr.write(
+        `[higgsfield-auth] pollStatus primary auth rejected (status=${res.status}) — retrying once with fallback scheme.\n`,
+      );
+      process.env['MEDIA_FORGE_HF_AUTH_FALLBACK_USED'] = 'true';
+      res = await this.doFetch(url, { method: 'GET', headers: fallbackHeaders });
+    }
     if (!res.ok) {
       throw new Error(`Higgsfield pollStatus failed: ${res.status}`);
     }
