@@ -11,6 +11,8 @@ export interface RecordJobInput {
   readonly paramsHash: string;
   readonly estUsd: number;
   readonly createdAtOverride?: string;
+  /** Native provider task ID (e.g. Kling task_id). Persisted for TTL-refresh re-poll. */
+  readonly nativeTaskId?: string;
 }
 
 export interface RecordActualInput {
@@ -46,9 +48,18 @@ export function recordJob(input: RecordJobInput): void {
   const createdAt = input.createdAtOverride ?? new Date().toISOString();
   db.prepare(
     `INSERT INTO video_jobs
-     (id, provider, model, mode, params_hash, est_usd, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
-  ).run(input.jobId, input.provider, input.model, input.mode, input.paramsHash, input.estUsd, createdAt);
+     (id, provider, model, mode, params_hash, est_usd, status, created_at, native_task_id)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+  ).run(
+    input.jobId,
+    input.provider,
+    input.model,
+    input.mode,
+    input.paramsHash,
+    input.estUsd,
+    createdAt,
+    input.nativeTaskId ?? null,
+  );
 }
 
 export function recordActualCost(input: RecordActualInput): void {

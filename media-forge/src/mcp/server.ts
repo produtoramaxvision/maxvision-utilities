@@ -15,8 +15,11 @@ import { registerAllTools, setWebhookRouter } from './handlers.js';
 import {
   startWebhookRouter,
   stopWebhookRouter,
+  registerWebhookHandler,
   type WebhookRouter,
 } from '../video/providers/webhook-router.js';
+import { createKlingWebhookHandler } from '../video/providers/kling-webhook-handler.js';
+import { join } from 'node:path';
 
 export interface BuildServerOpts {
   // Injection point for tests — config + client come from outside in tests
@@ -98,6 +101,17 @@ export async function startStdioServer(): Promise<void> {
   const router = await maybeStartWebhookRouter();
   if (router) {
     setWebhookRouter(router);
+
+    // Register provider-specific webhook handlers
+    const projectDir = process.env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
+    const dbPath = join(projectDir, 'cost.db');
+    const outputsDir = join(projectDir, 'outputs', 'kling');
+    registerWebhookHandler(
+      router,
+      'kling',
+      createKlingWebhookHandler({ dbPath, outputsDir }),
+    );
+
     // Wire SIGTERM/SIGINT shutdown — close the router before exiting so the
     // OS port + handler map are released cleanly. Errors during close are
     // logged but do not block exit (the process is going down regardless).

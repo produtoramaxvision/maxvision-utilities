@@ -173,6 +173,7 @@ export class KlingProvider implements VideoProvider {
       mode: req.mode,
       paramsHash: hashParams(req),
       estUsd,
+      nativeTaskId,
     });
 
     // NOTE: no global request_id<->jobId map needed. The webhook handler resolves identity from
