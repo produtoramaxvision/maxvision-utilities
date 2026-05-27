@@ -120,10 +120,10 @@ import { openDb, runMigrations } from '../core/db.js';
 // Prevents the router from selecting models that have no execution backend.
 //
 // P14: HiggsfieldProvider landed in Task 6 — 'higgsfield' enters ADAPTED_PROVIDERS.
-// P15: 'kling' will be appended when KlingProvider lands.
+// P15: KlingProvider landed in Task 4 — 'kling' enters ADAPTED_PROVIDERS.
 // P16: 'bytedance' will be appended when SeedanceProvider lands.
 // ---------------------------------------------------------------------------
-const ADAPTED_PROVIDERS = new Set<Provider>(['google', 'higgsfield']);
+const ADAPTED_PROVIDERS = new Set<Provider>(['google', 'higgsfield', 'kling']);
 
 // ---------------------------------------------------------------------------
 // Webhook router module-level handle (P13 scaffold for P14+ provider callbacks)
@@ -467,17 +467,19 @@ export async function handleVideoCostReport(rawInput: unknown): Promise<CostRepo
 // ---------------------------------------------------------------------------
 // handleVideoRoute — pick optimal provider+model for a video generation request
 // ---------------------------------------------------------------------------
-// Capability-before-cost routing heuristic. P14 adds Higgsfield to ADAPTED_PROVIDERS.
+// Capability-before-cost routing heuristic. P14 adds Higgsfield, P15 adds Kling.
 //
 // Ranking rules (in priority order):
 //   1. preferProvider filter — caller can force a specific provider.
-//   2. For shared modes (t2v, i2v, with-refs, interpolate, extend):
-//      google is preferred over higgsfield by default so P13 behaviour is
-//      preserved. Higgsfield wins only when it is the sole capable provider
-//      (lip-sync, targeted-edit) OR when preferProvider='higgsfield'.
-//   3. Within a provider tier, sort by USD-equivalent cost (cross-unit aware).
+//   2. P15 explicit tier overrides (pickExplicitTier) — certain modes/resolutions
+//      are hard-wired to a specific Kling model before cost sort:
+//        resolution=4k → kling-v3-master
+//        mode=multi-shot → kling-v3-omni
+//        mode=motion-brush | elements | lip-sync → kling-v3-pro
+//   3. Pure cost sort (cheapest USD-equivalent wins) — google-default tiebreaker
+//      removed in P15 (Option A). When preferProvider is 'google', caller must
+//      pass it explicitly.
 //
-// P15: 'kling' will integrate here when KlingProvider lands.
 // P16: 'bytedance' will integrate here when SeedanceProvider lands.
 
 export interface VideoRouteResult {
@@ -528,28 +530,22 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
     );
   }
 
-  // Sort candidates with capability-before-cost and google-default tiebreaker.
-  // When no preferProvider is set, google is ranked above higgsfield for shared
-  // modes to preserve P13 default behaviour. Higgsfield wins only when it is the
-  // sole capable provider (lip-sync, targeted-edit) or when preferProvider forces it.
-  // Within a provider tier, sort by USD-equivalent cost ascending.
-  //
-  // Future: when VideoRouteInput grows Higgsfield-specific extras (cinemaStudioParams,
-  // dopCameraVerbs, soulId, etc.), add a hasHiggsfieldSignal() predicate here that
-  // raises the Higgsfield tier above google for those shared modes.
+  // P15: attempt an explicit-tier override before falling back to cost sort.
+  // pickExplicitTier hard-wires certain modes/resolutions to a specific Kling model
+  // regardless of cost. Only applies when preferProvider is NOT set (caller override wins).
+  const explicit = input.preferProvider ? undefined : pickExplicitTier(input, preferred);
+
+  // Sort remaining candidates by USD-equivalent cost ascending.
+  // P15 (Option A): google-default tiebreaker removed — pure cost sort.
   const sorted = [...preferred].sort((a, b) => {
-    if (!input.preferProvider) {
-      if (a.provider === 'google' && b.provider !== 'google') return -1;
-      if (b.provider === 'google' && a.provider !== 'google') return 1;
-    }
     const aUsd = normalizeCostUSDSafe(a, input);
     const bUsd = normalizeCostUSDSafe(b, input);
     return aUsd - bUsd;
   });
-  const picked = sorted[0]!;
+  const picked = explicit ?? sorted[0]!;
 
   const estimatedCostUSD = normalizeCostUSDSafe(picked, input);
-  const rationale = buildRationale(picked, input, sorted.length);
+  const rationale = buildRationale(picked, input, sorted.length, explicit !== undefined);
 
   return {
     provider: picked.provider,
@@ -580,13 +576,35 @@ function normalizeCostUSDSafe(spec: VideoModelSpec, input: VideoRouteInputT): nu
   }
 }
 
+// P15: explicit tier overrides — hard-wire specific modes/resolutions to a Kling model
+// before the cost-based sort. Only checked when preferProvider is not set.
+function pickExplicitTier(
+  input: VideoRouteInputT,
+  candidates: ReadonlyArray<VideoModelSpec>,
+): VideoModelSpec | undefined {
+  // 4K resolution → kling-v3-master (only registered 4K-native provider)
+  if (input.resolution === '4k') {
+    return candidates.find((c) => c.id === 'kling-v3-master');
+  }
+  // Multi-shot → kling-v3-omni (unique to Kling; Veo + Higgsfield do not support it)
+  if (input.mode === 'multi-shot') {
+    return candidates.find((c) => c.id === 'kling-v3-omni');
+  }
+  // Motion-brush, elements, and lip-sync are Kling V3 Pro-only modes in the current registry
+  if (input.mode === 'motion-brush' || input.mode === 'elements' || input.mode === 'lip-sync') {
+    return candidates.find((c) => c.id === 'kling-v3-pro');
+  }
+  return undefined;
+}
+
 function buildRationale(
   picked: VideoModelSpec,
   input: VideoRouteInputT,
   candidateCount: number,
+  isExplicitTier: boolean,
 ): string {
-  if (input.mode === 'lip-sync') {
-    return `Only higgsfield supports lip-sync in P14 → ${picked.id}.`;
+  if (isExplicitTier) {
+    return `P15 explicit tier: mode=${input.mode}/resolution=${input.resolution} routes to ${picked.id}.`;
   }
   if (input.mode === 'targeted-edit') {
     return `Only higgsfield Recast supports targeted-edit in P14 → ${picked.id}.`;
@@ -598,8 +616,9 @@ function buildRationale(
     return `${picked.id} is the only candidate for mode ${input.mode}.`;
   }
   return (
-    `google is the default for shared modes; higgsfield wins only via preferProvider ` +
-    `or capability-required mode. Selected ${picked.id} for mode ${input.mode}.`
+    `Cheapest USD-equivalent candidate for mode ${input.mode}: ${picked.id} at ` +
+    `$${normalizeCostUSDSafe(picked, input).toFixed(4)}/s. ` +
+    `Use preferProvider to override.`
   );
 }
 

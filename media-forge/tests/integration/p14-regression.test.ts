@@ -30,12 +30,15 @@ describe('P14 regression — Veo still wired AND Higgsfield is live', () => {
     delete process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
   });
 
-  it('Veo regression: plain t2v still routes to google', async () => {
+  it('Veo regression: plain t2v still routes to google when preferProvider is forced', async () => {
+    // P15 Option A removed google-default tiebreaker; Kling wins on cost for plain t2v.
+    // preferProvider: 'google' preserves the P14 intent: Veo is still wired and callable.
     const r = await handleVideoRoute({
       mode: 't2v',
       prompt: 'a quiet lake at sunrise',
       durationSec: 4,
       resolution: '720p',
+      preferProvider: 'google',
     });
     expect(r.provider).toBe('google');
   });
@@ -66,13 +69,16 @@ describe('P14 regression — Veo still wired AND Higgsfield is live', () => {
     expect(MCP_TOOLS.length).toBe(45);
   });
 
-  it('lip-sync route picks Higgsfield', async () => {
+  it('lip-sync route picks Kling in P15 (explicit-tier override; Higgsfield still reachable via preferProvider)', async () => {
+    // P14: Higgsfield was sole lip-sync provider. P15: kling-v3-pro joins with explicit-tier
+    // override — pickExplicitTier routes lip-sync to kling-v3-pro before cost sort.
+    // Higgsfield lip-sync remains reachable via preferProvider: 'higgsfield'.
     const r = await handleVideoRoute({
       mode: 'lip-sync',
       prompt: 'x',
       durationSec: 15,
-      resolution: '720p',
+      resolution: '1080p',
     });
-    expect(r.provider).toBe('higgsfield');
+    expect(r.provider).toBe('kling');
   });
 });
