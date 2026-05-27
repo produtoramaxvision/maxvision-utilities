@@ -54,7 +54,13 @@ describe('media_kling_lip_sync handler', () => {
     const [url, init] = fetchImpl.mock.calls[0];
     expect(url).toBe('https://api-singapore.klingai.com/v1/videos/advanced-lip-sync');
     const body = JSON.parse(init.body as string);
-    expect(body.prompt).toBeDefined();
+    // PR#11 Codex P1 fix: lip-sync body shape is { input: { video_id, mode, text, emotion } }
+    // — NOT a t2v fallthrough with top-level `prompt`. Assert correct nested shape.
+    expect(body.input).toBeDefined();
+    expect(body.input.mode).toBe('text');
+    expect(body.input.text).toBe('hello world, this is a test');
+    expect(body.input.emotion).toBe('happy');
+    expect(body.input.video_id).toBe('https://example/source.mp4');
   });
 
   it('audio-driven lip-sync (audioUrl, no emotion)', async () => {

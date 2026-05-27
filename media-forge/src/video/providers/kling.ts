@@ -372,6 +372,9 @@ function buildRequestBody(args: BuildBodyArgs): Record<string, unknown> {
 
   // Motion brush + elements — A8 endpoint /v1/motion/generate
   // elements mode shares the same body shape: element_list is serialized from extras.elementIds
+  // FIX (Codex P1, PR#11): serialize motionBrushRegions when present.
+  // Each region has polygon (point pairs) + motion_vector — Kling expects
+  // motion_brushes[].{polygon, motion_vector} per /v1/motion/generate spec.
   if (req.mode === 'motion-brush' || req.mode === 'elements' || extras?.motionBrushRegions) {
     return {
       model_name: modelName,
@@ -382,8 +385,58 @@ function buildRequestBody(args: BuildBodyArgs): Record<string, unknown> {
       ...(extras?.elementIds
         ? { element_list: extras.elementIds.map((id) => ({ element_id: id })) }
         : {}),
+      ...(extras?.motionBrushRegions
+        ? {
+            motion_brushes: extras.motionBrushRegions.map((r) => ({
+              id: r.id,
+              polygon: r.polygon.map(([x, y]) => ({ x, y })),
+              motion_vector: { dx: r.motionVector[0], dy: r.motionVector[1] },
+            })),
+          }
+        : {}),
       keep_original_sound: 'no',
       mode: klingMode,
+      watermark_info: { enabled: watermarkEnabled },
+      ...(callbackUrl ? { callback_url: callbackUrl } : {}),
+      external_task_id: externalTaskId,
+    };
+  }
+
+  // FIX (Codex P1, PR#11): lip-sync mode body — was falling through to default
+  // t2v which is the wrong shape for /v1/videos/advanced-lip-sync.
+  // Per Kling A8 intel: video_id (source clip) + lip_sync mode + content
+  // (text or audio). Emotion optional. Throws if KlingLipSyncSpec missing.
+  if (req.mode === 'lip-sync') {
+    if (!extras?.lipSync) {
+      throw new Error('lip-sync mode requires extras.lipSync (KlingLipSyncSpec)');
+    }
+    const ls = extras.lipSync;
+    // Source video resolved from extras.motionReferenceVideoUrl (handler convention)
+    // or req.firstFrameImagePath as fallback.
+    const videoId = extras.motionReferenceVideoUrl ?? req.firstFrameImagePath;
+    return {
+      model_name: modelName,
+      input: {
+        video_id: videoId,
+        mode: ls.mode,
+        ...(ls.mode === 'text'
+          ? { text: ls.text, ...(ls.emotion ? { emotion: ls.emotion } : {}) }
+          : { audio_url: ls.audioUrl }),
+      },
+      ...(callbackUrl ? { callback_url: callbackUrl } : {}),
+      external_task_id: externalTaskId,
+    };
+  }
+
+  // FIX (Codex P1, PR#11): video-extend mode body — was falling through to
+  // default t2v. Per Kling /v1/videos/video-extend: source video_id +
+  // continuation prompt + extension duration (typically +5s per hop).
+  if (req.mode === 'extend') {
+    return {
+      model_name: modelName,
+      video_id: req.firstFrameImagePath,
+      prompt: req.prompt,
+      duration: String(req.durationSec),
       watermark_info: { enabled: watermarkEnabled },
       ...(callbackUrl ? { callback_url: callbackUrl } : {}),
       external_task_id: externalTaskId,
