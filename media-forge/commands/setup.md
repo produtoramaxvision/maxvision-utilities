@@ -1,17 +1,47 @@
 ---
-description: "First-time onboarding: API keys, output dir, smoke test"
+description: "First-time onboarding: API keys, output dir, webhook secret, smoke test"
 argument-hint: ""
 allowed-tools: Read, Write, Bash, Grep, Glob
 ---
 
 # /media-forge:setup
 
-Onboarding wizard. Run this once after installing media-forge to configure your API key, output directory, and verify the installation.
+Onboarding wizard. Run this once after installing media-forge to configure your API key, output directory, webhook router secret (optional for P13, required for P14+), and verify the installation.
 
 ## Instructions
 
 1. Invoke the `media-forge:setup` skill with no arguments.
 2. Guide the user through each configuration step interactively.
-3. After configuration, display the doctor check results.
-4. On success, suggest the first generation command as an example.
-5. On failure, display the specific error and a troubleshooting tip.
+3. Webhook router setup (provider abstraction P13+):
+   - Ask the user whether they plan to use non-Veo providers (Higgsfield, Kling, Seedance — P14+). If yes, walk them through generating a webhook secret and setting `MEDIA_FORGE_WEBHOOK_SECRET` + (optionally) `MEDIA_FORGE_WEBHOOK_PORT`.
+   - Default port: `7733` (bind 127.0.0.1 only). Override with `MEDIA_FORGE_WEBHOOK_PORT`.
+   - Generate a 32-byte hex secret with one of:
+     - `openssl rand -hex 32`
+     - `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`
+   - **Graceful degradation**: if `MEDIA_FORGE_WEBHOOK_SECRET` is unset, the router stays disabled and the `media_video_webhook_status` MCP tool reports `running: false`. P13 (Veo only) works fine without it — Veo polls GCS for completion. P14+ providers will fall back to polling when callbacks are unavailable.
+4. Higgsfield API setup (P14+, required only if you plan to use Higgsfield video generation):
+   - The Higgsfield platform API requires two separate credentials — an API key and an API secret.
+   - Auth format verified from `@higgsfield/client@0.2.1` (`dist/client.js`): two custom headers `hf-api-key` and `hf-secret`. No Bearer token.
+   - Set in your environment (or `.env`):
+     - `HF_API_KEY` — your Higgsfield API key ID
+     - `HF_API_SECRET` — your Higgsfield API secret
+   - Both must be set and non-empty. The setup wizard will prompt and validate that neither is blank.
+   - **Never echo the secret in full** — only confirm the last 4 chars when storing.
+   - **Never echo the generated secret back in full** — only show the last 4 chars when confirming the value was stored.
+   **Default provider (P13)**:
+   - Ask the user which provider they want as their default. In P13 only `google` (Veo via GCS polling) is functional; other values are reserved for P14+.
+   - Set `MEDIA_FORGE_DEFAULT_PROVIDER=google` in their environment or `.env`.
+   - If the user does not specify a value, default to `google` silently. Do not error on omission.
+   - Inform the user: "In P14+ you will be able to change this to `higgsfield`, `kling`, or `seedance` once those providers are fully wired."
+4. After configuration, display the doctor check results.
+5. On success, suggest the first generation command as an example.
+6. On failure, display the specific error and a troubleshooting tip.
+
+## Note: Higgsfield official MCP connector (optional, user-side)
+
+Higgsfield publishes an official OAuth-based MCP connector at `https://mcp.higgsfield.ai/mcp`. This is a **separate product** from the media-forge plugin server and its Higgsfield provider integration:
+
+- The official connector is user-installed and authenticates via Higgsfield's own OAuth flow (no `HF_API_KEY` / `HF_API_SECRET` env vars needed on your side).
+- The media-forge plugin uses the Higgsfield platform REST API directly with `HF_API_KEY` + `HF_API_SECRET` (two-header auth, as documented in step 4 above).
+- Both can coexist — they operate independently. The official MCP connector is not required for media-forge to call Higgsfield; it is simply another way to access Higgsfield capabilities from an MCP client.
+- To explore the official connector, visit `https://mcp.higgsfield.ai/mcp` and follow the OAuth pairing instructions provided there.

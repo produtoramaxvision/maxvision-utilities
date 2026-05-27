@@ -192,6 +192,58 @@ export const MediaHelpInput = z
 
 export type MediaHelpInputT = z.infer<typeof MediaHelpInput>;
 
+// video_webhook_status — report runtime state of the local webhook router
+// (P14+ provider callback endpoint). Empty input — the tool is a pure query.
+export const VideoWebhookStatusInput = z.object({}).strict();
+export type VideoWebhookStatusInputT = z.infer<typeof VideoWebhookStatusInput>;
+
+// video_cost_estimate — estimate USD cost for a video generation request
+// (any provider in the registry; P13 supports google/Veo only)
+export const VideoCostEstimateInput = z.object({
+  modelId: z.string().min(1),
+  mode: z.enum(['t2v', 'i2v', 'interpolate', 'extend', 'with-refs']),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive(),
+  resolution: z.enum(['720p', '1080p', '2k', '4k']),
+});
+
+export type VideoCostEstimateInputT = z.infer<typeof VideoCostEstimateInput>;
+
+// video_cost_report — aggregate cost report from the local SQLite ledger
+export const VideoCostReportInput = z.object({
+  periodDays: z.number().int().positive().default(30),
+}).strict();
+
+export type VideoCostReportInputT = z.infer<typeof VideoCostReportInput>;
+
+// video_route — pick optimal provider+model for a video generation request
+// (P13: Veo-only heuristic; extended in P14-P16 as more provider adapters land).
+// `preferProvider` accepts the full Provider type union (including not-yet-wired
+// names) so future-facing callers can specify a preference today; the handler
+// throws a clear error when the preference has no candidate in the current
+// registry.
+export const VideoRouteInput = z.object({
+  mode: z.enum([
+    't2v',
+    'i2v',
+    'interpolate',
+    'extend',
+    'with-refs',
+    'multi-shot',
+    'lip-sync',
+    'motion-brush',
+    'elements',
+    'targeted-edit',
+  ]),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive(),
+  resolution: z.enum(['720p', '1080p', '2k', '4k']),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']).optional(),
+  preferProvider: z.enum(['google', 'higgsfield', 'kling', 'bytedance']).optional(),
+});
+
+export type VideoRouteInputT = z.infer<typeof VideoRouteInput>;
+
 // ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
@@ -204,8 +256,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 26 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs = 26
+// MCP_TOOLS registry — 30 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route = 30
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -352,6 +404,36 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     name: 'media_refs_index',
     description: 'Batch index refs into pgvector for semantic search (Phase 2)',
     inputSchema: RefsIndexInput,
+  },
+
+  // ---- Webhook (1 — P13 scaffold for P14+ provider callbacks) ----
+  {
+    name: 'media_video_webhook_status',
+    description:
+      'Status of the local webhook router (P14+ provider callback endpoint). Reports running state, bind address, and registered handlers.',
+    inputSchema: VideoWebhookStatusInput,
+  },
+
+  // ---- Cost estimation (2 — P13 provider-registry cost tools) ----
+  {
+    name: 'media_video_cost_estimate',
+    description:
+      'Estimate USD cost for a video generation request (any provider in the registry; P13 supports google/Veo only).',
+    inputSchema: VideoCostEstimateInput,
+  },
+  {
+    name: 'media_video_cost_report',
+    description:
+      'Aggregate cost report from the local SQLite ledger. Returns totals and per-provider breakdowns for the specified period.',
+    inputSchema: VideoCostReportInput,
+  },
+
+  // ---- Routing (1 — P13 cross-provider routing heuristic; Veo-only today) ----
+  {
+    name: 'media_video_route',
+    description:
+      'Pick the optimal provider+model for a video generation request (P13: Veo-only; extended in P14-P16).',
+    inputSchema: VideoRouteInput,
   },
 ] as const) as readonly MCPTool[];
 

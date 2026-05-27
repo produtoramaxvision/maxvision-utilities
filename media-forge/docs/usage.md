@@ -823,7 +823,7 @@ media-forge video extend \
 media-forge video wait <op-2> --filename segment-2.mp4
 ```
 
-All three segments are now in `./outputs/`. Use FFmpeg or the `video-editor` agent to concatenate.
+All three segments are now in `./outputs/`. Use FFmpeg or the `veo-director` agent to concatenate.
 
 **Skill equivalent:** `/media-forge:extend <job_id> "continue the mountain summit story"` — uses `media-forge:extend-video` which manages the hop chain automatically.
 

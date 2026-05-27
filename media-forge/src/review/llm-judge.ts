@@ -54,7 +54,7 @@ export interface JudgeVerdict {
     | 'ad-designer'
     | 'enterprise-corrector'
     | 'scene-composer'
-    | 'video-editor'
+    | 'veo-director'
     | 'image-generator'
     | 'video-generator'
     | 'none';
@@ -118,7 +118,7 @@ const JudgeVerdictSchema = z.object({
     'ad-designer',
     'enterprise-corrector',
     'scene-composer',
-    'video-editor',
+    'veo-director',
     'image-generator',
     'video-generator',
     'none',
@@ -156,7 +156,7 @@ Carefully evaluate the asset against the specification. Return ONLY a valid JSON
     "safety": <0-10>,
     "overall": <0-10>
   },
-  "rootCauseStage": "<one of: prompt-engineer | product-photographer | cinematic-director | character-designer | hyperrealistic-artist | ad-designer | enterprise-corrector | scene-composer | video-editor | image-generator | video-generator | none>",
+  "rootCauseStage": "<one of: prompt-engineer | product-photographer | cinematic-director | character-designer | hyperrealistic-artist | ad-designer | enterprise-corrector | scene-composer | veo-director | image-generator | video-generator | none>",
   "errors": [
     {
       "class": "<one of: text_typo | brand_violation_color | brand_violation_logo | brand_violation_font | semantic_object_wrong | semantic_color_wrong | composition_wrong | temporal_drift | safety_blocked | lipsync_miss>",

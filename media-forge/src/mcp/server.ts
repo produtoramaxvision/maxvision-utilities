@@ -9,7 +9,13 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { logger } from '../core/logger.js';
 import { loadConfig } from '../core/config.js';
 import { createClient } from '../core/client.js';
-import { registerAllTools } from './handlers.js';
+import { loadPricingOverridesFromEnv } from '../core/pricing.js';
+import { registerAllTools, setWebhookRouter } from './handlers.js';
+import {
+  startWebhookRouter,
+  stopWebhookRouter,
+  type WebhookRouter,
+} from '../video/providers/webhook-router.js';
 
 export interface BuildServerOpts {
   // Injection point for tests — config + client come from outside in tests
@@ -20,13 +26,78 @@ export interface BuildServerOpts {
 export function buildServer(opts: BuildServerOpts = {}): McpServer {
   const config = opts.config ?? loadConfig(process.env as Record<string, string | undefined>);
   const client = opts.client ?? createClient({ config });
+  // Honor MEDIA_FORGE_PRICING_OVERRIDES (enterprise/contract rates) BEFORE
+  // registerAllTools — otherwise media_video_route + media_video_cost_estimate
+  // silently report compiled-in public rates and the override env var is a no-op.
+  loadPricingOverridesFromEnv(process.env);
   const server = new McpServer({ name: 'media-forge', version: '0.1.0' });
   registerAllTools(server, { client, config });
   return server;
 }
 
+/**
+ * Start the local webhook router (P14+ provider callback endpoint) when the
+ * operator has configured a shared secret. Kept OUT of `buildServer()` so the
+ * test suite (which exercises buildServer directly) does not bind a TCP port.
+ *
+ * Graceful degradation: if MEDIA_FORGE_WEBHOOK_SECRET is unset, the router
+ * stays off and `media_video_webhook_status` reports `running: false`. Veo
+ * polls GCS for results so the P13 happy path is unaffected. P14+ providers
+ * (Higgsfield, Kling, Seedance) need this active to receive completion
+ * callbacks; the wizard in commands/setup.md walks users through generating a
+ * secret on first install.
+ */
+async function maybeStartWebhookRouter(): Promise<WebhookRouter | undefined> {
+  const secret = process.env['MEDIA_FORGE_WEBHOOK_SECRET'];
+  if (!secret || secret.length === 0) {
+    logger.warn(
+      'webhook router disabled (MEDIA_FORGE_WEBHOOK_SECRET unset); P14+ providers will fall back to polling',
+    );
+    return undefined;
+  }
+  const portRaw = process.env['MEDIA_FORGE_WEBHOOK_PORT'];
+  const portParsed = portRaw ? parseInt(portRaw, 10) : NaN;
+  const port = Number.isFinite(portParsed) && portParsed > 0 && portParsed <= 65535 ? portParsed : 7733;
+  try {
+    const router = await startWebhookRouter({ port, host: '127.0.0.1', secret });
+    logger.info('webhook router listening', {
+      address: router.address.address,
+      port: router.address.port,
+    });
+    return router;
+  } catch (err) {
+    logger.error('webhook router failed to start', {
+      error: err instanceof Error ? err.message : String(err),
+      port,
+    });
+    return undefined;
+  }
+}
+
 export async function startStdioServer(): Promise<void> {
   const server = buildServer();
+  const router = await maybeStartWebhookRouter();
+  if (router) {
+    setWebhookRouter(router);
+    // Wire SIGTERM/SIGINT shutdown — close the router before exiting so the
+    // OS port + handler map are released cleanly. Errors during close are
+    // logged but do not block exit (the process is going down regardless).
+    const shutdown = (signal: NodeJS.Signals): void => {
+      logger.info('shutting down', { signal });
+      stopWebhookRouter(router)
+        .catch((err: unknown) => {
+          logger.error('webhook router close failed', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        })
+        .finally(() => {
+          setWebhookRouter(undefined);
+          process.exit(0);
+        });
+    };
+    process.once('SIGTERM', shutdown);
+    process.once('SIGINT', shutdown);
+  }
   const transport = new StdioServerTransport();
   await server.connect(transport);
   logger.info('media-forge MCP server ready on stdio');

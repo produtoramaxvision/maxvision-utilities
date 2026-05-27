@@ -59,6 +59,159 @@ import {
   VIDEO_RESOLUTION,
   VIDEO_DURATION_SECONDS,
 } from '../core/models.js';
+import type { WebhookRouter } from '../video/providers/webhook-router.js';
+import { GoogleVeoProvider } from '../video/providers/google-veo.js';
+import { VIDEO_MODELS } from '../core/models.js';
+import {
+  VideoCostEstimateInput,
+  type VideoCostEstimateInputT,
+  VideoCostReportInput,
+  type VideoCostReportInputT,
+  VideoRouteInput,
+  type VideoRouteInputT,
+} from './schemas.js';
+import { queryReport, type CostReport } from '../core/cost-tracker.js';
+import { normalizeCostUSD } from '../core/pricing.js';
+import type { Provider } from '../core/models.js';
+import { join } from 'node:path';
+
+// ---------------------------------------------------------------------------
+// Webhook router module-level handle (P13 scaffold for P14+ provider callbacks)
+// ---------------------------------------------------------------------------
+// Owned by the runtime entrypoint (`startStdioServer` in src/mcp/server.ts) —
+// `buildServer()`-based tests do NOT start the router, so the handler reports
+// `{ running: false, handlers: [] }` in that path. This keeps the test suite
+// from binding TCP ports.
+let _webhookRouter: WebhookRouter | undefined;
+
+export function setWebhookRouter(r: WebhookRouter | undefined): void {
+  _webhookRouter = r;
+}
+
+export interface VideoWebhookStatusResult {
+  running: boolean;
+  address?: { address: string; port: number };
+  handlers: string[];
+}
+
+export async function handleVideoWebhookStatus(): Promise<VideoWebhookStatusResult> {
+  if (!_webhookRouter) return { running: false, handlers: [] };
+  return {
+    running: true,
+    address: _webhookRouter.address,
+    handlers: Array.from(_webhookRouter.handlers.keys()),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// defaultDbPath — resolves the SQLite cost DB path from env or cwd default
+// ---------------------------------------------------------------------------
+
+function defaultDbPath(): string {
+  const projectDir =
+    process.env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
+  return join(projectDir, 'cost.db');
+}
+
+// ---------------------------------------------------------------------------
+// handleVideoCostEstimate — estimate USD cost for a video generation request
+// ---------------------------------------------------------------------------
+
+export async function handleVideoCostEstimate(rawInput: unknown): Promise<{
+  estimatedCostUSD: number;
+  provider: string;
+  modelId: string;
+}> {
+  const input: VideoCostEstimateInputT = VideoCostEstimateInput.parse(rawInput);
+  const spec = VIDEO_MODELS[input.modelId];
+  if (!spec) throw new Error(`unknown model: ${input.modelId}`);
+  if (spec.provider !== 'google') {
+    throw new Error(
+      `provider ${spec.provider} not yet wired in P13 — only google/Veo supported`,
+    );
+  }
+  const provider = new GoogleVeoProvider({ dbPath: defaultDbPath() });
+  const usd = provider.estimateCostUSD(input);
+  return { estimatedCostUSD: usd, provider: spec.provider, modelId: input.modelId };
+}
+
+// ---------------------------------------------------------------------------
+// handleVideoCostReport — aggregate cost report from the local SQLite ledger
+// ---------------------------------------------------------------------------
+
+export async function handleVideoCostReport(rawInput: unknown): Promise<CostReport> {
+  const input: VideoCostReportInputT = VideoCostReportInput.parse(rawInput);
+  return queryReport({ dbPath: defaultDbPath(), periodDays: input.periodDays });
+}
+
+// ---------------------------------------------------------------------------
+// handleVideoRoute — pick optimal provider+model for a video generation request
+// ---------------------------------------------------------------------------
+// Cross-provider routing heuristic. In P13 the registry contains only Veo, so
+// every supported-mode call resolves to `google/veo-3.1-generate-preview`.
+// P14-P16 will add Higgsfield (credits-per-video), Kling (usd-per-second), and
+// Seedance (usd-per-video) — the sort already uses `normalizeCostUSD` so cross-
+// unit comparison stays correct without re-architecture.
+
+export interface VideoRouteResult {
+  readonly provider: Provider;
+  readonly modelId: string;
+  readonly mode: string;
+  readonly estimatedCostUSD: number;
+  readonly rationale: string;
+}
+
+export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteResult> {
+  const input: VideoRouteInputT = VideoRouteInput.parse(rawInput);
+
+  const candidates = Object.values(VIDEO_MODELS).filter((spec) =>
+    spec.modes.includes(input.mode as never),
+  );
+  if (candidates.length === 0) {
+    throw new Error(`no provider supports mode ${input.mode} in current registry`);
+  }
+  const filtered = input.preferProvider
+    ? candidates.filter((c) => c.provider === input.preferProvider)
+    : candidates;
+  if (filtered.length === 0) {
+    throw new Error(
+      `preferProvider ${input.preferProvider} has no model supporting mode ${input.mode}`,
+    );
+  }
+
+  // Sort by USD-equivalent cost (cross-unit aware via normalizeCostUSD).
+  // For credits-per-video providers (P14+ Higgsfield), the caller can pass
+  // input.usdPerCredit in extras; for P13 (Veo only, usd-per-second) the helper
+  // is duration-aware and produces a meaningful sort. Sorting by raw
+  // `pricing.rate` would silently mis-rank across providers with heterogeneous
+  // units the moment P14+ adapters land — never reintroduce that shortcut.
+  const sorted = [...filtered].sort(
+    (a, b) =>
+      normalizeCostUSD(a, { durationSec: input.durationSec }) -
+      normalizeCostUSD(b, { durationSec: input.durationSec }),
+  );
+  const picked = sorted[0]!;
+
+  const provider = new GoogleVeoProvider({ dbPath: defaultDbPath() });
+  const estimatedCostUSD =
+    picked.provider === 'google'
+      ? provider.estimateCostUSD({
+          modelId: picked.id,
+          mode: input.mode as never,
+          prompt: input.prompt,
+          durationSec: input.durationSec,
+          resolution: input.resolution,
+        })
+      : normalizeCostUSD(picked, { durationSec: input.durationSec });
+
+  return {
+    provider: picked.provider,
+    modelId: picked.id,
+    mode: input.mode,
+    estimatedCostUSD,
+    rationale: `P13: only google/Veo is wired. Selected ${picked.id} for mode ${input.mode}.`,
+  };
+}
 
 export interface HandlersDeps {
   client: MediaForgeClient;
@@ -852,6 +1005,53 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           reason: 'Phase 2 not yet implemented. Tool reserved for future indexer.',
         });
       }),
+    );
+  }
+
+  // ---- Webhook (1 — P13 scaffold for P14+ provider callbacks) ----
+  //
+  // Status-only tool. The router itself is started in `startStdioServer()` from
+  // env vars (MEDIA_FORGE_WEBHOOK_PORT + MEDIA_FORGE_WEBHOOK_SECRET) — kept out
+  // of `buildServer()` so tests that instantiate via buildServer() do not need
+  // to bind a TCP port. When secret is unset, the router stays off and this tool
+  // reports `{ running: false, handlers: [] }`.
+  {
+    const t = getTool('media_video_webhook_status');
+    reg(
+      t.name,
+      { title: 'Webhook Router Status', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async () => asResult(await handleVideoWebhookStatus())),
+    );
+  }
+
+  // ---- Cost estimation (2 — P13 provider-registry cost tools) ----
+
+  {
+    const t = getTool('media_video_cost_estimate');
+    reg(
+      t.name,
+      { title: 'Video Cost Estimate', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleVideoCostEstimate(input))),
+    );
+  }
+
+  {
+    const t = getTool('media_video_cost_report');
+    reg(
+      t.name,
+      { title: 'Video Cost Report', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleVideoCostReport(input))),
+    );
+  }
+
+  // ---- Routing (1 — P13 cross-provider routing heuristic; Veo-only today) ----
+
+  {
+    const t = getTool('media_video_route');
+    reg(
+      t.name,
+      { title: 'Video Provider Routing', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleVideoRoute(input))),
     );
   }
 }
