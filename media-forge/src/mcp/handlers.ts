@@ -74,6 +74,14 @@ import { queryReport, type CostReport } from '../core/cost-tracker.js';
 import { normalizeCostUSD } from '../core/pricing.js';
 import type { Provider } from '../core/models.js';
 import { join } from 'node:path';
+import {
+  createSoulId,
+  listSoulIds,
+  findByCharacterName,
+  markUsed,
+  type SoulIdRecord,
+} from '../core/soul-id-cache.js';
+import { HiggsfieldSoulIdInput, type HiggsfieldSoulIdInputT } from './schemas.js';
 
 // ---------------------------------------------------------------------------
 // ADAPTED_PROVIDERS — routing gate: only providers with a wired adapter here.
@@ -224,6 +232,43 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
     estimatedCostUSD,
     rationale: `P13: only google/Veo is wired. Selected ${picked.id} for mode ${input.mode}.`,
   };
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldSoulId — Soul ID lifecycle for Higgsfield character cache
+// ---------------------------------------------------------------------------
+
+export async function handleHiggsfieldSoulId(rawInput: unknown): Promise<
+  | { ok: true; id: string }
+  | { records: SoulIdRecord[] }
+  | { record: SoulIdRecord | undefined }
+> {
+  const input: HiggsfieldSoulIdInputT = HiggsfieldSoulIdInput.parse(rawInput);
+  const dbPath = defaultDbPath();
+  switch (input.action) {
+    case 'create':
+      createSoulId({
+        dbPath,
+        id: input.id,
+        provider: 'higgsfield',
+        characterName: input.characterName,
+        assetPaths: input.assetPaths,
+      });
+      return { ok: true, id: input.id };
+    case 'list':
+      return { records: listSoulIds({ dbPath, provider: 'higgsfield' }) };
+    case 'find':
+      return {
+        record: findByCharacterName({
+          dbPath,
+          characterName: input.characterName,
+          provider: 'higgsfield',
+        }),
+      };
+    case 'markUsed':
+      markUsed({ dbPath, id: input.id });
+      return { ok: true, id: input.id };
+  }
 }
 
 export interface HandlersDeps {
@@ -1065,6 +1110,21 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Video Provider Routing', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleVideoRoute(input))),
+    );
+  }
+
+  // ---- Higgsfield Soul ID (1 — P14 character training cache) ----
+
+  {
+    const t = getTool('media_higgsfield_soul_id');
+    reg(
+      t.name,
+      {
+        title: 'Higgsfield Soul ID',
+        description: t.description,
+        inputSchema: t.inputSchema as never,
+      },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldSoulId(input))),
     );
   }
 }

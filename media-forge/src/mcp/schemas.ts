@@ -245,6 +245,34 @@ export const VideoRouteInput = z.object({
 export type VideoRouteInputT = z.infer<typeof VideoRouteInput>;
 
 // ---------------------------------------------------------------------------
+// HiggsfieldSoulIdInput — Soul ID lifecycle (create/list/find/markUsed)
+// ---------------------------------------------------------------------------
+
+// _HiggsfieldSoulIdBase — ZodObject base shape emitted in tools/list.
+// All action-specific fields are optional so the base is a plain ZodObject
+// (required by DEBT-008 constraint that inputSchema must not be ZodEffects).
+// Runtime validation uses HiggsfieldSoulIdInput (discriminatedUnion).
+export const _HiggsfieldSoulIdBase = z.object({
+  action: z.enum(['create', 'list', 'find', 'markUsed']),
+  id: z.string().min(1).optional(),
+  characterName: z.string().min(1).optional(),
+  assetPaths: z.array(z.string().min(1)).optional(),
+});
+
+export const HiggsfieldSoulIdInput = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('create'),
+    id: z.string().min(1),
+    characterName: z.string().min(1),
+    assetPaths: z.array(z.string().min(1)).min(1),
+  }),
+  z.object({ action: z.literal('list') }),
+  z.object({ action: z.literal('find'), characterName: z.string().min(1) }),
+  z.object({ action: z.literal('markUsed'), id: z.string().min(1) }),
+]);
+export type HiggsfieldSoulIdInputT = z.infer<typeof HiggsfieldSoulIdInput>;
+
+// ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
 export interface MCPTool {
@@ -256,8 +284,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 30 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route = 30
+// MCP_TOOLS registry — 31 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id = 31
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -434,6 +462,14 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description:
       'Pick the optimal provider+model for a video generation request (P13: Veo-only; extended in P14-P16).',
     inputSchema: VideoRouteInput,
+  },
+
+  // ---- Higgsfield Soul ID (1 — P14 character training cache) ----
+  {
+    name: 'media_higgsfield_soul_id',
+    description: 'Soul ID lifecycle (create/list/find/markUsed) — character training cache for Higgsfield.',
+    inputSchema: _HiggsfieldSoulIdBase,
+    validationSchema: HiggsfieldSoulIdInput,
   },
 ] as const) as readonly MCPTool[];
 
