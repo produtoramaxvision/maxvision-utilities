@@ -72,7 +72,7 @@ import {
 } from './schemas.js';
 import { queryReport, type CostReport } from '../core/cost-tracker.js';
 import { normalizeCostUSD } from '../core/pricing.js';
-import type { Provider } from '../core/models.js';
+import type { Provider, VideoModelSpec } from '../core/models.js';
 import { join } from 'node:path';
 import {
   createSoulId,
@@ -95,11 +95,11 @@ import { HiggsfieldProvider } from '../video/providers/higgsfield.js';
 // ADAPTED_PROVIDERS — routing gate: only providers with a wired adapter here.
 // Prevents the router from selecting models that have no execution backend.
 //
-// P14: Higgsfield enters ADAPTED_PROVIDERS in Task 6 once HiggsfieldProvider lands.
+// P14: HiggsfieldProvider landed in Task 6 — 'higgsfield' enters ADAPTED_PROVIDERS.
 // P15: 'kling' will be appended when KlingProvider lands.
 // P16: 'bytedance' will be appended when SeedanceProvider lands.
 // ---------------------------------------------------------------------------
-const ADAPTED_PROVIDERS = new Set<Provider>(['google']);
+const ADAPTED_PROVIDERS = new Set<Provider>(['google', 'higgsfield']);
 
 // ---------------------------------------------------------------------------
 // Webhook router module-level handle (P13 scaffold for P14+ provider callbacks)
@@ -443,11 +443,18 @@ export async function handleVideoCostReport(rawInput: unknown): Promise<CostRepo
 // ---------------------------------------------------------------------------
 // handleVideoRoute — pick optimal provider+model for a video generation request
 // ---------------------------------------------------------------------------
-// Cross-provider routing heuristic. In P13 the registry contains only Veo, so
-// every supported-mode call resolves to `google/veo-3.1-generate-preview`.
-// P14-P16 will add Higgsfield (credits-per-video), Kling (usd-per-second), and
-// Seedance (usd-per-video) — the sort already uses `normalizeCostUSD` so cross-
-// unit comparison stays correct without re-architecture.
+// Capability-before-cost routing heuristic. P14 adds Higgsfield to ADAPTED_PROVIDERS.
+//
+// Ranking rules (in priority order):
+//   1. preferProvider filter — caller can force a specific provider.
+//   2. For shared modes (t2v, i2v, with-refs, interpolate, extend):
+//      google is preferred over higgsfield by default so P13 behaviour is
+//      preserved. Higgsfield wins only when it is the sole capable provider
+//      (lip-sync, targeted-edit) OR when preferProvider='higgsfield'.
+//   3. Within a provider tier, sort by USD-equivalent cost (cross-unit aware).
+//
+// P15: 'kling' will integrate here when KlingProvider lands.
+// P16: 'bytedance' will integrate here when SeedanceProvider lands.
 
 export interface VideoRouteResult {
   readonly provider: Provider;
@@ -460,56 +467,98 @@ export interface VideoRouteResult {
 export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteResult> {
   const input: VideoRouteInputT = VideoRouteInput.parse(rawInput);
 
-  const candidates = Object.values(VIDEO_MODELS)
+  const allByMode = Object.values(VIDEO_MODELS)
     .filter((spec) => spec.modes.includes(input.mode as never))
     // Constrain to providers with a wired adapter. Models registered for
-    // future providers (Higgsfield P14, Kling P15, Seedance P16) must not
-    // be selected until their adapter is available in ADAPTED_PROVIDERS.
+    // future providers (Kling P15, Seedance P16) must not be selected until
+    // their adapter is available in ADAPTED_PROVIDERS.
     .filter((spec) => ADAPTED_PROVIDERS.has(spec.provider));
-  if (candidates.length === 0) {
+  if (allByMode.length === 0) {
     throw new Error(`no provider supports mode ${input.mode} in current registry`);
   }
-  const filtered = input.preferProvider
-    ? candidates.filter((c) => c.provider === input.preferProvider)
-    : candidates;
-  if (filtered.length === 0) {
+
+  const preferred = input.preferProvider
+    ? allByMode.filter((c) => c.provider === input.preferProvider)
+    : allByMode;
+  if (preferred.length === 0) {
     throw new Error(
       `preferProvider ${input.preferProvider} has no model supporting mode ${input.mode}`,
     );
   }
 
-  // Sort by USD-equivalent cost (cross-unit aware via normalizeCostUSD).
-  // For credits-per-video providers (P14+ Higgsfield), the caller can pass
-  // input.usdPerCredit in extras; for P13 (Veo only, usd-per-second) the helper
-  // is duration-aware and produces a meaningful sort. Sorting by raw
-  // `pricing.rate` would silently mis-rank across providers with heterogeneous
-  // units the moment P14+ adapters land — never reintroduce that shortcut.
-  const sorted = [...filtered].sort(
-    (a, b) =>
-      normalizeCostUSD(a, { durationSec: input.durationSec }) -
-      normalizeCostUSD(b, { durationSec: input.durationSec }),
-  );
+  // Sort candidates with capability-before-cost and google-default tiebreaker.
+  // When no preferProvider is set, google is ranked above higgsfield for shared
+  // modes to preserve P13 default behaviour. Higgsfield wins only when it is the
+  // sole capable provider (lip-sync, targeted-edit) or when preferProvider forces it.
+  // Within a provider tier, sort by USD-equivalent cost ascending.
+  //
+  // Future: when VideoRouteInput grows Higgsfield-specific extras (cinemaStudioParams,
+  // dopCameraVerbs, soulId, etc.), add a hasHiggsfieldSignal() predicate here that
+  // raises the Higgsfield tier above google for those shared modes.
+  const sorted = [...preferred].sort((a, b) => {
+    if (!input.preferProvider) {
+      if (a.provider === 'google' && b.provider !== 'google') return -1;
+      if (b.provider === 'google' && a.provider !== 'google') return 1;
+    }
+    const aUsd = normalizeCostUSDSafe(a, input);
+    const bUsd = normalizeCostUSDSafe(b, input);
+    return aUsd - bUsd;
+  });
   const picked = sorted[0]!;
 
-  const provider = new GoogleVeoProvider({ dbPath: defaultDbPath() });
-  const estimatedCostUSD =
-    picked.provider === 'google'
-      ? provider.estimateCostUSD({
-          modelId: picked.id,
-          mode: input.mode as never,
-          prompt: input.prompt,
-          durationSec: input.durationSec,
-          resolution: input.resolution,
-        })
-      : normalizeCostUSD(picked, { durationSec: input.durationSec });
+  const estimatedCostUSD = normalizeCostUSDSafe(picked, input);
+  const rationale = buildRationale(picked, input, sorted.length);
 
   return {
     provider: picked.provider,
     modelId: picked.id,
     mode: input.mode,
     estimatedCostUSD,
-    rationale: `P13: only google/Veo is wired. Selected ${picked.id} for mode ${input.mode}.`,
+    rationale,
   };
+}
+
+function normalizeCostUSDSafe(spec: VideoModelSpec, input: VideoRouteInputT): number {
+  try {
+    const usdPerCredit = parseFloat(
+      process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] ?? 'NaN',
+    );
+    const result = normalizeCostUSD(spec, {
+      durationSec: input.durationSec,
+      usdPerCredit,
+    });
+    // Guard against NaN / ±Infinity from malformed env values (e.g. usdPerCredit=NaN
+    // multiplied by rate produces NaN, which breaks sort comparisons).
+    return Number.isFinite(result) ? result : Number.POSITIVE_INFINITY;
+  } catch {
+    // If a credits-per-video spec is missing a valid usdPerCredit, treat it as
+    // infinite cost so it never wins ranking against a priced provider. The
+    // director surfaces the configuration error to the user separately.
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+function buildRationale(
+  picked: VideoModelSpec,
+  input: VideoRouteInputT,
+  candidateCount: number,
+): string {
+  if (input.mode === 'lip-sync') {
+    return `Only higgsfield supports lip-sync in P14 → ${picked.id}.`;
+  }
+  if (input.mode === 'targeted-edit') {
+    return `Only higgsfield Recast supports targeted-edit in P14 → ${picked.id}.`;
+  }
+  if (input.preferProvider) {
+    return `preferProvider=${input.preferProvider} → ${picked.id}.`;
+  }
+  if (candidateCount === 1) {
+    return `${picked.id} is the only candidate for mode ${input.mode}.`;
+  }
+  return (
+    `google is the default for shared modes; higgsfield wins only via preferProvider ` +
+    `or capability-required mode. Selected ${picked.id} for mode ${input.mode}.`
+  );
 }
 
 // ---------------------------------------------------------------------------
