@@ -273,6 +273,28 @@ export const HiggsfieldSoulIdInput = z.discriminatedUnion('action', [
 export type HiggsfieldSoulIdInputT = z.infer<typeof HiggsfieldSoulIdInput>;
 
 // ---------------------------------------------------------------------------
+// HiggsfieldDopInput — DoP image-to-video with WAN Camera Control verbs (P14 Task 9)
+// ---------------------------------------------------------------------------
+
+export const DOP_CAMERA_VERBS = [
+  'dolly_in', 'dolly_out', 'crane_up', 'crane_down', 'orbit', 'crash_zoom',
+  'bullet_time', 'fpv_drone', 'handheld', 'whip_pan', 'tilt_up', 'tilt_down',
+  'pan_left', 'pan_right', 'arc', 'truck', 'pedestal', 'rack_focus',
+  'vertigo_effect', 'static', 'low_angle', 'high_angle',
+] as const;
+
+export const HiggsfieldDopInput = z.object({
+  modelId: z.enum(['higgsfield-dop', 'higgsfield-dop-turbo']),
+  firstFrameImagePath: z.string().min(1),
+  prompt: z.string().min(1),
+  cameraVerbs: z.array(z.enum(DOP_CAMERA_VERBS)).min(1).max(5),
+  durationSec: z.number().positive().max(6),
+  resolution: z.enum(['720p', '1080p']),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']).optional(),
+});
+export type HiggsfieldDopInputT = z.infer<typeof HiggsfieldDopInput>;
+
+// ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
 export interface MCPTool {
@@ -284,8 +306,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 31 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id = 31
+// MCP_TOOLS registry — 32 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop = 32
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -470,6 +492,14 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description: 'Soul ID lifecycle (create/list/find/markUsed) — character training cache for Higgsfield.',
     inputSchema: _HiggsfieldSoulIdBase,
     validationSchema: HiggsfieldSoulIdInput,
+  },
+
+  // ---- Higgsfield DoP (1 — P14 image-to-video with WAN Camera Control verbs) ----
+  {
+    name: 'media_higgsfield_dop',
+    description: 'Higgsfield Director of Photography — image-to-video with WAN Camera Control verbs.',
+    inputSchema: HiggsfieldDopInput,
+    validationSchema: HiggsfieldDopInput,
   },
 ] as const) as readonly MCPTool[];
 

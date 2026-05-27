@@ -82,6 +82,8 @@ import {
   type SoulIdRecord,
 } from '../core/soul-id-cache.js';
 import { HiggsfieldSoulIdInput, type HiggsfieldSoulIdInputT } from './schemas.js';
+import { HiggsfieldDopInput, type HiggsfieldDopInputT } from './schemas.js';
+import { HiggsfieldProvider } from '../video/providers/higgsfield.js';
 
 // ---------------------------------------------------------------------------
 // ADAPTED_PROVIDERS — routing gate: only providers with a wired adapter here.
@@ -129,6 +131,63 @@ function defaultDbPath(): string {
   const projectDir =
     process.env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
   return join(projectDir, 'cost.db');
+}
+
+// ---------------------------------------------------------------------------
+// D-7: lazy singleton — HiggsfieldProvider is constructed on first use and
+// cached for the lifetime of the MCP server process. Avoids per-call
+// construction overhead AND ensures all handlers share the in-memory
+// `provider-request-map` cache + the same HiggsfieldProvider instance.
+// ---------------------------------------------------------------------------
+let _hfProvider: HiggsfieldProvider | undefined;
+
+function higgsfieldProvider(): HiggsfieldProvider {
+  if (_hfProvider) return _hfProvider;
+  _hfProvider = new HiggsfieldProvider({
+    dbPath: defaultDbPath(),
+    publicWebhookBaseUrl: process.env['MEDIA_FORGE_WEBHOOK_PUBLIC_URL'],
+  });
+  return _hfProvider;
+}
+
+/** Test utility — resets the singleton so each test gets a fresh provider bound to the
+ *  current dbPath / env. Tests with their own tmp dbPath MUST call this in beforeEach. */
+export function _resetHiggsfieldProviderForTests(): void {
+  _hfProvider = undefined;
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldDop — DoP image-to-video with WAN Camera Control verbs
+// ---------------------------------------------------------------------------
+
+export async function handleHiggsfieldDop(rawInput: unknown): Promise<{
+  provider: string;
+  jobId: string;
+  providerNativeId?: string;
+  estimatedCostUSD: number;
+}> {
+  const input: HiggsfieldDopInputT = HiggsfieldDopInput.parse(rawInput);
+  const provider = higgsfieldProvider();
+  const req = {
+    modelId: input.modelId,
+    mode: 'i2v' as const,
+    prompt: input.prompt,
+    durationSec: input.durationSec,
+    resolution: input.resolution,
+    aspectRatio: input.aspectRatio,
+    firstFrameImagePath: input.firstFrameImagePath,
+    extras: {
+      providerKind: 'higgsfield' as const,
+      dopCameraVerbs: input.cameraVerbs,
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    provider: handle.provider,
+    jobId: handle.jobId,
+    providerNativeId: handle.providerNativeId,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1125,6 +1184,17 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
         inputSchema: t.inputSchema as never,
       },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldSoulId(input))),
+    );
+  }
+
+  // ---- Higgsfield DoP (1 — P14 image-to-video with WAN Camera Control verbs) ----
+
+  {
+    const t = getTool('media_higgsfield_dop');
+    reg(
+      t.name,
+      { title: 'Higgsfield DoP', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldDop(input))),
     );
   }
 }

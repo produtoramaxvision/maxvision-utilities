@@ -60,8 +60,8 @@ const EXPECTED_TOOL_NAMES = [
 // Registry shape assertions
 // ---------------------------------------------------------------------------
 describe('MCP_TOOLS registry', () => {
-  it('contains exactly 31 tools', () => {
-    expect(MCP_TOOLS.length).toBe(31);
+  it('contains exactly 32 tools', () => {
+    expect(MCP_TOOLS.length).toBe(32);
   });
 
   it('is frozen (Object.isFrozen)', () => {
@@ -105,8 +105,8 @@ describe('MCP_TOOLS registry', () => {
 // listMCPToolNames()
 // ---------------------------------------------------------------------------
 describe('listMCPToolNames()', () => {
-  it('returns an array of length 31', () => {
-    expect(listMCPToolNames().length).toBe(31);
+  it('returns an array of length 32', () => {
+    expect(listMCPToolNames().length).toBe(32);
   });
 
   it('contains all 30 expected tool names', () => {
