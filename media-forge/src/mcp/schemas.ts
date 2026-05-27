@@ -363,6 +363,29 @@ export const HiggsfieldViralityPredictorInput = z.object({
 });
 export type HiggsfieldViralityPredictorInputT = z.infer<typeof HiggsfieldViralityPredictorInput>;
 
+// HiggsfieldGenerateInput — generic Higgsfield submit (Soul / Soul2 / aesthetic
+// presets) when no specialized tool (dop / cinema_studio / speak / marketing /
+// recast) applies. Codex P2 round 7 PR#10 closed the gap where the director
+// doc routed Soul t2v through media_video_route (a decision-only tool) with
+// no actual submit path.
+// ---------------------------------------------------------------------------
+export const HiggsfieldGenerateInput = z.object({
+  modelId: z.enum([
+    'higgsfield-soul-standard',
+    'higgsfield-soul-pro',
+    'higgsfield-soul2',
+  ]),
+  mode: z.enum(['t2v', 'i2v']).default('t2v'),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive().default(5),
+  resolution: z.enum(['720p', '1080p', '2k', '4k']).default('1080p'),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']).optional(),
+  firstFrameImagePath: z.string().min(1).optional(),
+  referenceImagePaths: z.array(z.string().min(1)).max(8).optional(),
+  soulId: z.string().min(1).optional(),
+});
+export type HiggsfieldGenerateInputT = z.infer<typeof HiggsfieldGenerateInput>;
+
 // HiggsfieldPollInput / HiggsfieldDownloadInput — async lifecycle for the 7
 // Higgsfield generation tools (Codex P2 round 5 PR#10).
 // ---------------------------------------------------------------------------
@@ -641,6 +664,15 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description: 'Higgsfield Virality Predictor — score an asset (viral / audience-fit / hook-strength).',
     inputSchema: HiggsfieldViralityPredictorInput,
     validationSchema: HiggsfieldViralityPredictorInput,
+  },
+
+  // ---- Higgsfield Generate (Codex P2 round 7 PR#10 — generic Soul/Soul2 t2v|i2v submit) ----
+  {
+    name: 'media_higgsfield_generate',
+    description:
+      'Generic Higgsfield submit for Soul / Soul 2.0 / aesthetic presets when none of the specialized tools (dop, cinema_studio, speak, marketing_studio, recast) applies. Required: modelId, prompt. Optional: mode (t2v/i2v), firstFrameImagePath, referenceImagePaths, soulId.',
+    inputSchema: HiggsfieldGenerateInput,
+    validationSchema: HiggsfieldGenerateInput,
   },
 
   // ---- Higgsfield Poll + Download (Codex P2 round 5 PR#10 — async lifecycle for the 7 generation tools) ----

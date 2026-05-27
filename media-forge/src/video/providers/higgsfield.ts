@@ -14,6 +14,7 @@ import { recordJob, recordActualCost } from '../../core/cost-tracker.js';
 import {
   recordRequestMapping,
   findRequestIdByJobId,
+  findStatusUrlByJobId,
 } from '../../core/provider-request-map.js';
 import {
   buildHiggsfieldHeaders,
@@ -142,6 +143,11 @@ export class HiggsfieldProvider implements VideoProvider {
       jobId,
       provider: 'higgsfield',
       providerRequestId: parsed.request_id,
+      // FIX (Codex P2 round 7, PR#10): persist the server-supplied status_url
+      // so pollStatus uses Higgsfield's authoritative URL (signed CDN URLs,
+      // alternative paths, query tokens) instead of reconstructing the wrong
+      // endpoint.
+      ...(parsed.status_url ? { statusUrl: parsed.status_url } : {}),
     });
 
     return {
@@ -161,7 +167,14 @@ export class HiggsfieldProvider implements VideoProvider {
       // Return pending — caller can choose to abort or retry generate.
       return { jobId, state: 'pending' };
     }
-    const url = `${BASE_URL}/requests/${encodeURIComponent(requestId)}/status`;
+    // FIX (Codex P2 round 7, PR#10): prefer the server-supplied status_url
+    // when present. Higgsfield may return signed CDN URLs or alternative
+    // paths that don't match `${BASE_URL}/requests/{id}/status`; reconstructing
+    // would 404. Fall back to canonical reconstruction only when status_url
+    // was not captured (pre-round-7 rows, or providers that omit the field).
+    const persistedStatusUrl = findStatusUrlByJobId({ dbPath: this.dbPath, jobId });
+    const url =
+      persistedStatusUrl ?? `${BASE_URL}/requests/${encodeURIComponent(requestId)}/status`;
     // FIX (Codex P1, PR#10): mirror generate()'s primary→fallback auth handshake.
     // If the platform required fallback headers for submit, polling must use the
     // same scheme — otherwise jobs submitted via fallback become un-pollable.

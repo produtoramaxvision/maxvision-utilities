@@ -88,6 +88,7 @@ import { HiggsfieldSpeakInput, type HiggsfieldSpeakInputT } from './schemas.js';
 import { HiggsfieldMarketingStudioInput, type HiggsfieldMarketingStudioInputT } from './schemas.js';
 import { HiggsfieldRecastInput, type HiggsfieldRecastInputT } from './schemas.js';
 import { HiggsfieldViralityPredictorInput, type HiggsfieldViralityPredictorInputT } from './schemas.js';
+import { HiggsfieldGenerateInput, type HiggsfieldGenerateInputT } from './schemas.js';
 import { buildHiggsfieldHeaders } from '../video/providers/auth/higgsfield-headers.js';
 import { HiggsfieldProvider } from '../video/providers/higgsfield.js';
 
@@ -186,6 +187,43 @@ export async function handleHiggsfieldPoll(rawInput: unknown): Promise<{
     ...(status.progress !== undefined ? { progress: status.progress } : {}),
     ...(status.assetUrls ? { assetUrls: status.assetUrls } : {}),
     ...(status.errorMessage ? { errorMessage: status.errorMessage } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldGenerate — generic Soul / Soul2 / aesthetic submit
+// (Codex P2 round 7 PR#10): closes the doc-vs-implementation gap where the
+// director routed Soul t2v through media_video_route (a decision-only tool)
+// with no actual submit path.
+// ---------------------------------------------------------------------------
+export async function handleHiggsfieldGenerate(rawInput: unknown): Promise<{
+  provider: string;
+  jobId: string;
+  providerNativeId?: string;
+  estimatedCostUSD: number;
+}> {
+  const input: HiggsfieldGenerateInputT = HiggsfieldGenerateInput.parse(rawInput);
+  const provider = higgsfieldProvider();
+  const req = {
+    modelId: input.modelId,
+    mode: input.mode,
+    prompt: input.prompt,
+    durationSec: input.durationSec,
+    resolution: input.resolution,
+    ...(input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}),
+    ...(input.firstFrameImagePath ? { firstFrameImagePath: input.firstFrameImagePath } : {}),
+    ...(input.referenceImagePaths ? { referenceImagePaths: input.referenceImagePaths } : {}),
+    extras: {
+      providerKind: 'higgsfield' as const,
+      ...(input.soulId ? { soulId: input.soulId } : {}),
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    provider: handle.provider,
+    jobId: handle.jobId,
+    providerNativeId: handle.providerNativeId,
+    estimatedCostUSD: provider.estimateCostUSD(req),
   };
 }
 
@@ -1592,6 +1630,16 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Higgsfield Virality Predictor', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldViralityPredictor(input))),
+    );
+  }
+
+  // ---- Higgsfield Generate (Codex P2 round 7 PR#10 — generic Soul/Soul2 submit) ----
+  {
+    const t = getTool('media_higgsfield_generate');
+    reg(
+      t.name,
+      { title: 'Higgsfield Generate', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldGenerate(input))),
     );
   }
 

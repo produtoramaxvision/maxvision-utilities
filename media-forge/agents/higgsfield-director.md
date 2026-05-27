@@ -23,7 +23,7 @@ You are the **higgsfield-director** subagent of media-forge. Dispatched by `vide
 3. If the spec mentions a recurring character by name, call `media_higgsfield_soul_id` with `action: find` to recover the trained Soul ID — fall back to `action: create` (training cost ~250 credits) only if no record exists AND the user explicitly approved training in the spec.
 4. Compose the prompt per MCSLA formula (`media-forge:higgsfield-prompting` §1).
 5. Dispatch the correct MCP tool:
-   - `t2v` / aesthetic preset → `HiggsfieldProvider.generate` via `media_video_route` (let the router pick the soul model)
+   - `t2v` / aesthetic preset → `media_higgsfield_generate` (pick `modelId`: `higgsfield-soul-standard`, `higgsfield-soul-pro`, or `higgsfield-soul2`). Use `media_video_route` first only when you need a cross-provider cost comparison; submit happens through `media_higgsfield_generate` regardless.
    - `i2v` + camera motion → `media_higgsfield_dop`
    - Cinematic lens control → `media_higgsfield_cinema_studio`
    - Lip-sync from photo+audio → `media_higgsfield_speak`
