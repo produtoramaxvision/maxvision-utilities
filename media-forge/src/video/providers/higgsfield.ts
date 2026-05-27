@@ -172,9 +172,24 @@ export class HiggsfieldProvider implements VideoProvider {
     // paths that don't match `${BASE_URL}/requests/{id}/status`; reconstructing
     // would 404. Fall back to canonical reconstruction only when status_url
     // was not captured (pre-round-7 rows, or providers that omit the field).
+    //
+    // FIX (Codex local round 8, PR#10): SSRF defense — status_url comes from
+    // the provider response and could be tampered with (MITM, corrupted DB
+    // row). Reject anything that is not https + hosted under higgsfield.ai
+    // before issuing the GET.
     const persistedStatusUrl = findStatusUrlByJobId({ dbPath: this.dbPath, jobId });
+    const safePersistedUrl =
+      persistedStatusUrl && isSafeHiggsfieldStatusUrl(persistedStatusUrl)
+        ? persistedStatusUrl
+        : undefined;
+    if (persistedStatusUrl && !safePersistedUrl) {
+      process.stderr.write(
+        `[higgsfield-auth] rejected persisted status_url for job ${jobId} ` +
+          `(scheme/host not allowlisted) — falling back to canonical reconstruction.\n`,
+      );
+    }
     const url =
-      persistedStatusUrl ?? `${BASE_URL}/requests/${encodeURIComponent(requestId)}/status`;
+      safePersistedUrl ?? `${BASE_URL}/requests/${encodeURIComponent(requestId)}/status`;
     // FIX (Codex P1, PR#10): mirror generate()'s primary→fallback auth handshake.
     // If the platform required fallback headers for submit, polling must use the
     // same scheme — otherwise jobs submitted via fallback become un-pollable.
@@ -434,4 +449,32 @@ export class HiggsfieldProvider implements VideoProvider {
     }
     return Math.abs(h).toString(16);
   }
+}
+
+/**
+ * SSRF allowlist for status_url values sourced from Higgsfield's API.
+ *
+ * The provider returns a `status_url` field that we persist + use as a poll
+ * target. Even though the value normally comes from a trusted upstream, it
+ * crosses an untrusted boundary (network response + on-disk DB row) before
+ * we reach back out. An attacker who tampers with either could redirect the
+ * poll fetch to internal services. We restrict to https + an explicit
+ * domain allowlist anchored on higgsfield.ai (apex + any subdomain). Anything
+ * else triggers a fallback to canonical URL reconstruction.
+ *
+ * Codex local round 8 PR#10.
+ */
+export function isSafeHiggsfieldStatusUrl(raw: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'https:') return false;
+  // Allow apex + arbitrary subdomain. Reject look-alikes (higgsfield.ai.evil.com,
+  // myhiggsfield.ai, etc.) by requiring an exact match on the apex or a
+  // strict `.higgsfield.ai` suffix.
+  const host = u.hostname.toLowerCase();
+  return host === 'higgsfield.ai' || host.endsWith('.higgsfield.ai');
 }
