@@ -536,6 +536,17 @@ export const KlingOmniMultiShotInput = _KlingOmniMultiShotBase
 
 export type KlingOmniMultiShotInputT = z.infer<typeof KlingOmniMultiShotInput>;
 
+// KlingVideoExtendInput — Kling V3 Pro video extension (P15 Task 10)
+// Plain ZodObject (no refines) — no Base/validation split needed.
+export const KlingVideoExtendInput = z.object({
+  videoUrl: z.string().url(),
+  prompt: z.string().min(1),
+  hops: z.number().int().min(1).max(4, 'max 4 hops per Kling video-extend (cost sanity cap)'),
+  modelId: z.enum(['kling-v3-pro']).default('kling-v3-pro'),
+  watermarkEnabled: z.boolean().default(false),
+});
+export type KlingVideoExtendInputT = z.infer<typeof KlingVideoExtendInput>;
+
 // ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
@@ -548,8 +559,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 44 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio + 1 higgsfield-recast + 1 higgsfield-virality-predictor + 1 kling-motion-brush + 3 kling-element-create/list/delete + 1 kling-elements + 1 kling-lip-sync + 1 kling-omni-multishot = 44
+// MCP_TOOLS registry — 45 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio + 1 higgsfield-recast + 1 higgsfield-virality-predictor + 1 kling-motion-brush + 3 kling-element-create/list/delete + 1 kling-elements + 1 kling-lip-sync + 1 kling-omni-multishot + 1 kling-video-extend = 45
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -839,6 +850,14 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
       'Kling V3 Omni multi-shot orchestration - single API call generates up to 6 contiguous cuts with per-shot prompt + duration, sharing visual identity via imageRefs. Use for music-video / narrative sequences. Total duration = sum of shot durations (max 30s).',
     inputSchema: _KlingOmniMultiShotBase,
     validationSchema: KlingOmniMultiShotInput,
+  },
+
+  // ---- Kling Video Extend (1 — P15 Task 10: add ~4.5s continuation per hop, up to 4 hops ~18s) ----
+  {
+    name: 'media_kling_video_extend',
+    description:
+      'Kling V3 Pro video extension - adds ~4.5s of continuation per hop to a source video. Chain up to 4 hops (~18s total extension). Returns first hop jobId + hopsRemaining; re-invoke after webhook fires to chain.',
+    inputSchema: KlingVideoExtendInput,
   },
 ] as const) as readonly MCPTool[];
 

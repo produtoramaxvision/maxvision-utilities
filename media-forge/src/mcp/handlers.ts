@@ -105,6 +105,8 @@ import {
   type KlingLipSyncInputT,
   KlingOmniMultiShotInput,
   type KlingOmniMultiShotInputT,
+  KlingVideoExtendInput,
+  type KlingVideoExtendInputT,
 } from './schemas.js';
 import {
   createKlingElement,
@@ -907,6 +909,58 @@ export async function handleKlingOmniMultiShot(
     provider: handle.provider,
     modelId: handle.model,
     estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleKlingVideoExtend — Kling V3 Pro video extension: add ~4.5s per hop (P15 Task 10)
+// Per-call KlingProvider construction ensures tests with tmp envs get isolated instances.
+// ---------------------------------------------------------------------------
+
+/** Duration added per single extend hop, in seconds. */
+const KLING_EXTEND_HOP_SEC = 4.5;
+
+export async function handleKlingVideoExtend(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{
+  jobId: string;
+  provider: string;
+  modelId: string;
+  estimatedCostUSD: number;
+  hopsRemaining: number;
+}> {
+  const input: KlingVideoExtendInputT = KlingVideoExtendInput.parse(rawInput);
+  const provider = new KlingProvider({
+    dbPath: defaultDbPath(),
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+  });
+  const handle = await provider.generate({
+    modelId: input.modelId,
+    mode: 'extend',
+    prompt: input.prompt,
+    durationSec: KLING_EXTEND_HOP_SEC,
+    resolution: '1080p',
+    extras: {
+      providerKind: 'kling',
+      motionReferenceVideoUrl: input.videoUrl,
+      watermarkEnabled: input.watermarkEnabled,
+      klingMode: 'pro',
+    },
+  });
+  return {
+    jobId: handle.jobId,
+    provider: handle.provider,
+    modelId: handle.model,
+    estimatedCostUSD: provider.estimateCostUSD({
+      modelId: input.modelId,
+      mode: 'extend',
+      prompt: input.prompt,
+      durationSec: KLING_EXTEND_HOP_SEC * input.hops,
+      resolution: '1080p',
+    }),
+    hopsRemaining: input.hops - 1,
   };
 }
 
@@ -1903,6 +1957,17 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Kling Omni Multi-Shot', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingOmniMultiShot(input))),
+    );
+  }
+
+  // ---- Kling Video Extend (1 — P15 Task 10: add ~4.5s continuation per hop, up to 4 hops ~18s) ----
+
+  {
+    const t = getTool('media_kling_video_extend');
+    reg(
+      t.name,
+      { title: 'Kling Video Extend', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingVideoExtend(input))),
     );
   }
 }

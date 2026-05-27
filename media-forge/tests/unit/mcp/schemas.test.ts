@@ -72,14 +72,18 @@ const EXPECTED_TOOL_NAMES = [
   'media_kling_elements',
   // kling lip-sync (1 — P15 Task 8)
   'media_kling_lip_sync',
+  // kling omni multi-shot (1 — P15 Task 9)
+  'media_kling_omni_multishot',
+  // kling video extend (1 — P15 Task 10)
+  'media_kling_video_extend',
 ] as const;
 
 // ---------------------------------------------------------------------------
 // Registry shape assertions
 // ---------------------------------------------------------------------------
 describe('MCP_TOOLS registry', () => {
-  it('contains exactly 44 tools', () => {
-    expect(MCP_TOOLS.length).toBe(44);
+  it('contains exactly 45 tools', () => {
+    expect(MCP_TOOLS.length).toBe(45);
   });
 
   it('is frozen (Object.isFrozen)', () => {
@@ -123,8 +127,8 @@ describe('MCP_TOOLS registry', () => {
 // listMCPToolNames()
 // ---------------------------------------------------------------------------
 describe('listMCPToolNames()', () => {
-  it('returns an array of length 44', () => {
-    expect(listMCPToolNames().length).toBe(44);
+  it('returns an array of length 45', () => {
+    expect(listMCPToolNames().length).toBe(45);
   });
 
   it('contains all 38 expected tool names', () => {
