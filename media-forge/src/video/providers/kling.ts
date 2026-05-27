@@ -431,10 +431,14 @@ function buildRequestBody(args: BuildBodyArgs): Record<string, unknown> {
   // FIX (Codex P1, PR#11): video-extend mode body — was falling through to
   // default t2v. Per Kling /v1/videos/video-extend: source video_id +
   // continuation prompt + extension duration (typically +5s per hop).
+  // FIX (Codex P1 round 2, PR#11): handler stores source videoUrl in
+  // extras.motionReferenceVideoUrl (mirror of lip-sync convention), NOT in
+  // req.firstFrameImagePath. Same fallback chain as lip-sync.
   if (req.mode === 'extend') {
+    const videoId = extras?.motionReferenceVideoUrl ?? req.firstFrameImagePath;
     return {
       model_name: modelName,
-      video_id: req.firstFrameImagePath,
+      video_id: videoId,
       prompt: req.prompt,
       duration: String(req.durationSec),
       watermark_info: { enabled: watermarkEnabled },
