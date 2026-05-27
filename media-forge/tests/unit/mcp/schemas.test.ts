@@ -62,14 +62,16 @@ const EXPECTED_TOOL_NAMES = [
   'media_higgsfield_marketing_studio',
   'media_higgsfield_recast',
   'media_higgsfield_virality_predictor',
+  // kling (1 — P15 Task 6)
+  'media_kling_motion_brush',
 ] as const;
 
 // ---------------------------------------------------------------------------
 // Registry shape assertions
 // ---------------------------------------------------------------------------
 describe('MCP_TOOLS registry', () => {
-  it('contains exactly 37 tools', () => {
-    expect(MCP_TOOLS.length).toBe(37);
+  it('contains exactly 38 tools', () => {
+    expect(MCP_TOOLS.length).toBe(38);
   });
 
   it('is frozen (Object.isFrozen)', () => {
@@ -113,11 +115,11 @@ describe('MCP_TOOLS registry', () => {
 // listMCPToolNames()
 // ---------------------------------------------------------------------------
 describe('listMCPToolNames()', () => {
-  it('returns an array of length 37', () => {
-    expect(listMCPToolNames().length).toBe(37);
+  it('returns an array of length 38', () => {
+    expect(listMCPToolNames().length).toBe(38);
   });
 
-  it('contains all 37 expected tool names', () => {
+  it('contains all 38 expected tool names', () => {
     const names = listMCPToolNames();
     for (const expected of EXPECTED_TOOL_NAMES) {
       expect(names).toContain(expected);

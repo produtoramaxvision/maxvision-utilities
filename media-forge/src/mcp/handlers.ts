@@ -90,6 +90,8 @@ import { HiggsfieldRecastInput, type HiggsfieldRecastInputT } from './schemas.js
 import { HiggsfieldViralityPredictorInput, type HiggsfieldViralityPredictorInputT } from './schemas.js';
 import { buildHiggsfieldHeaders } from '../video/providers/auth/higgsfield-headers.js';
 import { HiggsfieldProvider } from '../video/providers/higgsfield.js';
+import { KlingProvider } from '../video/providers/kling.js';
+import { KlingMotionBrushInput, type KlingMotionBrushInputT } from './schemas.js';
 
 // ---------------------------------------------------------------------------
 // ADAPTED_PROVIDERS — routing gate: only providers with a wired adapter here.
@@ -614,6 +616,51 @@ export async function handleHiggsfieldSoulId(rawInput: unknown): Promise<
       markUsed({ dbPath, id: input.id });
       return { ok: true, id: input.id };
   }
+}
+
+// ---------------------------------------------------------------------------
+// handleKlingMotionBrush — Kling V3 Pro motion brush: paint regions with motion vectors (P15 Task 6)
+// Per-call KlingProvider construction is intentional: KlingProvider takes env in constructor
+// and per-call construction ensures tests using tmp envs get isolated instances.
+// ---------------------------------------------------------------------------
+
+export interface KlingHandlerExecOpts {
+  readonly fetchImpl?: typeof fetch;
+}
+
+export async function handleKlingMotionBrush(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number }> {
+  const input: KlingMotionBrushInputT = KlingMotionBrushInput.parse(rawInput);
+  const provider = new KlingProvider({
+    dbPath: defaultDbPath(),
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+  });
+  const req = {
+    modelId: input.modelId,
+    mode: 'motion-brush' as const,
+    prompt: input.prompt,
+    durationSec: input.durationSec,
+    resolution: '1080p' as const,
+    firstFrameImagePath: input.imageUrl,
+    extras: {
+      providerKind: 'kling' as const,
+      motionBrushRegions: input.regions,
+      watermarkEnabled: input.watermarkEnabled,
+      characterOrientation: input.characterOrientation,
+      motionReferenceVideoUrl: input.videoReferenceUrl,
+      klingMode: 'pro' as const,
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    jobId: handle.jobId,
+    provider: handle.provider,
+    modelId: handle.model,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
 }
 
 export interface HandlersDeps {
@@ -1536,6 +1583,17 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Higgsfield Virality Predictor', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldViralityPredictor(input))),
+    );
+  }
+
+  // ---- Kling Motion Brush (1 — P15 Task 6: paint regions of still image with motion vectors) ----
+
+  {
+    const t = getTool('media_kling_motion_brush');
+    reg(
+      t.name,
+      { title: 'Kling Motion Brush', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingMotionBrush(input))),
     );
   }
 }

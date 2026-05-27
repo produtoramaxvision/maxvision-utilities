@@ -366,6 +366,30 @@ export type HiggsfieldViralityPredictorInputT = z.infer<typeof HiggsfieldViralit
 // HiggsfieldMarketingStudioInput — Marketing Studio: 9 UGC templates from product URL (P14 Task 12)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// KlingMotionBrushInput — Kling V3 Pro motion brush: paint regions with motion vectors (P15 Task 6)
+// ---------------------------------------------------------------------------
+
+export const KlingMotionBrushInput = z.object({
+  prompt: z.string().min(1),
+  imageUrl: z.string().url(),
+  regions: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        polygon: z.array(z.tuple([z.number(), z.number()])).min(3),
+        motionVector: z.tuple([z.number(), z.number()]),
+      }),
+    )
+    .min(1, 'at least 1 motion-brush region required'),
+  durationSec: z.number().positive().max(10),
+  modelId: z.enum(['kling-v3-pro']).default('kling-v3-pro'),
+  watermarkEnabled: z.boolean().default(false),
+  videoReferenceUrl: z.string().url().optional(),
+  characterOrientation: z.enum(['image', 'video']).default('image'),
+});
+export type KlingMotionBrushInputT = z.infer<typeof KlingMotionBrushInput>;
+
 export const HiggsfieldMarketingStudioInput = z.object({
   template: z.enum([
     'ugc', 'unboxing', 'tv-spot', 'hyper-motion', 'product-review',
@@ -391,8 +415,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 37 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio + 1 higgsfield-recast + 1 higgsfield-virality-predictor = 37
+// MCP_TOOLS registry — 38 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio + 1 higgsfield-recast + 1 higgsfield-virality-predictor + 1 kling-motion-brush = 38
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -627,6 +651,14 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description: 'Higgsfield Virality Predictor — score an asset (viral / audience-fit / hook-strength).',
     inputSchema: HiggsfieldViralityPredictorInput,
     validationSchema: HiggsfieldViralityPredictorInput,
+  },
+
+  // ---- Kling Motion Brush (1 — P15 Task 6: paint regions of still image with motion vectors) ----
+  {
+    name: 'media_kling_motion_brush',
+    description:
+      'Kling V3 Pro motion brush - paint regions of a still image with motion vectors. Returns a jobId; poll status or wait for webhook callback. Input: imageUrl, prompt, regions[].',
+    inputSchema: KlingMotionBrushInput,
   },
 ] as const) as readonly MCPTool[];
 
