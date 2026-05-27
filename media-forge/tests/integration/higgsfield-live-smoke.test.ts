@@ -44,7 +44,6 @@ describeIfLive('Higgsfield live E2E', () => {
 
       const deadline = Date.now() + 5 * 60_000;
       let final;
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         if (Date.now() > deadline) throw new Error('Higgsfield live test timed out (5min)');
         const status = await provider.pollStatus(handle.jobId);

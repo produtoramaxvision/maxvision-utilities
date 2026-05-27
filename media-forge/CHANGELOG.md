@@ -6,6 +6,38 @@ All notable changes to `media-forge` are documented here. The format follows
 
 ## [Unreleased]
 
+## 0.3.0-p14 — 2026-05-27
+
+### P14 — Higgsfield FULL Integration
+
+First full third-party video provider integration. Higgsfield's complete surface (Soul / Soul 2.0 / Soul ID / DoP / Cinema Studio 3.5 / Speak / Speak 2.0 / Marketing Studio / Recast / Virality Predictor) is wired as a `VideoProvider` alongside Veo, with goal-backward parity for all VIDEO_MODES it natively supports.
+
+**Added**
+- `HiggsfieldProvider` REST adapter in `src/video/providers/higgsfield.ts`
+- `HiggsfieldExtras` discriminated arm of `ProviderExtras` in `src/video/providers/base.ts`
+- 10 Higgsfield model specs in `VIDEO_MODELS` (Soul / Soul Pro / Soul 2 / DoP / DoP Turbo / Speak / Speak 2 / Cinema Studio 3.5 / Marketing Studio / Recast)
+- `'higgsfield'` promoted into runtime `PROVIDERS` array
+- SQLite migrations 002 (`soul_ids`) + 003 (`provider_request_map`)
+- `src/core/soul-id-cache.ts` lifecycle API
+- `src/core/provider-request-map.ts` request_id ↔ jobId reconciliation (SQLite + in-memory cache)
+- `src/video/providers/higgsfield-webhook.ts` webhook payload mapper, registered at MCP boot
+- 7 new MCP tools (count 30 → 37): `media_higgsfield_soul_id`, `media_higgsfield_dop`, `media_higgsfield_cinema_studio`, `media_higgsfield_speak`, `media_higgsfield_marketing_studio`, `media_higgsfield_recast`, `media_higgsfield_virality_predictor`
+- Subagent `agents/higgsfield-director.md` covering all modes + Soul ID lifecycle + dispatch
+- Skill `skills/higgsfield-prompting/SKILL.md` — MCSLA formula, DoP cheatsheet, Cinema lens dictionary, Marketing template decision tree
+
+**Changed**
+- `agents/video-router.md` — extended dispatch + P14 routing heuristic (lip-sync / targeted-edit / DoP / Cinema / Marketing → Higgsfield; plain modes → cheapest)
+- `handleVideoRoute` — capability-before-cost ranking with safe `normalizeCostUSD` fallback for missing `usdPerCredit`
+- `commands/setup.md` — Higgsfield plan picker (Plus/Ultra/Business/custom), `MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT`, `MEDIA_FORGE_WEBHOOK_PUBLIC_URL`
+
+**Auth resolution** (Task 1 empirical probe)
+- Confirmed which auth scheme the platform accepts (`hf-api-key`+`hf-secret` SDK form vs `Authorization: Key K:S` REST form); documented in `higgsfield-headers.ts` JSDoc.
+
+**Backward compatibility**
+- All P13 tests continue to pass.
+- `GoogleVeoProvider`, `media_video_cost_estimate`, `media_video_cost_report`, `media_video_route` (Veo path), `media_video_webhook_status` unchanged.
+- Existing SQLite migrations 001 (video_jobs) unaffected.
+
 ## 0.2.0-p13 — 2026-05-26
 
 ### P13 — Provider Abstraction Foundation
