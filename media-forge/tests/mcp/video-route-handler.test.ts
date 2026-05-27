@@ -24,6 +24,6 @@ describe('media_video_route handler', () => {
         durationSec: 4,
         resolution: '720p',
       }),
-    ).rejects.toThrow(/no provider supports mode motion-brush/i);
+    ).rejects.toThrow(/no provider supports mode='?motion-brush/i);
   });
 });

@@ -472,9 +472,27 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
     // Constrain to providers with a wired adapter. Models registered for
     // future providers (Kling P15, Seedance P16) must not be selected until
     // their adapter is available in ADAPTED_PROVIDERS.
-    .filter((spec) => ADAPTED_PROVIDERS.has(spec.provider));
+    .filter((spec) => ADAPTED_PROVIDERS.has(spec.provider))
+    // FIX (Codex P2, PR#10): filter candidates by requested duration +
+    // resolution BEFORE cost sort. Without this, sorter could pick cheapest
+    // model that fails downstream validation (e.g. higgsfield-speak with
+    // maxDurationSec=30 cheaper than higgsfield-speak2 maxDurationSec=60 for
+    // a 45s lip-sync request → submit rejected). Defensive: spec missing
+    // maxDurationSec or resolutions arrays does not filter out.
+    .filter((spec) =>
+      typeof spec.maxDurationSec === 'number'
+        ? spec.maxDurationSec >= input.durationSec
+        : true,
+    )
+    .filter((spec) =>
+      Array.isArray(spec.resolutions) && spec.resolutions.length > 0
+        ? (spec.resolutions as readonly string[]).includes(input.resolution)
+        : true,
+    );
   if (allByMode.length === 0) {
-    throw new Error(`no provider supports mode ${input.mode} in current registry`);
+    throw new Error(
+      `no provider supports mode='${input.mode}' with durationSec=${input.durationSec} resolution=${input.resolution} in current registry`,
+    );
   }
 
   const preferred = input.preferProvider
