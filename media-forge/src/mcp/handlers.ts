@@ -101,6 +101,8 @@ import {
   type KlingElementDeleteInputT,
   KlingElementsInput,
   type KlingElementsInputT,
+  KlingLipSyncInput,
+  type KlingLipSyncInputT,
 } from './schemas.js';
 import {
   createKlingElement,
@@ -807,6 +809,49 @@ export async function handleKlingElements(
     extras: {
       providerKind: 'kling' as const,
       elementIds: input.elementIds,
+      watermarkEnabled: input.watermarkEnabled,
+      klingMode: 'pro' as const,
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    jobId: handle.jobId,
+    provider: handle.provider,
+    modelId: handle.model,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleKlingLipSync — Kling V3 Pro lip-sync: text or audio driven (P15 Task 8)
+// Per-call KlingProvider construction ensures tests with tmp envs get isolated instances.
+// ---------------------------------------------------------------------------
+
+export async function handleKlingLipSync(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number }> {
+  const input: KlingLipSyncInputT = KlingLipSyncInput.parse(rawInput);
+  const provider = new KlingProvider({
+    dbPath: defaultDbPath(),
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+  });
+  const req = {
+    modelId: input.modelId,
+    mode: 'lip-sync' as const,
+    prompt: input.text ?? '(audio-driven lip-sync)',
+    durationSec: 5,
+    resolution: '1080p' as const,
+    extras: {
+      providerKind: 'kling' as const,
+      lipSync: {
+        mode: (input.text ? 'text' : 'audio') as 'text' | 'audio',
+        text: input.text,
+        audioUrl: input.audioUrl,
+        emotion: input.emotion,
+      },
+      motionReferenceVideoUrl: input.videoUrl,
       watermarkEnabled: input.watermarkEnabled,
       klingMode: 'pro' as const,
     },
@@ -1791,6 +1836,17 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Kling Elements', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingElements(input))),
+    );
+  }
+
+  // ---- Kling Lip-Sync (1 — P15 Task 8: text or audio driven lip-sync) ----
+
+  {
+    const t = getTool('media_kling_lip_sync');
+    reg(
+      t.name,
+      { title: 'Kling Lip-Sync', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingLipSync(input))),
     );
   }
 }

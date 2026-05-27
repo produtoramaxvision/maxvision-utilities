@@ -439,6 +439,28 @@ export const KlingElementDeleteInput = z.object({
 });
 export type KlingElementDeleteInputT = z.infer<typeof KlingElementDeleteInput>;
 
+// KlingLipSyncInput — Kling V3 Pro lip-sync: drive a source video with text or audio (P15 Task 8)
+// _KlingLipSyncBase — ZodObject base shape for tools/list (DEBT-008 compliant)
+// KlingLipSyncInput — ZodEffects with two chained refines for mutual-exclusion validation
+export const _KlingLipSyncBase = z.object({
+  videoUrl: z.string().url(),
+  text: z.string().min(1).optional(),
+  audioUrl: z.string().url().optional(),
+  emotion: z.enum(['happy', 'angry', 'sad', 'neutral']).optional(),
+  modelId: z.enum(['kling-v3-pro']).default('kling-v3-pro'),
+  watermarkEnabled: z.boolean().default(false),
+});
+
+export const KlingLipSyncInput = _KlingLipSyncBase
+  .refine((v) => !!v.text || !!v.audioUrl, {
+    message: 'either text or audioUrl required',
+  })
+  .refine((v) => !(v.text && v.audioUrl), {
+    message: 'exactly one of text or audioUrl required (not both)',
+  });
+
+export type KlingLipSyncInputT = z.infer<typeof KlingLipSyncInput>;
+
 // KlingElementsInput — compose up to 4 frame-locked element identities into one shot (P15 Task 7)
 // elementIds: min 1, max 4 per Kling hard limit
 export const KlingElementsInput = z.object({
@@ -464,8 +486,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 42 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio + 1 higgsfield-recast + 1 higgsfield-virality-predictor + 1 kling-motion-brush + 3 kling-element-create/list/delete + 1 kling-elements = 42
+// MCP_TOOLS registry — 43 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio + 1 higgsfield-recast + 1 higgsfield-virality-predictor + 1 kling-motion-brush + 3 kling-element-create/list/delete + 1 kling-elements + 1 kling-lip-sync = 43
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -737,6 +759,15 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description:
       'Kling V3 Pro Elements - up to 4 frame-locked reference identities (characters, objects, locations) composed into one shot via base image + elementIds. Use for consistent multi-character scenes.',
     inputSchema: KlingElementsInput,
+  },
+
+  // ---- Kling Lip-Sync (1 — P15 Task 8: drive source video with text or audio) ----
+  {
+    name: 'media_kling_lip_sync',
+    description:
+      'Kling V3 Pro Lip-Sync - drive a source video clip with either generated speech (text + emotion picker: happy/angry/sad/neutral) or supplied audio file URL. Exactly one of text or audioUrl required.',
+    inputSchema: _KlingLipSyncBase,
+    validationSchema: KlingLipSyncInput,
   },
 ] as const) as readonly MCPTool[];
 
