@@ -5,6 +5,8 @@ import type {
   JobHandle,
   JobStatus,
   DownloadedAsset,
+  KlingExtras,
+  ProviderExtras,
 } from '../../../src/video/providers/base.js';
 import type { Provider, VideoModelSpec } from '../../../src/core/models.js';
 
@@ -77,5 +79,67 @@ describe('VideoProvider contract', () => {
     });
     expect(usd).toBeGreaterThanOrEqual(0);
     expect(Number.isFinite(usd)).toBe(true);
+  });
+});
+
+describe('P15 — KlingExtras union arm', () => {
+  it('KlingExtras has providerKind: "kling" discriminator', () => {
+    const extras: KlingExtras = { providerKind: 'kling' };
+    expect(extras.providerKind).toBe('kling');
+  });
+
+  it('accepts motion-brush regions field', () => {
+    const extras: KlingExtras = {
+      providerKind: 'kling',
+      motionBrushRegions: [
+        { id: 'r1', polygon: [[0, 0], [100, 0], [100, 100], [0, 100]], motionVector: [10, 0] },
+      ],
+    };
+    expect(extras.motionBrushRegions).toHaveLength(1);
+  });
+
+  it('accepts elementIds array (up to 4 refs)', () => {
+    const extras: KlingExtras = {
+      providerKind: 'kling',
+      elementIds: ['elem-1', 'elem-2', 'elem-3', 'elem-4'],
+    };
+    expect(extras.elementIds).toHaveLength(4);
+  });
+
+  it('accepts lipSyncEmotion + lipSyncMode', () => {
+    const extras: KlingExtras = {
+      providerKind: 'kling',
+      lipSync: { mode: 'text', text: 'hello world', emotion: 'happy' },
+    };
+    expect(extras.lipSync?.emotion).toBe('happy');
+  });
+
+  it('accepts omniMultiShot with per-shot index + duration', () => {
+    const extras: KlingExtras = {
+      providerKind: 'kling',
+      omniMultiShot: {
+        multiPrompt: [
+          { index: 0, prompt: 'wide establishing shot', duration: 5 },
+          { index: 1, prompt: 'close-up reaction', duration: 5 },
+        ],
+        imageList: [{ imageUrl: 'https://example/ref1.png' }],
+      },
+    };
+    expect(extras.omniMultiShot?.multiPrompt).toHaveLength(2);
+  });
+
+  it('accepts watermarkEnabled boolean (default false for paid keys)', () => {
+    const extras: KlingExtras = { providerKind: 'kling', watermarkEnabled: false };
+    expect(extras.watermarkEnabled).toBe(false);
+  });
+
+  it('accepts characterOrientation for motion control', () => {
+    const extras: KlingExtras = { providerKind: 'kling', characterOrientation: 'image' };
+    expect(extras.characterOrientation).toBe('image');
+  });
+
+  it('ProviderExtras union now accepts a kling-shaped value (compile-time)', () => {
+    const extras: ProviderExtras = { providerKind: 'kling' };
+    expect(extras.providerKind).toBe('kling');
   });
 });
