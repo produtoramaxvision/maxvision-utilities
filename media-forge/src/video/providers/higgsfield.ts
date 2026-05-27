@@ -302,7 +302,12 @@ export class HiggsfieldProvider implements VideoProvider {
 
   private buildUrlWithWebhook(endpoint: string, jobId: string): string {
     const base = `${BASE_URL}${endpoint}`;
-    if (!this.publicWebhookBaseUrl) return base;
+    // D-2: P14 ships polling-only. Webhook URL injection requires BOTH:
+    //   - publicWebhookBaseUrl explicitly configured AND
+    //   - MEDIA_FORGE_HF_WEBHOOK_ENABLE=true (opt-in flag, off in P14)
+    // When the flag flips on in P14.1, the URL injection path is already wired.
+    const enabled = process.env['MEDIA_FORGE_HF_WEBHOOK_ENABLE'] === 'true';
+    if (!enabled || !this.publicWebhookBaseUrl) return base;
     const webhook = `${this.publicWebhookBaseUrl.replace(/\/$/, '')}/webhooks/higgsfield/${encodeURIComponent(jobId)}`;
     const sep = base.includes('?') ? '&' : '?';
     return `${base}${sep}hf_webhook=${encodeURIComponent(webhook)}`;

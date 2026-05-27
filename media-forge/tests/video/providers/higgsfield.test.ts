@@ -38,6 +38,7 @@ describe('HiggsfieldProvider', () => {
     }
     delete process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
     delete process.env['MEDIA_FORGE_HF_AUTH_FALLBACK_USED'];
+    delete process.env['MEDIA_FORGE_HF_WEBHOOK_ENABLE'];
   });
 
   it('reports name = higgsfield', () => {
@@ -118,6 +119,9 @@ describe('HiggsfieldProvider', () => {
   });
 
   it('generate POSTs the Soul endpoint with HF auth headers + webhook URL', async () => {
+    // D-2: webhook injection is off by default in P14. Enable it for this specific test
+    // so the original assertion (hf_webhook= in URL) remains meaningful.
+    process.env['MEDIA_FORGE_HF_WEBHOOK_ENABLE'] = 'true';
     const captured: { url: string; init: RequestInit }[] = [];
     global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       captured.push({ url: String(input), init: init ?? {} });
