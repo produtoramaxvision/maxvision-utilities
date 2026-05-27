@@ -73,10 +73,12 @@ describe('P14 regression — Veo still wired AND Higgsfield is live', () => {
     // P14: Higgsfield was sole lip-sync provider. P15: kling-v3-pro joins with explicit-tier
     // override — pickExplicitTier routes lip-sync to kling-v3-pro before cost sort.
     // Higgsfield lip-sync remains reachable via preferProvider: 'higgsfield'.
+    // PR#10 Codex P2 fix: router now filters by maxDurationSec — kling-v3-pro caps at 10s.
+    // Use 10s so kling-v3-pro stays in the candidate pool and explicit-tier override wins.
     const r = await handleVideoRoute({
       mode: 'lip-sync',
       prompt: 'x',
-      durationSec: 15,
+      durationSec: 10,
       resolution: '1080p',
     });
     expect(r.provider).toBe('kling');

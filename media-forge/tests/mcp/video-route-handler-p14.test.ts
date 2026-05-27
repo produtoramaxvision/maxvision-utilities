@@ -26,10 +26,11 @@ describe('handleVideoRoute — P14 Higgsfield preference', () => {
     // P14: Higgsfield was sole lip-sync provider. P15: kling-v3-pro joins with explicit-tier
     // override via pickExplicitTier — kling wins before cost sort.
     // Higgsfield lip-sync remains reachable via preferProvider: 'higgsfield'.
+    // PR#10 Codex P2 fix: router now filters by maxDurationSec — kling-v3-pro caps at 10s.
     const r = await handleVideoRoute({
       mode: 'lip-sync',
       prompt: 'newsreader',
-      durationSec: 15,
+      durationSec: 10,
       resolution: '1080p',
     });
     expect(r.provider).toBe('kling');
