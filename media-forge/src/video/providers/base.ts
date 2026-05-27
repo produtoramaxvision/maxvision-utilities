@@ -2,27 +2,82 @@ import type { Provider, VideoMode, VideoModelSpec } from '../../core/models.js';
 
 /**
  * Provider-specific extras union — each provider extends with its own typed extras
- * object. P13 ships only `GoogleVeoExtras` (currently empty — Veo uses the base
- * request fields directly). P14 adds `HiggsfieldExtras` (Soul ID, DoP camera verbs,
- * Cinema Studio params). P15 adds `KlingExtras` (lip-sync emotion, motion brush
- * regions, elements references). P16 adds `BytedanceSeedanceExtras` (multi-shot
- * timestamps, @-mention references, targeted-edit shot index).
+ * object. P13 shipped `GoogleVeoExtras`. P14 adds `HiggsfieldExtras` covering Soul ID,
+ * DoP camera verbs, Cinema Studio lens params, Speak audio, Marketing Studio template,
+ * multi-reference images, Recast target character, Virality Predictor toggle, and the
+ * aggregator proxy (Higgsfield-as-proxy-to-Veo/Kling/Seedance/Sora). P15 adds
+ * KlingExtras, P16 adds BytedanceSeedanceExtras.
  *
- * Using a discriminated union by provider keeps each adapter type-safe and prevents
- * Kling-only fields from leaking into a Seedance request at compile time. The
- * `extras` field on VideoGenerationRequest is typed as a union, never as a generic
- * Record<string, unknown> — the latter was the pattern Codex flagged as guaranteed
- * to break P14-P16.
+ * Discriminated by `providerKind`; never collapse to Record<string, unknown>.
  */
 export interface GoogleVeoExtras {
   readonly providerKind: 'google';
-  // No Google-specific extras in P13 — Veo controls live on base request fields.
+  // Veo-specific extras are absent in P13/P14 — Veo controls live on base request fields.
 }
 
-// P14-P16 will append HiggsfieldExtras | KlingExtras | BytedanceSeedanceExtras.
-// Until then, the union has a single arm. The shape is intentionally locked so
-// P14+ extensions land as type-additive PRs with full backwards compatibility.
-export type ProviderExtras = GoogleVeoExtras;
+export interface HiggsfieldCinemaStudioParams {
+  readonly focalLengthMm?: number;
+  readonly apertureFStop?: number;
+  readonly sensorSize?: 'full-frame' | 'super35' | 'apsc' | 'm43' | 'imax';
+  readonly colorGrading?: 'teal-orange' | 'bleach-bypass' | 'noir' | 'pastel' | 'vibrant' | string;
+  readonly lensId?: string;
+}
+
+export interface HiggsfieldExtras {
+  readonly providerKind: 'higgsfield';
+
+  /** Soul ID handle from createSoulId — reused across generations for character consistency. */
+  readonly soulId?: string;
+
+  /** DoP / WAN Camera Control verbs prepended to the prompt (dolly_in, crash_zoom, ...). */
+  readonly dopCameraVerbs?: ReadonlyArray<string>;
+
+  /** Cinema Studio 3.5 lens / focal length / aperture / sensor / grading dictionary. */
+  readonly cinemaStudioParams?: HiggsfieldCinemaStudioParams;
+
+  /** Speak lip-sync source audio (local path resolved to data URL or Higgsfield upload). */
+  readonly speakAudioPath?: string;
+
+  /** Marketing Studio template id — one of the 9 UGC templates. */
+  readonly marketingStudioTemplate?:
+    | 'ugc'
+    | 'unboxing'
+    | 'tv-spot'
+    | 'hyper-motion'
+    | 'product-review'
+    | 'asmr'
+    | 'lifestyle'
+    | 'testimonial'
+    | 'reel';
+
+  /** Marketing Studio product reference URL. */
+  readonly marketingStudioProductUrl?: string;
+
+  /** Multi-Reference composition for style consistency (Soul 2.0 + Cinema Studio). */
+  readonly multiReferenceImages?: ReadonlyArray<string>;
+
+  /** Recast Studio — character to swap into existing video. */
+  readonly recastTargetCharacterPath?: string;
+
+  /** Score the asset for predicted virality before approval (returns score on completion). */
+  readonly viralityPredictor?: boolean;
+
+  /**
+   * Aggregator proxy — Higgsfield can invoke Veo / Kling / Seedance / Sora on the caller's
+   * behalf. Specifying this routes the request through Higgsfield's catalog endpoint.
+   */
+  readonly aggregatorProxyModel?: string;
+
+  /**
+   * Webhook URL the platform should POST completion events to. When absent, the provider
+   * falls back to polling. Constructed by HiggsfieldProvider.generate as
+   * `${MEDIA_FORGE_WEBHOOK_PUBLIC_URL}/webhooks/higgsfield/${jobId}` so the path segment
+   * already equals our internal jobId for webhook routing.
+   */
+  readonly webhookUrl?: string;
+}
+
+export type ProviderExtras = GoogleVeoExtras | HiggsfieldExtras;
 
 export interface VideoGenerationRequest {
   readonly modelId: string;
