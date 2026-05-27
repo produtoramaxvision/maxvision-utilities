@@ -85,6 +85,7 @@ import { HiggsfieldSoulIdInput, type HiggsfieldSoulIdInputT } from './schemas.js
 import { HiggsfieldDopInput, type HiggsfieldDopInputT } from './schemas.js';
 import { HiggsfieldCinemaStudioInput, type HiggsfieldCinemaStudioInputT } from './schemas.js';
 import { HiggsfieldSpeakInput, type HiggsfieldSpeakInputT } from './schemas.js';
+import { HiggsfieldMarketingStudioInput, type HiggsfieldMarketingStudioInputT } from './schemas.js';
 import { HiggsfieldProvider } from '../video/providers/higgsfield.js';
 
 // ---------------------------------------------------------------------------
@@ -285,6 +286,40 @@ export async function handleHiggsfieldSpeak(rawInput: unknown): Promise<{
     extras: {
       providerKind: 'higgsfield' as const,
       speakAudioPath: audioReference,
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    provider: handle.provider,
+    jobId: handle.jobId,
+    providerNativeId: handle.providerNativeId,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldMarketingStudio — Marketing Studio: 9 UGC templates from product URL
+// ---------------------------------------------------------------------------
+
+export async function handleHiggsfieldMarketingStudio(rawInput: unknown): Promise<{
+  provider: string;
+  jobId: string;
+  providerNativeId?: string;
+  estimatedCostUSD: number;
+}> {
+  const input: HiggsfieldMarketingStudioInputT = HiggsfieldMarketingStudioInput.parse(rawInput);
+  const provider = higgsfieldProvider();
+  const req = {
+    modelId: 'higgsfield-marketing-studio',
+    mode: 't2v' as const,
+    prompt: input.prompt,
+    durationSec: input.durationSec,
+    resolution: input.resolution,
+    aspectRatio: input.aspectRatio,
+    extras: {
+      providerKind: 'higgsfield' as const,
+      marketingStudioTemplate: input.template,
+      marketingStudioProductUrl: input.productUrl,
     },
   };
   const handle = await provider.generate(req);
@@ -1323,6 +1358,17 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Higgsfield Speak', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldSpeak(input))),
+    );
+  }
+
+  // ---- Higgsfield Marketing Studio (1 — P14 Task 12 UGC templates from product URL) ----
+
+  {
+    const t = getTool('media_higgsfield_marketing_studio');
+    reg(
+      t.name,
+      { title: 'Higgsfield Marketing Studio', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldMarketingStudio(input))),
     );
   }
 }

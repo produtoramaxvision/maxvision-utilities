@@ -327,6 +327,22 @@ export const HiggsfieldSpeakInput = z.object({
 });
 export type HiggsfieldSpeakInputT = z.infer<typeof HiggsfieldSpeakInput>;
 
+// HiggsfieldMarketingStudioInput — Marketing Studio: 9 UGC templates from product URL (P14 Task 12)
+// ---------------------------------------------------------------------------
+
+export const HiggsfieldMarketingStudioInput = z.object({
+  template: z.enum([
+    'ugc', 'unboxing', 'tv-spot', 'hyper-motion', 'product-review',
+    'asmr', 'lifestyle', 'testimonial', 'reel',
+  ]),
+  productUrl: z.string().url(),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive().max(15),
+  resolution: z.enum(['720p', '1080p']),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1']).optional(),
+});
+export type HiggsfieldMarketingStudioInputT = z.infer<typeof HiggsfieldMarketingStudioInput>;
+
 // ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
@@ -339,8 +355,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 34 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak = 34
+// MCP_TOOLS registry — 35 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio = 35
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -549,6 +565,14 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description: 'Higgsfield Speak / Speak 2.0 lip-sync — portrait + audio → talking head.',
     inputSchema: HiggsfieldSpeakInput,
     validationSchema: HiggsfieldSpeakInput,
+  },
+
+  // ---- Higgsfield Marketing Studio (1 — P14 Task 12 UGC templates from product URL) ----
+  {
+    name: 'media_higgsfield_marketing_studio',
+    description: 'Higgsfield Marketing Studio — 9 UGC templates from product URL (unboxing/TV spot/reel/etc).',
+    inputSchema: HiggsfieldMarketingStudioInput,
+    validationSchema: HiggsfieldMarketingStudioInput,
   },
 ] as const) as readonly MCPTool[];
 
