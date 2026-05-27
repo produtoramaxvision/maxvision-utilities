@@ -327,6 +327,18 @@ export const HiggsfieldSpeakInput = z.object({
 });
 export type HiggsfieldSpeakInputT = z.infer<typeof HiggsfieldSpeakInput>;
 
+// HiggsfieldRecastInput — Recast Studio: swap character in existing video (P14 Task 13)
+// ---------------------------------------------------------------------------
+
+export const HiggsfieldRecastInput = z.object({
+  sourceVideoPath: z.string().min(1),
+  targetCharacterImagePath: z.string().min(1),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive().max(30),
+  resolution: z.enum(['720p', '1080p']),
+});
+export type HiggsfieldRecastInputT = z.infer<typeof HiggsfieldRecastInput>;
+
 // HiggsfieldMarketingStudioInput — Marketing Studio: 9 UGC templates from product URL (P14 Task 12)
 // ---------------------------------------------------------------------------
 
@@ -355,8 +367,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 35 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio = 35
+// MCP_TOOLS registry — 36 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio + 1 higgsfield-recast = 36
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -573,6 +585,14 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description: 'Higgsfield Marketing Studio — 9 UGC templates from product URL (unboxing/TV spot/reel/etc).',
     inputSchema: HiggsfieldMarketingStudioInput,
     validationSchema: HiggsfieldMarketingStudioInput,
+  },
+
+  // ---- Higgsfield Recast (1 — P14 Task 13 character swap in existing video) ----
+  {
+    name: 'media_higgsfield_recast',
+    description: 'Higgsfield Recast Studio — swap character in existing video (Instadump / Character Swap).',
+    inputSchema: HiggsfieldRecastInput,
+    validationSchema: HiggsfieldRecastInput,
   },
 ] as const) as readonly MCPTool[];
 

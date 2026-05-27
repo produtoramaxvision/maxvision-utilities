@@ -86,6 +86,7 @@ import { HiggsfieldDopInput, type HiggsfieldDopInputT } from './schemas.js';
 import { HiggsfieldCinemaStudioInput, type HiggsfieldCinemaStudioInputT } from './schemas.js';
 import { HiggsfieldSpeakInput, type HiggsfieldSpeakInputT } from './schemas.js';
 import { HiggsfieldMarketingStudioInput, type HiggsfieldMarketingStudioInputT } from './schemas.js';
+import { HiggsfieldRecastInput, type HiggsfieldRecastInputT } from './schemas.js';
 import { HiggsfieldProvider } from '../video/providers/higgsfield.js';
 
 // ---------------------------------------------------------------------------
@@ -320,6 +321,39 @@ export async function handleHiggsfieldMarketingStudio(rawInput: unknown): Promis
       providerKind: 'higgsfield' as const,
       marketingStudioTemplate: input.template,
       marketingStudioProductUrl: input.productUrl,
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    provider: handle.provider,
+    jobId: handle.jobId,
+    providerNativeId: handle.providerNativeId,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldRecast — Recast Studio: swap character in existing video
+// ---------------------------------------------------------------------------
+
+export async function handleHiggsfieldRecast(rawInput: unknown): Promise<{
+  provider: string;
+  jobId: string;
+  providerNativeId?: string;
+  estimatedCostUSD: number;
+}> {
+  const input: HiggsfieldRecastInputT = HiggsfieldRecastInput.parse(rawInput);
+  const provider = higgsfieldProvider();
+  const req = {
+    modelId: 'higgsfield-recast',
+    mode: 'targeted-edit' as const,
+    prompt: input.prompt,
+    durationSec: input.durationSec,
+    resolution: input.resolution,
+    firstFrameImagePath: input.sourceVideoPath, // platform reads first_frame_url as source ref
+    extras: {
+      providerKind: 'higgsfield' as const,
+      recastTargetCharacterPath: input.targetCharacterImagePath,
     },
   };
   const handle = await provider.generate(req);
@@ -1369,6 +1403,17 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Higgsfield Marketing Studio', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldMarketingStudio(input))),
+    );
+  }
+
+  // ---- Higgsfield Recast (1 — P14 Task 13 character swap in existing video) ----
+
+  {
+    const t = getTool('media_higgsfield_recast');
+    reg(
+      t.name,
+      { title: 'Higgsfield Recast', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldRecast(input))),
     );
   }
 }
