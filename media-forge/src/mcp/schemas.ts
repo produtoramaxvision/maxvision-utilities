@@ -548,6 +548,17 @@ export const KlingVideoExtendInput = z.object({
 export type KlingVideoExtendInputT = z.infer<typeof KlingVideoExtendInput>;
 
 // ---------------------------------------------------------------------------
+// KlingPollInput / KlingDownloadInput — manual completion path
+// FIX (Codex P1 round 6 PR#11): default MCP Kling tools suppress callback_url
+// (HMAC mismatch). Without these, jobs stay 'pending' forever once submitted.
+// ---------------------------------------------------------------------------
+export const KlingPollInput = z.object({ jobId: z.string().min(1) });
+export type KlingPollInputT = z.infer<typeof KlingPollInput>;
+
+export const KlingDownloadInput = z.object({ jobIdOrUrl: z.string().min(1) });
+export type KlingDownloadInputT = z.infer<typeof KlingDownloadInput>;
+
+// ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
 export interface MCPTool {
@@ -559,8 +570,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 45 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio + 1 higgsfield-recast + 1 higgsfield-virality-predictor + 1 kling-motion-brush + 3 kling-element-create/list/delete + 1 kling-elements + 1 kling-lip-sync + 1 kling-omni-multishot + 1 kling-video-extend = 45
+// MCP_TOOLS registry — 47 tools total (was 45; +2 from Codex P1 round 6 PR#11)
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 7 higgsfield + 11 kling = 47
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -858,6 +869,20 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description:
       'Kling V3 Pro video extension - adds ~4.5s of continuation per hop to a source video. Chain up to 4 hops (~18s total extension). Returns first hop jobId + hopsRemaining; re-invoke after webhook fires to chain.',
     inputSchema: KlingVideoExtendInput,
+  },
+
+  // ---- Kling lifecycle tools (2 — Codex P1 round 6 PR#11: manual completion path when callbacks suppressed) ----
+  {
+    name: 'media_kling_poll',
+    description:
+      'Poll a Kling job by internal jobId. Hydrates native_task_id + endpoint kind from cost-tracker DB, then calls the matching Kling REST poll endpoint. Use when callback URLs are suppressed (default MCP flow) and you need to drive a job to completion manually.',
+    inputSchema: KlingPollInput,
+  },
+  {
+    name: 'media_kling_download',
+    description:
+      'Download a Kling job asset by internal jobId or direct URL. When given a jobId, hydrates state from DB, polls to obtain a fresh URL, downloads the asset, and writes it under MEDIA_FORGE_OUTPUTS_DIR. Asset URLs are TTL-bounded; download immediately after the job reports completed.',
+    inputSchema: KlingDownloadInput,
   },
 ] as const) as readonly MCPTool[];
 

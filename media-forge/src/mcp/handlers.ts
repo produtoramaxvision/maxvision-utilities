@@ -4,6 +4,7 @@
 // NEVER throw from a handler — always return {isError: true} with message.
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { MediaForgeClient } from '../core/client.js';
 import type { MediaForgeConfig } from '../core/config.js';
@@ -107,6 +108,10 @@ import {
   type KlingOmniMultiShotInputT,
   KlingVideoExtendInput,
   type KlingVideoExtendInputT,
+  KlingPollInput,
+  type KlingPollInputT,
+  KlingDownloadInput,
+  type KlingDownloadInputT,
 } from './schemas.js';
 import {
   createKlingElement,
@@ -980,6 +985,80 @@ export async function handleKlingVideoExtend(
       resolution: '1080p',
     }),
     hopsRemaining: input.hops - 1,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleKlingPoll / handleKlingDownload — manual completion path
+// FIX (Codex P1 round 6, PR#11): default MCP Kling tools suppress callback_url
+// (HMAC mismatch) and the throwaway provider's per-process jobTypeMap dies
+// the moment the handler returns. These tools rehydrate the provider state
+// from the cost-tracker DB so an operator can drive a submitted job to
+// completion without depending on a registered webhook.
+// ---------------------------------------------------------------------------
+
+export async function handleKlingPoll(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{
+  jobId: string;
+  state: string;
+  assetUrls?: readonly string[];
+  errorMessage?: string;
+  progress?: number;
+}> {
+  const input: KlingPollInputT = KlingPollInput.parse(rawInput);
+  const provider = new KlingProvider({
+    dbPath: defaultDbPath(),
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+  });
+  provider.hydrateFromDb(input.jobId);
+  const status = await provider.pollStatus(input.jobId);
+  return {
+    jobId: status.jobId,
+    state: status.state,
+    ...(status.assetUrls ? { assetUrls: status.assetUrls } : {}),
+    ...(status.errorMessage ? { errorMessage: status.errorMessage } : {}),
+    ...(typeof status.progress === 'number' ? { progress: status.progress } : {}),
+  };
+}
+
+export async function handleKlingDownload(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{
+  jobIdOrUrl: string;
+  outputPath: string;
+  sizeBytes: number;
+  contentType: string;
+}> {
+  const input: KlingDownloadInputT = KlingDownloadInput.parse(rawInput);
+  const provider = new KlingProvider({
+    dbPath: defaultDbPath(),
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+  });
+  // Hydrate only when caller passed a jobId (not a raw URL).
+  const looksLikeUrl =
+    input.jobIdOrUrl.startsWith('http://') || input.jobIdOrUrl.startsWith('https://');
+  if (!looksLikeUrl) provider.hydrateFromDb(input.jobIdOrUrl);
+  const asset = await provider.download(input.jobIdOrUrl);
+
+  const projectDir =
+    process.env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
+  const outputsDir = process.env['MEDIA_FORGE_OUTPUTS_DIR'] ?? join(projectDir, 'outputs');
+  mkdirSync(outputsDir, { recursive: true });
+  const baseName = looksLikeUrl
+    ? `kling-download-${Date.now()}.mp4`
+    : `${input.jobIdOrUrl}.mp4`;
+  const outputPath = join(outputsDir, baseName);
+  writeFileSync(outputPath, asset.buffer);
+  return {
+    jobIdOrUrl: input.jobIdOrUrl,
+    outputPath,
+    sizeBytes: asset.metadata.sizeBytes ?? asset.buffer.length,
+    contentType: asset.metadata.contentType,
   };
 }
 
@@ -1987,6 +2066,26 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Kling Video Extend', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingVideoExtend(input))),
+    );
+  }
+
+  // ---- Kling lifecycle (2 — Codex P1 round 6 PR#11: manual completion path) ----
+
+  {
+    const t = getTool('media_kling_poll');
+    reg(
+      t.name,
+      { title: 'Kling Poll', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingPoll(input))),
+    );
+  }
+
+  {
+    const t = getTool('media_kling_download');
+    reg(
+      t.name,
+      { title: 'Kling Download', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingDownload(input))),
     );
   }
 }

@@ -419,4 +419,53 @@ describe('KlingProvider', () => {
     expect(status.state).toBe('failed');
     expect(status.errorMessage).toMatch(/nsfw/i);
   });
+
+  // -------------------------------------------------------------------------
+  // hydrateFromDb — Codex P1 round 6, PR#11
+  // Default MCP Kling flow suppresses callback URLs (HMAC mismatch). The
+  // throwaway KlingProvider built by handleKlingPoll/Download has no
+  // in-memory jobTypeMap entry for jobs submitted by a prior process.
+  // hydrateFromDb fills the gap from cost-tracker DB so pollStatus / download
+  // can drive a job to completion manually.
+  // -------------------------------------------------------------------------
+  it('hydrateFromDb seeds jobTypeMap from native_task_id + mode then pollStatus works', async () => {
+    const { openDb, runMigrations } = await import('../../../src/core/db.js');
+    const { recordJob } = await import('../../../src/core/cost-tracker.js');
+    const db = openDb(dbPath);
+    runMigrations(db);
+    recordJob({
+      dbPath,
+      jobId: 'internal-rehydrated',
+      provider: 'kling',
+      model: 'kling-v3-standard',
+      mode: 'i2v', // ensures derived endpointKind = image2video, not text2video
+      paramsHash: 'h-rehyd',
+      estUsd: 0.3,
+      nativeTaskId: 'kling-native-rehyd',
+    });
+
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 0,
+        data: {
+          task_id: 'kling-native-rehyd',
+          task_status: 'succeed',
+          task_result: { videos: [{ id: 'v1', url: 'https://cdn/rehyd.mp4', duration: '5' }] },
+        },
+      }),
+    });
+    const p = new KlingProvider({ dbPath, env, fetchImpl });
+    p.hydrateFromDb('internal-rehydrated');
+    const status = await p.pollStatus('internal-rehydrated');
+    const [url] = fetchImpl.mock.calls[0];
+    expect(url).toBe('https://api-singapore.klingai.com/v1/videos/image2video/kling-native-rehyd');
+    expect(status.state).toBe('completed');
+  });
+
+  it('hydrateFromDb throws when jobId missing or native_task_id unset', async () => {
+    const p = new KlingProvider({ dbPath, env, fetchImpl: vi.fn() });
+    expect(() => p.hydrateFromDb('does-not-exist')).toThrow(/missing from video_jobs|native_task_id/i);
+  });
 });

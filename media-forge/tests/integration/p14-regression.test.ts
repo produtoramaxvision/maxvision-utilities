@@ -65,8 +65,8 @@ describe('P14 regression — Veo still wired AND Higgsfield is live', () => {
     expect((list as { records: unknown[] }).records.length).toBe(1);
   });
 
-  it('MCP_TOOLS count is 45 (P13 30 + P14 7 + P15 Task 6 1 + P15 Tasks 6.5-6.7 3 + P15 Task 7 1 + P15 Task 8 1 + P15 Task 9 1 + P15 Task 10 1)', () => {
-    expect(MCP_TOOLS.length).toBe(45);
+  it('MCP_TOOLS count is 47 (P13 30 + P14 7 + P15 Task 6 1 + P15 Tasks 6.5-6.7 3 + P15 Task 7 1 + P15 Task 8 1 + P15 Task 9 1 + P15 Task 10 1 + Codex round 6 PR#11 lifecycle 2)', () => {
+    expect(MCP_TOOLS.length).toBe(47);
   });
 
   it('lip-sync route picks Kling in P15 (explicit-tier override; Higgsfield still reachable via preferProvider)', async () => {

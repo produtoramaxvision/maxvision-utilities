@@ -43,8 +43,10 @@ export function createKlingWebhookHandler(opts: CreateKlingWebhookHandlerOpts): 
     const db = openDb(opts.dbPath);
     runMigrations(db);
     const row = db
-      .prepare('SELECT model, native_task_id, mode FROM video_jobs WHERE id = ?')
-      .get(internalJobId) as { model?: string; native_task_id?: string; mode?: string } | undefined;
+      .prepare('SELECT model, native_task_id, mode, est_usd FROM video_jobs WHERE id = ?')
+      .get(internalJobId) as
+      | { model?: string; native_task_id?: string; mode?: string; est_usd?: number }
+      | undefined;
     if (!row?.model) {
       throw new Error(
         `kling-webhook-handler: no cost-tracker record for ctx.jobId='${internalJobId}' (orphan webhook? ` +
@@ -122,11 +124,20 @@ export function createKlingWebhookHandler(opts: CreateKlingWebhookHandlerOpts): 
     );
     const totalDurationSec = results.reduce((sum, r) => sum + r.dur, 0);
 
+    // FIX (Codex P2 round 6, PR#11): Kling may omit per-video `duration` on
+    // success payloads (the payload type already marks it optional). Without
+    // this fallback, totalDurationSec=0 skips recordActualCost() and the row
+    // remains 'pending' forever despite assets being downloaded. Use the
+    // recorded estimate as actual when duration is missing, falling back to
+    // zero so the terminal status flips no matter what.
     const spec = VIDEO_MODELS[row.model];
+    let actualUsd = 0;
     if (spec && spec.pricing.unit === 'usd-per-second' && totalDurationSec > 0) {
-      const actualUsd = spec.pricing.rate * totalDurationSec;
-      recordActualCost({ dbPath: opts.dbPath, jobId: internalJobId, actualUsd });
+      actualUsd = spec.pricing.rate * totalDurationSec;
+    } else if (typeof row.est_usd === 'number' && Number.isFinite(row.est_usd)) {
+      actualUsd = row.est_usd;
     }
+    recordActualCost({ dbPath: opts.dbPath, jobId: internalJobId, actualUsd });
   };
 }
 

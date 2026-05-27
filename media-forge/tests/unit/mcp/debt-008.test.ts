@@ -30,7 +30,7 @@ function validateInput<T>(tool: MCPTool, input: unknown): T {
 
 describe('DEBT-008: tools/list inputSchema shape', () => {
   it('every tool exposes a ZodObject (not ZodEffects) as inputSchema', () => {
-    expect(MCP_TOOLS.length).toBe(45);
+    expect(MCP_TOOLS.length).toBe(47);
     for (const tool of MCP_TOOLS) {
       const isZodObject = tool.inputSchema instanceof ZodObject;
       expect(

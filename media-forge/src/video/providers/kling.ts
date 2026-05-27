@@ -10,6 +10,7 @@ import type {
 } from './base.js';
 import { VIDEO_MODELS, type Provider, type VideoModelSpec } from '../../core/models.js';
 import { recordJob, recordActualCost } from '../../core/cost-tracker.js';
+import { openDb, runMigrations } from '../../core/db.js';
 import { getKlingAuthHeader, type KlingEnvSubset } from './auth/kling-jwt.js';
 
 const KLING_API_BASE = 'https://api-singapore.klingai.com';
@@ -109,6 +110,37 @@ export class KlingProvider implements VideoProvider {
   /** Test hook — seeds the jobType map without going through generate(). */
   _rememberJobType(jobId: string, endpointKind: KlingEndpointKind, nativeTaskId: string): void {
     this.jobTypeMap.set(jobId, { endpointKind, nativeTaskId });
+  }
+
+  /**
+   * Rehydrate jobTypeMap from the cost-tracker DB so a freshly-constructed
+   * KlingProvider (e.g. throwaway instance built by an MCP poll/download
+   * handler) can poll a job that was originally submitted by a different
+   * process or a now-dead provider instance.
+   *
+   * FIX (Codex P1 round 6, PR#11): KlingProvider.jobTypeMap is per-process.
+   * Default MCP Kling tools build a throwaway provider, submit, and exit —
+   * leaving callers with no in-memory record. With callback URLs suppressed
+   * by default (HMAC mismatch), jobs were orphaned: no webhook arrives, no
+   * polling path exists. Hydrating from `video_jobs.native_task_id` + `mode`
+   * gives operators a reliable manual completion path via the new
+   * `media_kling_poll` and `media_kling_download` MCP tools.
+   */
+  hydrateFromDb(jobId: string): void {
+    if (this.jobTypeMap.has(jobId)) return;
+    const db = openDb(this.dbPath);
+    runMigrations(db);
+    const row = db
+      .prepare('SELECT native_task_id, mode FROM video_jobs WHERE id = ?')
+      .get(jobId) as { native_task_id?: string; mode?: string } | undefined;
+    if (!row?.native_task_id) {
+      throw new Error(
+        `Kling hydrateFromDb: jobId '${jobId}' missing from video_jobs (or native_task_id unset). ` +
+          `Cannot poll: either jobId is wrong or the submit step never persisted native_task_id.`,
+      );
+    }
+    const endpointKind = pickEndpoint(row.mode ?? 't2v', undefined);
+    this.jobTypeMap.set(jobId, { endpointKind, nativeTaskId: row.native_task_id });
   }
 
   estimateCostUSD(req: VideoGenerationRequest): number {

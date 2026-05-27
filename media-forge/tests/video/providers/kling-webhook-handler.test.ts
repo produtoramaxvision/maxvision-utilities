@@ -230,4 +230,39 @@ describe('createKlingWebhookHandler', () => {
     expect(existsSync(join(outputsDir, 'internal-ttl-1.mp4'))).toBe(true);
     expect(readFileSync(join(outputsDir, 'internal-ttl-1.mp4')).toString()).toBe('FRESH');
   });
+
+  it('falls back to estimated cost when payload omits per-video duration (Codex P2 round 6)', async () => {
+    // Regression: Kling success payloads sometimes omit `duration`. Without this fallback,
+    // totalDurationSec=0 skipped recordActualCost() and the row stayed 'pending' forever
+    // despite assets being downloaded. The fallback uses the previously-recorded est_usd
+    // (or 0) so the terminal status always flips.
+    recordJob({
+      dbPath,
+      jobId: 'internal-no-duration',
+      provider: 'kling',
+      model: 'kling-v3-standard',
+      mode: 't2v',
+      paramsHash: 'h-no-dur',
+      estUsd: 0.42,
+    });
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Map([['content-type', 'video/mp4']]),
+      arrayBuffer: async () => new TextEncoder().encode('NO_DUR').buffer,
+    });
+    const handler = createKlingWebhookHandler({ dbPath, outputsDir, fetchImpl: fetchImpl as never });
+    await handler({
+      provider: 'kling',
+      jobId: 'internal-no-duration',
+      payload: {
+        task_id: 'kling-native-no-dur',
+        task_status: 'succeed',
+        task_result: { videos: [{ id: 'v1', url: 'https://cdn/no-dur.mp4' }] }, // <-- no duration
+      },
+      headers: {},
+    });
+    const report = queryReport({ dbPath, periodDays: 30 });
+    expect(report.byProvider.kling?.actualUsd).toBeCloseTo(0.42, 4);
+  });
 });
