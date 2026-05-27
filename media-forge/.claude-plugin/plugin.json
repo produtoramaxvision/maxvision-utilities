@@ -1,6 +1,6 @@
 {
   "name": "media-forge",
-  "version": "0.1.0",
+  "version": "0.2.0-p13",
   "description": "Production-grade Claude Code plugin for image and video generation using top-tier Google AI models. 10 domain-specialized subagents with smart-routing quality review.",
   "author": {
     "name": "Produtora MaxVision",

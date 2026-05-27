@@ -6,6 +6,48 @@ All notable changes to `media-forge` are documented here. The format follows
 
 ## [Unreleased]
 
+## 0.2.0-p13 — 2026-05-26
+
+### P13 — Provider Abstraction Foundation
+
+Refactors media-forge to support multiple video providers behind a unified `VideoProvider` interface. Veo 3.1 remains the only wired provider in this release; P14-P16 add Higgsfield, Kling 3.0, Seedance 2.0. P13 also pre-stages P14 deps (Higgsfield SDK + auth helper, webhook router scaffold).
+
+**Added**
+- `Provider` type + `VIDEO_MODELS` registry + `PRICING_OVERRIDES` runtime hook in `src/core/models.ts`
+- `VideoProvider` interface + `DownloadedAsset` return type + typed `ProviderExtras` discriminated union in `src/video/providers/base.ts`
+- `GoogleVeoProvider` adapter in `src/video/providers/google-veo.ts` (local-path download passthrough, cost-tracker integration)
+- SQLite cost tracker via Node built-in `node:sqlite` — `src/core/db.ts`, `src/core/cost-tracker.ts`, `migrations/sqlite/001-video-jobs.sql`
+- `normalizeCostUSD` cross-unit cost helper + `loadPricingOverridesFromEnv` in `src/core/pricing.ts`
+- Webhook router scaffold in `src/video/providers/webhook-router.ts` — HMAC + replay protection + origin guard + body cap + rate limit; bind 127.0.0.1 default
+- Higgsfield auth scaffold in `src/video/providers/auth/higgsfield-headers.ts` — `hf-api-key` + `hf-secret` headers (verified against `@higgsfield/client@0.2.1` source)
+- CLI: `media-forge cost report --by-provider --period 30d` (extends existing `cost estimate` + `cost summary`)
+- MCP tools: `media_video_route`, `media_video_cost_estimate`, `media_video_cost_report`, `media_video_webhook_status`
+- Subagent: `agents/video-router.md` (new) — routes by capability + cost + IP-risk
+
+**Changed**
+- Subagent renamed: `agents/video-editor.md` → `agents/veo-director.md` (git mv preserves history)
+- `commands/setup.md` wizard now asks for `MEDIA_FORGE_DEFAULT_PROVIDER`, webhook secret, Higgsfield credentials
+- Node engines: `>=20.0.0` → `>=22.5.0` (required for stable `node:sqlite` built-in)
+
+**Dependencies**
+- Added: `@higgsfield/client@0.2.1` (SDK install — no API calls yet; P14 will exercise)
+- NOT added (plan deviation): `better-sqlite3` — replaced with built-in `node:sqlite` to avoid node-gyp build failures on Windows + Node 25
+
+**Backward compatibility**
+- All legacy exports in `src/core/models.ts` preserved (no consumer breakage)
+- Existing `cost.jsonl` log and `cost summary` CLI continue to work alongside new SQLite-backed `cost report`
+- Existing Veo MCP tools (`media_generate_video_*`) untouched
+
+**Testing**
+- 927/927 tests passing (76+ files, mix of unit + integration + MCP + CLI)
+- P13 regression test confirms Veo flow works through new abstraction
+- MCP server registration test prevents silent tool-not-registered fails (uses `_registeredTools` introspection with SDK version pin)
+
+**Known follow-ups (documented in Execution Amendments at plan tail)**
+- `skills/setup/SKILL.md` not synced with `commands/setup.md` — P14 chore
+- `download()` API still passes path-as-jobId — split to typed `downloadByJobId` + `readLocalAsset` in P14 webhook router work
+- Dual cost ledger (cost.jsonl + cost.db) — unify in P17 quality-maxout
+
 ## [0.1.0] — 2026-05-22
 
 First production release. Top-tier Google AI image+video generation as a Claude Code plugin, MCP server, and standalone CLI.
