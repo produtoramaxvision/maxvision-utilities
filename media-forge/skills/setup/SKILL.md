@@ -20,6 +20,10 @@ First-time onboarding wizard. Detects environment, prompts for missing API keys,
 6. If doctor passes: suggest first example: `/media-forge:create a cinematic sunset over mountains`.
 7. If doctor fails: show structured error and troubleshooting steps.
 
+## Higgsfield credentials + plan picker (P14)
+
+Refer to `commands/setup.md` for the Higgsfield credentials + plan picker step (P14). That document owns the authoritative wizard prose (API key/secret, usdPerCredit plan selection, webhook URL, tunnel guidance).
+
 ## When to use
 
 Run once after installing the media-forge plugin, or any time configuration is lost or needs reset.
