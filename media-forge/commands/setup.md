@@ -89,6 +89,28 @@ Onboarding wizard. Run this once after installing media-forge to configure your 
 5. On success, suggest the first generation command as an example.
 6. On failure, display the specific error and a troubleshooting tip.
 
+## Step N+2: Kling credentials (P15+)
+
+Ask the user:
+
+> "Do you have a Kling account? If yes, paste your Access Key and Secret Key from
+> https://klingai.com -> Console -> API Keys. These unlock the Kling provider
+> (multi-shot Omni, 4K Master, motion brush, elements, lip-sync). Leave blank to
+> skip; Kling MCP tools will throw KlingAuthConfigError until set."
+
+Write to project `.env`:
+- `KLING_ACCESS_KEY=<access-key>`
+- `KLING_SECRET_KEY=<secret-key>`
+
+Optional:
+- `KLING_WATERMARK_DEFAULT=false` (paid keys default — recommended `false`)
+- `KLING_JWT_CACHE_TTL_SEC=1500` (default 25min — adjust between 60 and 1800)
+- `MEDIA_FORGE_WEBHOOK_PUBLIC_URL=<https://your.public.url>` (required for
+  webhook callbacks; without it, KlingProvider falls back to polling)
+
+NEVER echo the secret value back. Show only the last 4 chars in confirmation
+output (e.g. `****ab12`) per project security policy.
+
 ## Note: Higgsfield official MCP connector (optional, user-side)
 
 Higgsfield publishes an official OAuth-based MCP connector at `https://mcp.higgsfield.ai/mcp`. This is a **separate product** from the media-forge plugin server and its Higgsfield provider integration:
