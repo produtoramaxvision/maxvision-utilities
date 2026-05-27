@@ -316,7 +316,7 @@ export type HiggsfieldCinemaStudioInputT = z.infer<typeof HiggsfieldCinemaStudio
 // HiggsfieldSpeakInput — Speak / Speak 2.0 lip-sync: portrait + audio → talking head (P14 Task 11)
 // ---------------------------------------------------------------------------
 
-export const HiggsfieldSpeakInput = z.object({
+const _HiggsfieldSpeakBase = z.object({
   modelId: z.enum(['higgsfield-speak', 'higgsfield-speak2']),
   portraitImagePath: z.string().min(1),
   audioPath: z.string().min(1),
@@ -325,6 +325,21 @@ export const HiggsfieldSpeakInput = z.object({
   resolution: z.enum(['720p', '1080p']),
   aspectRatio: z.enum(['16:9', '9:16', '1:1', '4:3', '3:4']).optional(),
 });
+// FIX (Codex P2, PR#10): per-model duration cap. higgsfield-speak (Speak 1.0)
+// caps at 30s; only higgsfield-speak2 supports up to 60s. Without this refine
+// direct handler calls bypass the route-level filter and would submit oversized
+// jobs that the upstream provider rejects with a confusing error.
+export const HiggsfieldSpeakInput = _HiggsfieldSpeakBase.refine(
+  (data) => {
+    if (data.modelId === 'higgsfield-speak' && data.durationSec > 30) return false;
+    return true;
+  },
+  {
+    message:
+      'higgsfield-speak (Speak 1.0) caps at 30s. Use higgsfield-speak2 for durations up to 60s.',
+    path: ['durationSec'],
+  },
+);
 export type HiggsfieldSpeakInputT = z.infer<typeof HiggsfieldSpeakInput>;
 
 // HiggsfieldRecastInput — Recast Studio: swap character in existing video (P14 Task 13)
@@ -584,7 +599,9 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   {
     name: 'media_higgsfield_speak',
     description: 'Higgsfield Speak / Speak 2.0 lip-sync — portrait + audio → talking head.',
-    inputSchema: HiggsfieldSpeakInput,
+    // debt-008 split: plain ZodObject for MCP inputSchema introspection;
+    // refined schema (with per-model duration cap) for runtime validation.
+    inputSchema: _HiggsfieldSpeakBase,
     validationSchema: HiggsfieldSpeakInput,
   },
 
