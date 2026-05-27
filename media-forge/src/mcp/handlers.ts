@@ -103,6 +103,8 @@ import {
   type KlingElementsInputT,
   KlingLipSyncInput,
   type KlingLipSyncInputT,
+  KlingOmniMultiShotInput,
+  type KlingOmniMultiShotInputT,
 } from './schemas.js';
 import {
   createKlingElement,
@@ -852,6 +854,49 @@ export async function handleKlingLipSync(
         emotion: input.emotion,
       },
       motionReferenceVideoUrl: input.videoUrl,
+      watermarkEnabled: input.watermarkEnabled,
+      klingMode: 'pro' as const,
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    jobId: handle.jobId,
+    provider: handle.provider,
+    modelId: handle.model,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+// handleKlingOmniMultiShot — Kling V3 Omni multi-shot orchestration (P15 Task 9)
+// Single API call generates up to 6 contiguous cuts with per-shot prompt + duration.
+// Per-call KlingProvider construction ensures tests with tmp envs get isolated instances.
+// ---------------------------------------------------------------------------
+
+export async function handleKlingOmniMultiShot(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number }> {
+  const input: KlingOmniMultiShotInputT = KlingOmniMultiShotInput.parse(rawInput);
+  const totalDuration = input.shots.reduce((sum, s) => sum + s.duration, 0);
+  const provider = new KlingProvider({
+    dbPath: defaultDbPath(),
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+  });
+  const req = {
+    modelId: 'kling-v3-omni' as const,
+    mode: 'multi-shot' as const,
+    prompt: input.shots.map((s) => s.prompt).join(' | '),
+    durationSec: totalDuration,
+    resolution: '1080p' as const,
+    aspectRatio: input.aspectRatio,
+    extras: {
+      providerKind: 'kling' as const,
+      omniMultiShot: {
+        multiPrompt: input.shots,
+        imageList: input.imageRefs,
+        videoList: input.videoRefs,
+      },
       watermarkEnabled: input.watermarkEnabled,
       klingMode: 'pro' as const,
     },
@@ -1847,6 +1892,17 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Kling Lip-Sync', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingLipSync(input))),
+    );
+  }
+
+  // ---- Kling Omni Multi-Shot (1 — P15 Task 9: single-API multi-cut orchestration) ----
+
+  {
+    const t = getTool('media_kling_omni_multishot');
+    reg(
+      t.name,
+      { title: 'Kling Omni Multi-Shot', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingOmniMultiShot(input))),
     );
   }
 }

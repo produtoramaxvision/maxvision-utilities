@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ZodTypeAny } from 'zod';
+import { VIDEO_MODELS } from '../core/models.js';
 
 // Image schemas (P3.1)
 export {
@@ -474,6 +475,67 @@ export const KlingElementsInput = z.object({
 });
 export type KlingElementsInputT = z.infer<typeof KlingElementsInput>;
 
+// KlingOmniMultiShotInput — Kling V3 Omni multi-shot orchestration (P15 Task 9)
+// _KlingOmniMultiShotBase — ZodObject base shape for tools/list (DEBT-008 compliant)
+// KlingOmniMultiShotInput — ZodEffects with two chained refines for runtime validation
+//
+// Single source of truth for caps: VIDEO_MODELS['kling-v3-omni'].limits
+// The non-null assertion is safe: kling-v3-omni is a known static entry in the VIDEO_MODELS
+// registry defined in src/core/models.ts with an explicit limits block.
+const _omniSpec = VIDEO_MODELS['kling-v3-omni']!;
+const OMNI_LIMITS = _omniSpec.limits ?? {
+  maxShots: 6,
+  maxDurationSec: 30,
+  minDurationPerShotSec: 1,
+  maxDurationPerShotSec: 10,
+};
+
+export const _KlingOmniMultiShotBase = z.object({
+  shots: z
+    .array(
+      z.object({
+        // 1-based per Kling Omni API spec. If Kling actually uses 0-based,
+        // update min to 0 and the contiguous refine accordingly.
+        index: z.number().int().min(1).max(OMNI_LIMITS.maxShots ?? 6),
+        prompt: z.string().min(1),
+        duration: z
+          .number()
+          .gt(0, 'duration must be > 0')
+          .max(
+            OMNI_LIMITS.maxDurationPerShotSec ?? 10,
+            `max ${OMNI_LIMITS.maxDurationPerShotSec ?? 10}s per shot`,
+          ),
+      }),
+    )
+    .min(1, 'shots[] requires at least 1 entry')
+    .max(OMNI_LIMITS.maxShots ?? 6, `max ${OMNI_LIMITS.maxShots ?? 6} shots per Kling Omni spec`),
+  imageRefs: z.array(z.object({ imageUrl: z.string().url() })).min(1),
+  videoRefs: z.array(z.object({ videoUrl: z.string().url() })).optional(),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1']).default('16:9'),
+  watermarkEnabled: z.boolean().default(false),
+});
+
+export const KlingOmniMultiShotInput = _KlingOmniMultiShotBase
+  .refine(
+    (v) => {
+      // Indices must be contiguous 1..N with no duplicates
+      const indices = v.shots.map((s) => s.index).sort((a, b) => a - b);
+      for (let i = 0; i < indices.length; i++) {
+        if (indices[i] !== i + 1) return false;
+      }
+      return true;
+    },
+    { message: 'shot indices must be contiguous 1..N starting at 1 with no duplicates' },
+  )
+  .refine(
+    (v) => v.shots.reduce((sum, s) => sum + s.duration, 0) <= (OMNI_LIMITS.maxDurationSec ?? 30),
+    {
+      message: `Omni multi-shot total duration must <= ${OMNI_LIMITS.maxDurationSec ?? 30}s (sum of all shot durations)`,
+    },
+  );
+
+export type KlingOmniMultiShotInputT = z.infer<typeof KlingOmniMultiShotInput>;
+
 // ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
@@ -486,8 +548,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 43 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio + 1 higgsfield-recast + 1 higgsfield-virality-predictor + 1 kling-motion-brush + 3 kling-element-create/list/delete + 1 kling-elements + 1 kling-lip-sync = 43
+// MCP_TOOLS registry — 44 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio + 1 higgsfield-recast + 1 higgsfield-virality-predictor + 1 kling-motion-brush + 3 kling-element-create/list/delete + 1 kling-elements + 1 kling-lip-sync + 1 kling-omni-multishot = 44
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -768,6 +830,15 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
       'Kling V3 Pro Lip-Sync - drive a source video clip with either generated speech (text + emotion picker: happy/angry/sad/neutral) or supplied audio file URL. Exactly one of text or audioUrl required.',
     inputSchema: _KlingLipSyncBase,
     validationSchema: KlingLipSyncInput,
+  },
+
+  // ---- Kling Omni Multi-Shot (1 — P15 Task 9: single-API multi-cut orchestration) ----
+  {
+    name: 'media_kling_omni_multishot',
+    description:
+      'Kling V3 Omni multi-shot orchestration - single API call generates up to 6 contiguous cuts with per-shot prompt + duration, sharing visual identity via imageRefs. Use for music-video / narrative sequences. Total duration = sum of shot durations (max 30s).',
+    inputSchema: _KlingOmniMultiShotBase,
+    validationSchema: KlingOmniMultiShotInput,
   },
 ] as const) as readonly MCPTool[];
 
