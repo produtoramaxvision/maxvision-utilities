@@ -313,6 +313,21 @@ export const HiggsfieldCinemaStudioInput = z.object({
 export type HiggsfieldCinemaStudioInputT = z.infer<typeof HiggsfieldCinemaStudioInput>;
 
 // ---------------------------------------------------------------------------
+// HiggsfieldSpeakInput — Speak / Speak 2.0 lip-sync: portrait + audio → talking head (P14 Task 11)
+// ---------------------------------------------------------------------------
+
+export const HiggsfieldSpeakInput = z.object({
+  modelId: z.enum(['higgsfield-speak', 'higgsfield-speak2']),
+  portraitImagePath: z.string().min(1),
+  audioPath: z.string().min(1),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive().max(60),
+  resolution: z.enum(['720p', '1080p']),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1', '4:3', '3:4']).optional(),
+});
+export type HiggsfieldSpeakInputT = z.infer<typeof HiggsfieldSpeakInput>;
+
+// ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
 export interface MCPTool {
@@ -324,8 +339,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 33 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio = 33
+// MCP_TOOLS registry — 34 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak = 34
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -526,6 +541,14 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description: 'Higgsfield Cinema Studio 3.5 — 1,296 virtual lenses, focal/aperture/sensor/grading.',
     inputSchema: HiggsfieldCinemaStudioInput,
     validationSchema: HiggsfieldCinemaStudioInput,
+  },
+
+  // ---- Higgsfield Speak (1 — P14 Task 11 lip-sync: portrait + audio → talking head) ----
+  {
+    name: 'media_higgsfield_speak',
+    description: 'Higgsfield Speak / Speak 2.0 lip-sync — portrait + audio → talking head.',
+    inputSchema: HiggsfieldSpeakInput,
+    validationSchema: HiggsfieldSpeakInput,
   },
 ] as const) as readonly MCPTool[];
 

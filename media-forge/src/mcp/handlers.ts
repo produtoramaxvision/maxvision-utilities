@@ -84,6 +84,7 @@ import {
 import { HiggsfieldSoulIdInput, type HiggsfieldSoulIdInputT } from './schemas.js';
 import { HiggsfieldDopInput, type HiggsfieldDopInputT } from './schemas.js';
 import { HiggsfieldCinemaStudioInput, type HiggsfieldCinemaStudioInputT } from './schemas.js';
+import { HiggsfieldSpeakInput, type HiggsfieldSpeakInputT } from './schemas.js';
 import { HiggsfieldProvider } from '../video/providers/higgsfield.js';
 
 // ---------------------------------------------------------------------------
@@ -220,6 +221,70 @@ export async function handleHiggsfieldCinemaStudio(rawInput: unknown): Promise<{
         colorGrading: input.colorGrading,
         lensId: input.lensId,
       },
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    provider: handle.provider,
+    jobId: handle.jobId,
+    providerNativeId: handle.providerNativeId,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldSpeak — Speak / Speak 2.0 lip-sync: portrait + audio → talking head
+// Task 1.5 audio mode wiring: MEDIA_FORGE_HF_SPEAK_AUDIO_MODE controls how the
+// audio reference is resolved before the generate request is submitted.
+//   'URL' (default / unset): audioReference = input.audioPath (pass-through)
+//   'SIGNED_UPLOAD': upload audio bytes to Higgsfield — NOT implemented (PRELIMINAR_URL
+//     per intel/2026-05-27-higgsfield-speak-audio-decision.md). Throws if set.
+// ---------------------------------------------------------------------------
+
+export async function handleHiggsfieldSpeak(rawInput: unknown): Promise<{
+  provider: string;
+  jobId: string;
+  providerNativeId?: string;
+  estimatedCostUSD: number;
+}> {
+  const input: HiggsfieldSpeakInputT = HiggsfieldSpeakInput.parse(rawInput);
+  const provider = higgsfieldProvider();
+
+  // Task 1.5 decision wiring: when SIGNED_UPLOAD was the empirical outcome, the local
+  // audio file must be uploaded to a Higgsfield-managed URL before submitting the generate
+  // request. When URL was the outcome, the local path is passed through (the platform
+  // expects a publicly fetchable HTTP URL — the caller is responsible for hosting it).
+  // The decision is read from MEDIA_FORGE_HF_SPEAK_AUDIO_MODE env var ('URL' | 'SIGNED_UPLOAD'),
+  // which `commands/setup.md` writes after the operator records the Task 1.5 outcome.
+  let audioReference = input.audioPath;
+  const mode = process.env['MEDIA_FORGE_HF_SPEAK_AUDIO_MODE'] ?? 'URL';
+  if (mode === 'SIGNED_UPLOAD') {
+    if (typeof (provider as unknown as { uploadAudio?: (b: Buffer) => Promise<string> }).uploadAudio !== 'function') {
+      throw new Error(
+        'MEDIA_FORGE_HF_SPEAK_AUDIO_MODE=SIGNED_UPLOAD but HiggsfieldProvider.uploadAudio() is not implemented. ' +
+          'Re-run Task 1.5 probe + update Task 6 per .maxvision/intel/2026-05-27-higgsfield-speak-audio-decision.md.',
+      );
+    }
+    const { readFileSync } = await import('node:fs');
+    const buf = readFileSync(input.audioPath);
+    audioReference = await (provider as unknown as { uploadAudio: (b: Buffer) => Promise<string> }).uploadAudio(buf);
+  } else if (mode !== 'URL') {
+    throw new Error(
+      `MEDIA_FORGE_HF_SPEAK_AUDIO_MODE='${mode}' invalid. Must be 'URL' or 'SIGNED_UPLOAD' (set by setup wizard after Task 1.5).`,
+    );
+  }
+
+  const req = {
+    modelId: input.modelId,
+    mode: 'lip-sync' as const,
+    prompt: input.prompt,
+    durationSec: input.durationSec,
+    resolution: input.resolution,
+    aspectRatio: input.aspectRatio,
+    firstFrameImagePath: input.portraitImagePath,
+    extras: {
+      providerKind: 'higgsfield' as const,
+      speakAudioPath: audioReference,
     },
   };
   const handle = await provider.generate(req);
@@ -1247,6 +1312,17 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Higgsfield Cinema Studio', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldCinemaStudio(input))),
+    );
+  }
+
+  // ---- Higgsfield Speak (1 — P14 Task 11 lip-sync: portrait + audio → talking head) ----
+
+  {
+    const t = getTool('media_higgsfield_speak');
+    reg(
+      t.name,
+      { title: 'Higgsfield Speak', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldSpeak(input))),
     );
   }
 }
