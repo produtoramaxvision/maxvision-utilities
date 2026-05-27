@@ -163,6 +163,51 @@ export function _resetHiggsfieldProviderForTests(): void {
 }
 
 // ---------------------------------------------------------------------------
+// handleHiggsfieldPoll / handleHiggsfieldDownload — async job lifecycle for the
+// 7 Higgsfield generation tools (Codex P2 round 5 PR#10).
+// ---------------------------------------------------------------------------
+
+export async function handleHiggsfieldPoll(rawInput: unknown): Promise<{
+  jobId: string;
+  state: string;
+  progress?: number;
+  assetUrls?: ReadonlyArray<string>;
+  errorMessage?: string;
+}> {
+  const input = rawInput as { jobId?: unknown };
+  if (typeof input?.jobId !== 'string' || input.jobId.length === 0) {
+    throw new Error('media_higgsfield_poll requires { jobId: string }');
+  }
+  const provider = higgsfieldProvider();
+  const status = await provider.pollStatus(input.jobId);
+  return {
+    jobId: status.jobId,
+    state: status.state,
+    ...(status.progress !== undefined ? { progress: status.progress } : {}),
+    ...(status.assetUrls ? { assetUrls: status.assetUrls } : {}),
+    ...(status.errorMessage ? { errorMessage: status.errorMessage } : {}),
+  };
+}
+
+export async function handleHiggsfieldDownload(rawInput: unknown): Promise<{
+  bytes: number;
+  contentType: string;
+  cdnUrl?: string;
+}> {
+  const input = rawInput as { jobIdOrUrl?: unknown };
+  if (typeof input?.jobIdOrUrl !== 'string' || input.jobIdOrUrl.length === 0) {
+    throw new Error('media_higgsfield_download requires { jobIdOrUrl: string }');
+  }
+  const provider = higgsfieldProvider();
+  const asset = await provider.download(input.jobIdOrUrl);
+  return {
+    bytes: asset.buffer.length,
+    contentType: asset.metadata.contentType,
+    ...(asset.metadata.cdnUrl ? { cdnUrl: asset.metadata.cdnUrl } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // handleHiggsfieldDop — DoP image-to-video with WAN Camera Control verbs
 // ---------------------------------------------------------------------------
 
@@ -525,6 +570,17 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
   const picked = sorted[0]!;
 
   const estimatedCostUSD = normalizeCostUSDSafe(picked, input);
+  // FIX (Codex P2 round 5, PR#10): when ALL viable candidates ended up
+  // unpriced (Infinity), surface the misconfiguration instead of returning a
+  // routing decision whose cost is NaN-equivalent. Triggers when all matches
+  // are credit-priced AND MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT is unset.
+  if (!Number.isFinite(estimatedCostUSD)) {
+    throw new Error(
+      `no priceable provider for mode='${input.mode}' durationSec=${input.durationSec} resolution=${input.resolution}. ` +
+        `All candidates are credit-priced and MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT is unset/invalid. ` +
+        `Set the env var to a positive number (USD per Higgsfield credit) before routing.`,
+    );
+  }
   const rationale = buildRationale(picked, input, sorted.length);
 
   return {
@@ -1536,6 +1592,24 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Higgsfield Virality Predictor', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldViralityPredictor(input))),
+    );
+  }
+
+  // ---- Higgsfield Poll + Download (Codex P2 round 5 PR#10 — async lifecycle) ----
+  {
+    const t = getTool('media_higgsfield_poll');
+    reg(
+      t.name,
+      { title: 'Higgsfield Poll', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldPoll(input))),
+    );
+  }
+  {
+    const t = getTool('media_higgsfield_download');
+    reg(
+      t.name,
+      { title: 'Higgsfield Download', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldDownload(input))),
     );
   }
 }

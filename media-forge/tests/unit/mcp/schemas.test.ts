@@ -69,7 +69,7 @@ const EXPECTED_TOOL_NAMES = [
 // ---------------------------------------------------------------------------
 describe('MCP_TOOLS registry', () => {
   it('contains exactly 37 tools', () => {
-    expect(MCP_TOOLS.length).toBe(37);
+    expect(MCP_TOOLS.length).toBe(39);
   });
 
   it('is frozen (Object.isFrozen)', () => {
@@ -114,7 +114,7 @@ describe('MCP_TOOLS registry', () => {
 // ---------------------------------------------------------------------------
 describe('listMCPToolNames()', () => {
   it('returns an array of length 37', () => {
-    expect(listMCPToolNames().length).toBe(37);
+    expect(listMCPToolNames().length).toBe(39);
   });
 
   it('contains all 37 expected tool names', () => {

@@ -63,7 +63,7 @@ describe('P14 regression — Veo still wired AND Higgsfield is live', () => {
   });
 
   it('MCP_TOOLS count is 37 (P13 30 + P14 7)', () => {
-    expect(MCP_TOOLS.length).toBe(37);
+    expect(MCP_TOOLS.length).toBe(39);
   });
 
   it('lip-sync route picks Higgsfield', async () => {

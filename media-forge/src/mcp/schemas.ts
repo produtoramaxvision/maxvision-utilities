@@ -363,6 +363,20 @@ export const HiggsfieldViralityPredictorInput = z.object({
 });
 export type HiggsfieldViralityPredictorInputT = z.infer<typeof HiggsfieldViralityPredictorInput>;
 
+// HiggsfieldPollInput / HiggsfieldDownloadInput — async lifecycle for the 7
+// Higgsfield generation tools (Codex P2 round 5 PR#10).
+// ---------------------------------------------------------------------------
+export const HiggsfieldPollInput = z.object({
+  jobId: z.string().min(1),
+});
+export type HiggsfieldPollInputT = z.infer<typeof HiggsfieldPollInput>;
+
+export const HiggsfieldDownloadInput = z.object({
+  // Accepts either an internal `hf-…` jobId OR an explicit CDN URL.
+  jobIdOrUrl: z.string().min(1),
+});
+export type HiggsfieldDownloadInputT = z.infer<typeof HiggsfieldDownloadInput>;
+
 // HiggsfieldMarketingStudioInput — Marketing Studio: 9 UGC templates from product URL (P14 Task 12)
 // ---------------------------------------------------------------------------
 
@@ -627,6 +641,22 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description: 'Higgsfield Virality Predictor — score an asset (viral / audience-fit / hook-strength).',
     inputSchema: HiggsfieldViralityPredictorInput,
     validationSchema: HiggsfieldViralityPredictorInput,
+  },
+
+  // ---- Higgsfield Poll + Download (Codex P2 round 5 PR#10 — async lifecycle for the 7 generation tools) ----
+  {
+    name: 'media_higgsfield_poll',
+    description:
+      'Poll a Higgsfield async job by internal jobId — returns state + assetUrls when completed. Use after any media_higgsfield_* generation tool.',
+    inputSchema: HiggsfieldPollInput,
+    validationSchema: HiggsfieldPollInput,
+  },
+  {
+    name: 'media_higgsfield_download',
+    description:
+      'Download a completed Higgsfield asset by internal jobId OR explicit CDN URL — returns byte length + content type.',
+    inputSchema: HiggsfieldDownloadInput,
+    validationSchema: HiggsfieldDownloadInput,
   },
 ] as const) as readonly MCPTool[];
 
