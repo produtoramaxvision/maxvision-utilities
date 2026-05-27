@@ -49,7 +49,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['tests/unit/**/*.test.ts', 'tests/core/**/*.test.ts', 'tests/video/**/*.test.ts', 'tests/cli/**/*.test.ts', 'tests/mcp/**/*.test.ts', 'src/**/*.test.ts', 'tests/integration/p13-regression.test.ts'],
+    include: ['tests/unit/**/*.test.ts', 'tests/core/**/*.test.ts', 'tests/video/**/*.test.ts', 'tests/cli/**/*.test.ts', 'tests/mcp/**/*.test.ts', 'src/**/*.test.ts', 'tests/integration/p13-regression.test.ts', 'tests/integration/p14-regression.test.ts'],
     exclude: ['tests/integration/live-smoke.test.ts', 'tests/golden/**', 'tests/evals/**'],
     coverage: {
       provider: 'v8',
