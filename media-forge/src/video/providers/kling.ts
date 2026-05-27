@@ -16,6 +16,13 @@ const KLING_API_BASE = 'https://api-singapore.klingai.com';
 
 export interface KlingEnv extends KlingEnvSubset {
   readonly MEDIA_FORGE_WEBHOOK_PUBLIC_URL?: string;
+  /**
+   * Opt-in flag — Kling can't sign media-forge webhook router's HMAC headers
+   * (x-webhook-timestamp + x-webhook-signature), so callbacks would 401. Default
+   * (unset) suppresses callback_url; polling convergence handles completion.
+   * Set 'true' only for diagnostic stub-handler logging.
+   */
+  readonly MEDIA_FORGE_KLING_WEBHOOK_INSECURE?: string;
 }
 
 export interface KlingProviderOptions {
@@ -333,9 +340,16 @@ function buildRequestBody(args: BuildBodyArgs): Record<string, unknown> {
     extras?.klingMode ?? (spec.id.includes('-pro') || spec.id.includes('-master') ? 'pro' : 'std');
   const watermarkEnabled = extras?.watermarkEnabled ?? false;
 
+  // FIX (Codex P1, PR#11): media-forge webhook router rejects POSTs without
+  // HMAC headers (x-webhook-timestamp + x-webhook-signature). Kling cannot sign
+  // them, so advertising callback_url guarantees 401 rejection. Suppress unless
+  // operator explicitly opts in via MEDIA_FORGE_KLING_WEBHOOK_INSECURE=true.
+  // extras.callbackUrl (caller-provided URL) is honored unconditionally — caller
+  // owns its own auth path.
+  const webhookEnabled = env.MEDIA_FORGE_KLING_WEBHOOK_INSECURE === 'true';
   const callbackUrl =
     extras?.callbackUrl ??
-    (env.MEDIA_FORGE_WEBHOOK_PUBLIC_URL
+    (webhookEnabled && env.MEDIA_FORGE_WEBHOOK_PUBLIC_URL
       ? `${env.MEDIA_FORGE_WEBHOOK_PUBLIC_URL}/webhooks/kling/${encodeURIComponent(jobId)}`
       : undefined);
   const externalTaskId = extras?.externalTaskId ?? jobId;

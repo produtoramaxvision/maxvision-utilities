@@ -307,7 +307,10 @@ describe('KlingProvider', () => {
     expect(fetchImplReject).toHaveBeenCalledOnce();
   });
 
-  it('generate populates callback_url from webhook router base URL when set in env', async () => {
+  it('generate populates callback_url from webhook router base URL when INSECURE flag set', async () => {
+    // PR#11 Codex P1 fix: media-forge webhook router rejects POSTs without
+    // HMAC headers — Kling can't sign them. callback_url suppressed by default;
+    // opt-in via MEDIA_FORGE_KLING_WEBHOOK_INSECURE=true for diagnostic logging.
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -315,7 +318,11 @@ describe('KlingProvider', () => {
     });
     const p = new KlingProvider({
       dbPath,
-      env: { ...env, MEDIA_FORGE_WEBHOOK_PUBLIC_URL: 'https://media.example.com' },
+      env: {
+        ...env,
+        MEDIA_FORGE_WEBHOOK_PUBLIC_URL: 'https://media.example.com',
+        MEDIA_FORGE_KLING_WEBHOOK_INSECURE: 'true',
+      },
       fetchImpl,
     });
     const handle = await p.generate({
@@ -329,6 +336,30 @@ describe('KlingProvider', () => {
     const body = JSON.parse(init.body as string);
     expect(body.callback_url).toBe(`https://media.example.com/webhooks/kling/${handle.jobId}`);
     expect(body.external_task_id).toBe(handle.jobId);
+  });
+
+  it('generate omits callback_url by default even when MEDIA_FORGE_WEBHOOK_PUBLIC_URL is set (PR#11 P1)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ code: 0, data: { task_id: 'kling-no-cb' } }),
+    });
+    const p = new KlingProvider({
+      dbPath,
+      env: { ...env, MEDIA_FORGE_WEBHOOK_PUBLIC_URL: 'https://media.example.com' },
+      // INSECURE flag NOT set
+      fetchImpl,
+    });
+    await p.generate({
+      modelId: 'kling-v3-standard',
+      mode: 't2v',
+      prompt: 'x',
+      durationSec: 5,
+      resolution: '720p',
+    });
+    const [, init] = fetchImpl.mock.calls[0];
+    const body = JSON.parse(init.body as string);
+    expect(body.callback_url).toBeUndefined();
   });
 
   it('generate throws clear error on Kling 4xx with code+message', async () => {
