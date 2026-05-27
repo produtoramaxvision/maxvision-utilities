@@ -29,6 +29,7 @@
     "hooks",
     ".claude-plugin",
     ".mcp.json",
+    "migrations",
     "scripts/install-deps.sh",
     "scripts/install-deps.cmd",
     "README.md",

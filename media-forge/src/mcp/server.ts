@@ -9,6 +9,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { logger } from '../core/logger.js';
 import { loadConfig } from '../core/config.js';
 import { createClient } from '../core/client.js';
+import { loadPricingOverridesFromEnv } from '../core/pricing.js';
 import { registerAllTools, setWebhookRouter } from './handlers.js';
 import {
   startWebhookRouter,
@@ -25,6 +26,10 @@ export interface BuildServerOpts {
 export function buildServer(opts: BuildServerOpts = {}): McpServer {
   const config = opts.config ?? loadConfig(process.env as Record<string, string | undefined>);
   const client = opts.client ?? createClient({ config });
+  // Honor MEDIA_FORGE_PRICING_OVERRIDES (enterprise/contract rates) BEFORE
+  // registerAllTools — otherwise media_video_route + media_video_cost_estimate
+  // silently report compiled-in public rates and the override env var is a no-op.
+  loadPricingOverridesFromEnv(process.env);
   const server = new McpServer({ name: 'media-forge', version: '0.1.0' });
   registerAllTools(server, { client, config });
   return server;
