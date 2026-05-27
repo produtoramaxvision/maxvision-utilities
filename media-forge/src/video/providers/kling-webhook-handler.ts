@@ -105,6 +105,9 @@ export function createKlingWebhookHandler(opts: CreateKlingWebhookHandlerOpts): 
               env: opts.env,
               nativeTaskId,
               mode: row.mode ?? 't2v',
+              // Pass shot index when refreshing multi-shot assets so each
+              // shot finds its correct videos[i].url (Codex P2 round 5).
+              shotIndex: i,
             });
             if (!fresh) throw err;
             buf = await downloadAsset(fetchImpl, fresh);
@@ -145,17 +148,44 @@ interface RefetchArgs {
   readonly env: KlingEnvSubset;
   readonly nativeTaskId: string;
   readonly mode: string;
+  /** Zero-based shot index to extract from videos[] when refreshing multi-shot job. */
+  readonly shotIndex?: number;
+}
+
+// FIX (Codex P2 round 5, PR#11): per-mode poll URL. The previous collapse to
+// text2video meant i2v / motion-brush / elements / lip-sync / extend jobs all
+// hit the wrong REST endpoint on TTL refresh and got 404 forever.
+function refreshPollPathFor(mode: string): string {
+  switch (mode) {
+    case 'i2v':
+      return '/v1/videos/image2video';
+    case 'motion-brush':
+    case 'elements':
+      return '/v1/motion';
+    case 'lip-sync':
+      return '/v1/videos/advanced-lip-sync';
+    case 'extend':
+      return '/v1/videos/video-extend';
+    case 'multi-shot':
+      return '/v1/videos/omni-video';
+    case 't2v':
+    default:
+      return '/v1/videos/text2video';
+  }
 }
 
 async function refetchAssetUrl(args: RefetchArgs): Promise<string | undefined> {
   if (!args.nativeTaskId) return undefined;
   const auth = getKlingAuthHeader(args.env);
-  const pollType = args.mode === 'multi-shot' ? 'omni-video' : 'text2video';
-  const url = `${KLING_API_BASE}/v1/videos/${pollType}/${args.nativeTaskId}`;
+  const pollPath = refreshPollPathFor(args.mode);
+  const url = `${KLING_API_BASE}${pollPath}/${args.nativeTaskId}`;
   const res = await args.fetchImpl(url, { method: 'GET', headers: { ...auth } });
   if (!res.ok) return undefined;
   const data = (await res.json()) as {
     data?: { task_result?: { videos?: Array<{ url?: string }> } };
   };
-  return data.data?.task_result?.videos?.[0]?.url;
+  // FIX (Codex P2 round 5, PR#11): use shotIndex for multi-shot so each shot
+  // download finds its correct asset instead of all collapsing to videos[0].
+  const idx = args.shotIndex ?? 0;
+  return data.data?.task_result?.videos?.[idx]?.url;
 }
