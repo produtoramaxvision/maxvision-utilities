@@ -83,6 +83,7 @@ import {
 } from '../core/soul-id-cache.js';
 import { HiggsfieldSoulIdInput, type HiggsfieldSoulIdInputT } from './schemas.js';
 import { HiggsfieldDopInput, type HiggsfieldDopInputT } from './schemas.js';
+import { HiggsfieldCinemaStudioInput, type HiggsfieldCinemaStudioInputT } from './schemas.js';
 import { HiggsfieldProvider } from '../video/providers/higgsfield.js';
 
 // ---------------------------------------------------------------------------
@@ -179,6 +180,46 @@ export async function handleHiggsfieldDop(rawInput: unknown): Promise<{
     extras: {
       providerKind: 'higgsfield' as const,
       dopCameraVerbs: input.cameraVerbs,
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    provider: handle.provider,
+    jobId: handle.jobId,
+    providerNativeId: handle.providerNativeId,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldCinemaStudio — Cinema Studio 3.5 with 1,296 virtual lenses
+// ---------------------------------------------------------------------------
+
+export async function handleHiggsfieldCinemaStudio(rawInput: unknown): Promise<{
+  provider: string;
+  jobId: string;
+  providerNativeId?: string;
+  estimatedCostUSD: number;
+}> {
+  const input: HiggsfieldCinemaStudioInputT = HiggsfieldCinemaStudioInput.parse(rawInput);
+  const provider = higgsfieldProvider();
+  const req = {
+    modelId: 'higgsfield-cinema-studio-3.5',
+    mode: 'i2v' as const,
+    prompt: input.prompt,
+    durationSec: input.durationSec,
+    resolution: input.resolution,
+    aspectRatio: input.aspectRatio,
+    firstFrameImagePath: input.firstFrameImagePath,
+    extras: {
+      providerKind: 'higgsfield' as const,
+      cinemaStudioParams: {
+        focalLengthMm: input.focalLengthMm,
+        apertureFStop: input.apertureFStop,
+        sensorSize: input.sensorSize,
+        colorGrading: input.colorGrading,
+        lensId: input.lensId,
+      },
     },
   };
   const handle = await provider.generate(req);
@@ -1195,6 +1236,17 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Higgsfield DoP', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldDop(input))),
+    );
+  }
+
+  // ---- Higgsfield Cinema Studio (1 — P14 1,296 virtual lenses, focal/aperture/sensor/grading) ----
+
+  {
+    const t = getTool('media_higgsfield_cinema_studio');
+    reg(
+      t.name,
+      { title: 'Higgsfield Cinema Studio', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldCinemaStudio(input))),
     );
   }
 }

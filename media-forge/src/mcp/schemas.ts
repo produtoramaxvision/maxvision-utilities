@@ -295,6 +295,24 @@ export const HiggsfieldDopInput = z.object({
 export type HiggsfieldDopInputT = z.infer<typeof HiggsfieldDopInput>;
 
 // ---------------------------------------------------------------------------
+// HiggsfieldCinemaStudioInput — Cinema Studio 3.5 with full lens dictionary (P14 Task 10)
+// ---------------------------------------------------------------------------
+
+export const HiggsfieldCinemaStudioInput = z.object({
+  prompt: z.string().min(1),
+  firstFrameImagePath: z.string().min(1),
+  durationSec: z.number().positive().max(8),
+  resolution: z.enum(['720p', '1080p']),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']).optional(),
+  focalLengthMm: z.number().positive().max(800).optional(),
+  apertureFStop: z.number().positive().max(32).optional(),
+  sensorSize: z.enum(['full-frame', 'super35', 'apsc', 'm43', 'imax']).optional(),
+  colorGrading: z.string().min(1).optional(),
+  lensId: z.string().min(1).optional(),
+});
+export type HiggsfieldCinemaStudioInputT = z.infer<typeof HiggsfieldCinemaStudioInput>;
+
+// ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
 export interface MCPTool {
@@ -306,8 +324,8 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 32 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop = 32
+// MCP_TOOLS registry — 33 tools total
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio = 33
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -500,6 +518,14 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description: 'Higgsfield Director of Photography — image-to-video with WAN Camera Control verbs.',
     inputSchema: HiggsfieldDopInput,
     validationSchema: HiggsfieldDopInput,
+  },
+
+  // ---- Higgsfield Cinema Studio (1 — P14 1,296 virtual lenses, focal/aperture/sensor/grading) ----
+  {
+    name: 'media_higgsfield_cinema_studio',
+    description: 'Higgsfield Cinema Studio 3.5 — 1,296 virtual lenses, focal/aperture/sensor/grading.',
+    inputSchema: HiggsfieldCinemaStudioInput,
+    validationSchema: HiggsfieldCinemaStudioInput,
   },
 ] as const) as readonly MCPTool[];
 
