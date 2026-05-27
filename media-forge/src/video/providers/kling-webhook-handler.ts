@@ -57,6 +57,12 @@ export function createKlingWebhookHandler(opts: CreateKlingWebhookHandlerOpts): 
       process.stderr.write(
         `[kling-webhook] job ${internalJobId} failed: ${payload.task_status_msg ?? '(no message)'}\n`,
       );
+      // FIX (Codex P2, PR#11): mark as terminal in cost-tracker so the row
+      // doesn't dangle in 'pending' state forever — cost/status reports
+      // must distinguish finished-failed from in-progress.
+      db.prepare(
+        "UPDATE video_jobs SET status = 'failed', actual_usd = COALESCE(actual_usd, 0), completed_at = ? WHERE id = ? AND status != 'completed'",
+      ).run(new Date().toISOString(), internalJobId);
       return;
     }
 
