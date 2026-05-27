@@ -10,6 +10,7 @@ import { logger } from '../core/logger.js';
 import { loadConfig } from '../core/config.js';
 import { createClient } from '../core/client.js';
 import { loadPricingOverridesFromEnv } from '../core/pricing.js';
+import { validateHiggsfieldPricingAtBoot } from '../core/higgsfield-pricing.js';
 import { registerAllTools, setWebhookRouter } from './handlers.js';
 import {
   startWebhookRouter,
@@ -26,6 +27,14 @@ export interface BuildServerOpts {
 export function buildServer(opts: BuildServerOpts = {}): McpServer {
   const config = opts.config ?? loadConfig(process.env as Record<string, string | undefined>);
   const client = opts.client ?? createClient({ config });
+  // D-6: validate MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT before any handler fires.
+  // Fail fast — server cannot price Higgsfield jobs without the validated constant.
+  try {
+    validateHiggsfieldPricingAtBoot();
+  } catch (err) {
+    process.stderr.write(`[boot-error] ${(err as Error).message}\n`);
+    process.exit(2);
+  }
   // Honor MEDIA_FORGE_PRICING_OVERRIDES (enterprise/contract rates) BEFORE
   // registerAllTools — otherwise media_video_route + media_video_cost_estimate
   // silently report compiled-in public rates and the override env var is a no-op.
