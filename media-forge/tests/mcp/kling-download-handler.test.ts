@@ -120,4 +120,15 @@ describe('handleKlingDownload — records actual cost on successful download', (
     expect(result.actualUsd).toBeUndefined();
     expect(existsSync(result.outputPath)).toBe(true);
   });
+
+  it('throws when jobId is not present in video_jobs (Codex local round 8)', async () => {
+    // No recordJob() call beforehand — hydrateFromDb sees no row and throws.
+    // Handler must surface that error (not swallow), so callers know the jobId
+    // is wrong before any partial state is written.
+    const fetchImpl = async (..._args: Parameters<typeof fetch>): Promise<Response> =>
+      ({ ok: true, status: 200, json: async () => ({}) }) as unknown as Response;
+    await expect(
+      handleKlingDownload({ jobIdOrUrl: 'kling-does-not-exist' }, { fetchImpl }),
+    ).rejects.toThrow(/missing from video_jobs|native_task_id/i);
+  });
 });

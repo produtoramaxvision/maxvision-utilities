@@ -1062,15 +1062,31 @@ export async function handleKlingDownload(
   // media_kling_download stayed 'pending' forever (symmetric to the round 6
   // webhook-handler bug). Use est_usd as the actualUsd fallback when no
   // explicit duration is available locally.
+  //
+  // FIX (Codex local round 8, PR#11): emit stderr warnings whenever the
+  // cost ledger is touched without authoritative pricing data. Operators
+  // pulling the cost-report later need a way to spot rows that were closed
+  // with a fallback or skipped entirely; silent 0/skip masked dropped data.
   let actualUsd: number | undefined;
-  if (!looksLikeUrl) {
+  if (looksLikeUrl) {
+    process.stderr.write(
+      `[kling-download] raw URL path — no jobId to reconcile; cost-tracker NOT updated for ${input.jobIdOrUrl}\n`,
+    );
+  } else {
     const db = openDb(defaultDbPath());
     runMigrations(db);
     const row = db
       .prepare('SELECT est_usd FROM video_jobs WHERE id = ?')
       .get(input.jobIdOrUrl) as { est_usd?: number } | undefined;
-    actualUsd =
-      typeof row?.est_usd === 'number' && Number.isFinite(row.est_usd) ? row.est_usd : 0;
+    if (typeof row?.est_usd === 'number' && Number.isFinite(row.est_usd)) {
+      actualUsd = row.est_usd;
+    } else {
+      actualUsd = 0;
+      process.stderr.write(
+        `[kling-download] job ${input.jobIdOrUrl} has no est_usd in video_jobs — ` +
+          `recording actualUsd=0 to flip terminal status. Cost ledger may underreport.\n`,
+      );
+    }
     recordActualCost({ dbPath: defaultDbPath(), jobId: input.jobIdOrUrl, actualUsd });
   }
 
