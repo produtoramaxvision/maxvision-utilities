@@ -15,8 +15,11 @@ import { registerAllTools, setWebhookRouter } from './handlers.js';
 import {
   startWebhookRouter,
   stopWebhookRouter,
+  registerWebhookHandler,
   type WebhookRouter,
 } from '../video/providers/webhook-router.js';
+import { createHiggsfieldWebhookHandler } from '../video/providers/higgsfield-webhook-handler.js';
+import { join } from 'node:path';
 
 export interface BuildServerOpts {
   // Injection point for tests — config + client come from outside in tests
@@ -98,6 +101,14 @@ export async function startStdioServer(): Promise<void> {
   const router = await maybeStartWebhookRouter();
   if (router) {
     setWebhookRouter(router);
+    // FIX (Codex P2 round 6, PR#10): register the Higgsfield handler so opt-in
+    // webhook URL emission (MEDIA_FORGE_HF_WEBHOOK_ENABLE=true) does not 404.
+    // P14 keeps the body as a logging stub — full payload reconciliation is
+    // P14.1 once Higgsfield publishes a stable callback schema.
+    const projectDir =
+      process.env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
+    const dbPath = join(projectDir, 'cost.db');
+    registerWebhookHandler(router, 'higgsfield', createHiggsfieldWebhookHandler({ dbPath }));
     // Wire SIGTERM/SIGINT shutdown — close the router before exiting so the
     // OS port + handler map are released cleanly. Errors during close are
     // logged but do not block exit (the process is going down regardless).
