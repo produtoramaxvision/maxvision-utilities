@@ -34,7 +34,7 @@ claude plugin install ./media-forge
 claude plugin install @produtoramaxvision/media-forge
 ```
 
-After installation, all 10 agents, 11 skills, and 10 slash commands become available inside your Claude Code session.
+After installation, all 14 agents, 14 skills, and 10 slash commands become available inside your Claude Code session.
 
 ### Install path B — MCP standalone (any MCP-compatible client)
 
@@ -216,11 +216,10 @@ Same shape as the Kling flag. Off by default; opt-in only for dev. fal.ai cannot
 - [Specification](docs/specification.md) — model lock policy, capability matrix, tool registry, agent and skill registry
 - [Architecture](docs/architecture.md) — system diagram, data flow, layer responsibilities, error hierarchy
 - [Roadmap](docs/roadmap.md) — v0.1.0 scope, v0.2.0 candidates, known debts
-- [Usage](docs/usage.md) — cookbook: all 22 MCP tools + CLI subcommands + 5 real-world recipes
+- [Usage](docs/usage.md) — cookbook: core MCP tools + CLI subcommands + 5 real-world recipes (54-tool registry summary)
 - [Troubleshooting](docs/troubleshooting.md) — failure mode table and resolution steps
 - [Contributing](CONTRIBUTING.md) — add new agents, prompt templates, or MCP tools
 - [Dev Loop](docs/devloop.md) — hot-reload workflow for development
-- [Final Coverage Checklist](docs/final-coverage-checklist.md) — P15 production validation gate
 
 ---
 
