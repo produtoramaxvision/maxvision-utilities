@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { isSafeHiggsfieldStatusUrl } from '../../../src/video/providers/higgsfield.js';
+import {
+  isSafeHiggsfieldStatusUrl,
+  isSafeHiggsfieldAssetUrl,
+} from '../../../src/video/providers/higgsfield.js';
 
 /**
  * Codex local round 8 PR#10 — SSRF allowlist for persisted status_url values.
@@ -44,5 +47,69 @@ describe('isSafeHiggsfieldStatusUrl', () => {
     expect(isSafeHiggsfieldStatusUrl('not a url')).toBe(false);
     expect(isSafeHiggsfieldStatusUrl('')).toBe(false);
     expect(isSafeHiggsfieldStatusUrl('//platform.higgsfield.ai/r/x')).toBe(false);
+  });
+});
+
+/**
+ * Codex P2 round 11 PR#10 — looser allowlist for download URLs.
+ * Asset CDNs are often third-party (S3 signed, CloudFront), so the strict
+ * higgsfield.ai anchor is too tight. The asset variant only blocks
+ * obvious internal-IP literals + non-https + intranet TLDs.
+ */
+describe('isSafeHiggsfieldAssetUrl', () => {
+  it('accepts higgsfield.ai apex + subdomains', () => {
+    expect(isSafeHiggsfieldAssetUrl('https://higgsfield.ai/x.mp4')).toBe(true);
+    expect(isSafeHiggsfieldAssetUrl('https://cdn.higgsfield.ai/signed/x?t=y')).toBe(true);
+  });
+
+  it('accepts third-party CDN hosts (S3, CloudFront, GCS)', () => {
+    expect(isSafeHiggsfieldAssetUrl('https://higgsfield-prod.s3.amazonaws.com/file.mp4')).toBe(true);
+    expect(isSafeHiggsfieldAssetUrl('https://d111111abcdef8.cloudfront.net/file.mp4')).toBe(true);
+    expect(isSafeHiggsfieldAssetUrl('https://storage.googleapis.com/bucket/file.mp4')).toBe(true);
+  });
+
+  it('rejects non-https schemes', () => {
+    expect(isSafeHiggsfieldAssetUrl('http://cdn.higgsfield.ai/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('file:///etc/passwd')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('ftp://cdn.example.com/x.mp4')).toBe(false);
+  });
+
+  it('rejects IPv4 loopback + RFC1918 private literals', () => {
+    expect(isSafeHiggsfieldAssetUrl('https://127.0.0.1/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://127.5.6.7/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://0.0.0.0/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://10.0.0.5/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://192.168.1.1/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://172.16.0.1/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://172.31.255.255/x.mp4')).toBe(false);
+  });
+
+  it('rejects 172.x.x.x outside 16-31 range correctly (allows public range)', () => {
+    expect(isSafeHiggsfieldAssetUrl('https://172.15.0.1/x.mp4')).toBe(true);
+    expect(isSafeHiggsfieldAssetUrl('https://172.32.0.1/x.mp4')).toBe(true);
+  });
+
+  it('rejects link-local + AWS IMDS', () => {
+    expect(isSafeHiggsfieldAssetUrl('https://169.254.169.254/latest/meta-data')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://169.254.1.1/x.mp4')).toBe(false);
+  });
+
+  it('rejects localhost + intranet TLDs', () => {
+    expect(isSafeHiggsfieldAssetUrl('https://localhost/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://foo.localhost/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://server.local/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://internal.lan/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://api.internal/x.mp4')).toBe(false);
+  });
+
+  it('rejects IPv6 loopback + link-local', () => {
+    expect(isSafeHiggsfieldAssetUrl('https://[::1]/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://[fe80::1]/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://[fc00::1]/x.mp4')).toBe(false);
+  });
+
+  it('rejects malformed', () => {
+    expect(isSafeHiggsfieldAssetUrl('not a url')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('')).toBe(false);
   });
 });

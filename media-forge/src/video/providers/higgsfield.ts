@@ -88,6 +88,21 @@ export class HiggsfieldProvider implements VideoProvider {
     if (spec.provider !== 'higgsfield') {
       throw new Error(`model ${req.modelId} is not a higgsfield provider model`);
     }
+    // FIX (Codex P2 round 11, PR#10): direct provider.generate calls (now
+    // reachable via media_higgsfield_generate + the specialised tools) must
+    // enforce per-model capability bounds locally. Otherwise an over-spec
+    // request burns credits, gets a vague upstream 4xx, and leaves the cost
+    // row pending. Validate maxDurationSec + resolution before submit.
+    if (req.durationSec > spec.maxDurationSec) {
+      throw new Error(
+        `model ${req.modelId} caps durationSec at ${spec.maxDurationSec} (got ${req.durationSec})`,
+      );
+    }
+    if (req.resolution && !spec.resolutions.includes(req.resolution)) {
+      throw new Error(
+        `model ${req.modelId} supports resolutions [${spec.resolutions.join(', ')}], got '${req.resolution}'`,
+      );
+    }
 
     const jobId = `hf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const estUsd = this.estimateCostUSD(req);
@@ -245,6 +260,18 @@ export class HiggsfieldProvider implements VideoProvider {
         );
       }
       cdnUrl = status.assetUrls[0]!;
+    }
+    // FIX (Codex P2 round 11, PR#10): SSRF defense — the MCP caller can pass
+    // any http/https URL here, and the server process fetches it. In
+    // environments where the MCP server has access to internal services,
+    // a caller could supply a loopback/private/link-local host (or http://)
+    // to pivot to internal endpoints. Require https + reject obvious
+    // internal-IP patterns before the fetch.
+    if (!isSafeHiggsfieldAssetUrl(cdnUrl)) {
+      throw new Error(
+        `Higgsfield download: refusing unsafe URL '${cdnUrl}' ` +
+          `(must be https + non-internal host). SSRF defense.`,
+      );
     }
 
     const res = await this.doFetch(cdnUrl, { method: 'GET' });
@@ -477,4 +504,55 @@ export function isSafeHiggsfieldStatusUrl(raw: string): boolean {
   // strict `.higgsfield.ai` suffix.
   const host = u.hostname.toLowerCase();
   return host === 'higgsfield.ai' || host.endsWith('.higgsfield.ai');
+}
+
+/**
+ * Looser allowlist for download URLs: Higgsfield delivers assets from CDN
+ * hosts that often live on third-party domains (S3 signed URLs, CloudFront
+ * distributions, etc.) — anchoring on higgsfield.ai would break legit
+ * downloads. Instead, defense-in-depth via:
+ *
+ *   - require https (blocks http://internal/...)
+ *   - reject obvious internal-IP literals (loopback, link-local AWS metadata,
+ *     RFC1918 private ranges, IPv6 loopback / link-local)
+ *   - reject hostnames that resolve to .local / .internal / .lan TLDs that
+ *     are commonly used for intranet services
+ *
+ * This does NOT do DNS resolution (sync API constraint), so a malicious
+ * hostname that resolves to a private IP at request time is still possible.
+ * Operators concerned about that should run the MCP server in a sandbox
+ * with egress restricted to known CDN ranges.
+ *
+ * Codex P2 round 11 PR#10.
+ */
+export function isSafeHiggsfieldAssetUrl(raw: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'https:') return false;
+  // URL.hostname returns IPv6 wrapped in `[…]` brackets — strip them before
+  // pattern matching so the `::1` / `fe80::` checks below actually fire.
+  let host = u.hostname.toLowerCase();
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
+  // Empty / whitespace host
+  if (!host) return false;
+  // IPv4 loopback + link-local + RFC1918 private literals
+  if (host === '0.0.0.0' || host === 'localhost') return false;
+  if (host.startsWith('127.')) return false;
+  if (host.startsWith('10.')) return false;
+  if (host.startsWith('192.168.')) return false;
+  // 172.16.0.0/12 → first octet 172, second octet 16-31
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
+  // Link-local 169.254.0.0/16 (covers AWS IMDS at 169.254.169.254)
+  if (host.startsWith('169.254.')) return false;
+  // IPv6 loopback + link-local + ULA (fc00::/7)
+  if (host === '::1' || host === '0:0:0:0:0:0:0:1') return false;
+  if (host.startsWith('fe80:') || host.startsWith('fc00:') || host.startsWith('fd00:')) return false;
+  // Intranet TLDs (RFC 6762 mDNS, RFC 2606 reserved, common conventions)
+  if (host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.lan')) return false;
+  if (host.endsWith('.localhost')) return false;
+  return true;
 }
