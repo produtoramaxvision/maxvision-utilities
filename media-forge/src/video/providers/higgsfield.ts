@@ -548,9 +548,22 @@ export function isSafeHiggsfieldAssetUrl(raw: string): boolean {
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
   // Link-local 169.254.0.0/16 (covers AWS IMDS at 169.254.169.254)
   if (host.startsWith('169.254.')) return false;
-  // IPv6 loopback + link-local + ULA (fc00::/7)
+  // IPv6 loopback + link-local + ULA (FIX Codex P1 round 12, PR#10):
+  // Previous `startsWith('fc00:'|'fd00:'|'fe80:')` only matched literal prefixes,
+  // missing the rest of each range. ULA (fc00::/7) covers fc00:-fdff:; link-local
+  // (fe80::/10) covers fe80:-febf:. Docker IPv6 networks default to fd**::/8 —
+  // `fd12::1`, `fdab::1`, `fce0::1` previously slipped through and reached
+  // internal services. Switch to regex covering the full prefix nibbles.
   if (host === '::1' || host === '0:0:0:0:0:0:0:1') return false;
-  if (host.startsWith('fe80:') || host.startsWith('fc00:') || host.startsWith('fd00:')) return false;
+  // fc00::/7 ULA — first byte f, second nibble c|d, any third+fourth nibble
+  if (/^f[cd][0-9a-f]{2}:/i.test(host)) return false;
+  // fe80::/10 link-local — first byte fe, second high nibble 8|9|a|b
+  if (/^fe[89ab][0-9a-f]?:/i.test(host)) return false;
+  // IPv4-mapped IPv6 (::ffff:a.b.c.d). Node normalizes ::ffff:127.0.0.1 →
+  // ::ffff:7f00:1, which bypasses the IPv4 loopback check above. Any v4-mapped
+  // IPv6 is suspicious for a CDN target (no legit CDN uses them); reject the
+  // whole class to close the bypass.
+  if (/(^|:)ffff:[0-9a-f.:]+/i.test(host)) return false;
   // Intranet TLDs (RFC 6762 mDNS, RFC 2606 reserved, common conventions)
   if (host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.lan')) return false;
   if (host.endsWith('.localhost')) return false;

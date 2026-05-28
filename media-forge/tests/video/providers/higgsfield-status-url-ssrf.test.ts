@@ -108,6 +108,32 @@ describe('isSafeHiggsfieldAssetUrl', () => {
     expect(isSafeHiggsfieldAssetUrl('https://[fc00::1]/x.mp4')).toBe(false);
   });
 
+  // FIX (Codex P1 round 12, PR#10): three IPv6 SSRF bypasses the
+  // literal-prefix `startsWith` checks missed.
+  it('rejects full ULA range (fc00::/7), not just fc00:/fd00: literals', () => {
+    // Docker IPv6 networks default to fd**::/8 — these MUST be blocked.
+    expect(isSafeHiggsfieldAssetUrl('https://[fd12::1]/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://[fdab::1]/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://[fce0::1]/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://[fcff::1]/x.mp4')).toBe(false);
+  });
+
+  it('rejects full link-local range (fe80::/10), not just fe80: literal', () => {
+    // /10 spans fe80-febf — all must be blocked.
+    expect(isSafeHiggsfieldAssetUrl('https://[fe90::1]/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://[fea0::1]/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://[feb0::1]/x.mp4')).toBe(false);
+  });
+
+  it('rejects IPv4-mapped IPv6 loopback / private (::ffff:127.0.0.1 bypass)', () => {
+    // Node URL parser normalizes ::ffff:127.0.0.1 → ::ffff:7f00:1, bypassing
+    // the IPv4 startsWith('127.') check above.
+    expect(isSafeHiggsfieldAssetUrl('https://[::ffff:127.0.0.1]/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://[::ffff:7f00:1]/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://[::ffff:10.0.0.1]/x.mp4')).toBe(false);
+    expect(isSafeHiggsfieldAssetUrl('https://[::ffff:192.168.1.1]/x.mp4')).toBe(false);
+  });
+
   it('rejects malformed', () => {
     expect(isSafeHiggsfieldAssetUrl('not a url')).toBe(false);
     expect(isSafeHiggsfieldAssetUrl('')).toBe(false);
