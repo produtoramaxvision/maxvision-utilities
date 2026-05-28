@@ -468,4 +468,58 @@ describe('KlingProvider', () => {
     const p = new KlingProvider({ dbPath, env, fetchImpl: vi.fn() });
     expect(() => p.hydrateFromDb('does-not-exist')).toThrow(/missing from video_jobs|native_task_id/i);
   });
+
+  // -------------------------------------------------------------------------
+  // Codex P2 round 11 — motion-brush + elements bodies must forward `duration`
+  // -------------------------------------------------------------------------
+  it('generate(motion-brush) includes duration in the submit body', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ code: 0, data: { task_id: 'kling-mb-dur' } }),
+    });
+    const p = new KlingProvider({ dbPath, env, fetchImpl });
+    await p.generate({
+      modelId: 'kling-v3-pro',
+      mode: 'motion-brush',
+      prompt: 'wave the flag',
+      durationSec: 10,
+      resolution: '1080p',
+      firstFrameImagePath: 'https://cdn/flag.png',
+      extras: {
+        providerKind: 'kling',
+        motionBrushRegions: [
+          { id: 'r1', polygon: [[0, 0], [1, 0], [1, 1], [0, 1]], motionVector: [10, 0] },
+        ],
+      },
+    });
+    const [, init] = fetchImpl.mock.calls[0];
+    const body = JSON.parse(init.body as string);
+    expect(body.duration).toBe('10');
+    expect(typeof body.duration).toBe('string');
+  });
+
+  it('generate(elements) includes duration in the submit body', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ code: 0, data: { task_id: 'kling-el-dur' } }),
+    });
+    const p = new KlingProvider({ dbPath, env, fetchImpl });
+    await p.generate({
+      modelId: 'kling-v3-pro',
+      mode: 'elements',
+      prompt: 'compose hero shot',
+      durationSec: 8,
+      resolution: '1080p',
+      firstFrameImagePath: 'https://cdn/base.png',
+      extras: {
+        providerKind: 'kling',
+        elementIds: ['el-1', 'el-2'],
+      },
+    });
+    const [, init] = fetchImpl.mock.calls[0];
+    const body = JSON.parse(init.body as string);
+    expect(body.duration).toBe('8');
+  });
 });

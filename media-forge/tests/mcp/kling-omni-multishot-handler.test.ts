@@ -132,4 +132,37 @@ describe('media_kling_omni_multishot handler', () => {
     );
     expect(result.provider).toBe('kling');
   });
+
+  it('rejects sub-second per-shot duration (Codex P2 round 11 — minDurationPerShotSec=1)', async () => {
+    // Registry says kling-v3-omni.limits.minDurationPerShotSec = 1.
+    // Schema was `gt(0)` which let 0.5s through. Now `min(1)` enforces it.
+    await expect(
+      handleKlingOmniMultiShot({
+        shots: [
+          { index: 1, prompt: 'flash frame', duration: 0.5 },
+          { index: 2, prompt: 'rest', duration: 4 },
+        ],
+        imageRefs: [{ imageUrl: 'https://example.com/r.png' }],
+      }),
+    ).rejects.toThrow(/min 1s per shot|min 1\b/i);
+  });
+
+  it('accepts exactly 1s per shot (boundary)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ code: 0, data: { task_id: 'kling-omni-1s' } }),
+    });
+    const result = await handleKlingOmniMultiShot(
+      {
+        shots: [
+          { index: 1, prompt: 'a', duration: 1 },
+          { index: 2, prompt: 'b', duration: 1 },
+        ],
+        imageRefs: [{ imageUrl: 'https://example.com/r.png' }],
+      },
+      { fetchImpl: fetchImpl as never },
+    );
+    expect(result.provider).toBe('kling');
+  });
 });

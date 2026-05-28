@@ -422,11 +422,16 @@ function buildRequestBody(args: BuildBodyArgs): Record<string, unknown> {
   // Each region has polygon (point pairs) + motion_vector — Kling expects
   // motion_brushes[].{polygon, motion_vector} per /v1/motion/generate spec.
   if (req.mode === 'motion-brush' || req.mode === 'elements' || extras?.motionBrushRegions) {
+    // FIX (Codex P2 round 11, PR#11): forward `duration` for motion-brush +
+    // elements. Schema requires durationSec; cost tracker bills per-second; the
+    // submit body was omitting it, so a 10s request would actually return
+    // Kling's default 5s clip while the caller paid for 10s.
     return {
       model_name: modelName,
       prompt: req.prompt,
       image_url: req.firstFrameImagePath,
       video_url: extras?.motionReferenceVideoUrl,
+      duration: String(req.durationSec),
       character_orientation: extras?.characterOrientation ?? 'image',
       ...(extras?.elementIds
         ? { element_list: extras.elementIds.map((id) => ({ element_id: id })) }

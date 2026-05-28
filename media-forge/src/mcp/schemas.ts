@@ -498,9 +498,17 @@ export const _KlingOmniMultiShotBase = z.object({
         // update min to 0 and the contiguous refine accordingly.
         index: z.number().int().min(1).max(OMNI_LIMITS.maxShots ?? 6),
         prompt: z.string().min(1),
+        // FIX (Codex P2 round 11, PR#11): enforce minDurationPerShotSec from
+        // the registry. Was `gt(0)` which let sub-second shots (e.g. 0.5s)
+        // through schema even though kling-v3-omni.limits.minDurationPerShotSec
+        // is 1. The provider would then ship an invalid clip the model can't
+        // actually produce.
         duration: z
           .number()
-          .gt(0, 'duration must be > 0')
+          .min(
+            OMNI_LIMITS.minDurationPerShotSec ?? 1,
+            `min ${OMNI_LIMITS.minDurationPerShotSec ?? 1}s per shot`,
+          )
           .max(
             OMNI_LIMITS.maxDurationPerShotSec ?? 10,
             `max ${OMNI_LIMITS.maxDurationPerShotSec ?? 10}s per shot`,
