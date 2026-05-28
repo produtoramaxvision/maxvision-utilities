@@ -1,10 +1,10 @@
 {
   "name": "media-forge",
-  "version": "0.1.0",
+  "version": "0.5.0-p16",
   "description": "Production-grade Claude Code plugin for image and video generation using top-tier Google AI models (Nano Banana Pro, Imagen 4 Ultra, Veo 3.1 Pro).",
   "type": "module",
   "engines": {
-    "node": ">=20.0.0",
+    "node": ">=22.5.0",
     "pnpm": ">=9.0.0"
   },
   "packageManager": "pnpm@9.15.0",
@@ -29,6 +29,7 @@
     "hooks",
     ".claude-plugin",
     ".mcp.json",
+    "migrations",
     "scripts/install-deps.sh",
     "scripts/install-deps.cmd",
     "README.md",
@@ -65,8 +66,10 @@
     "@aws-sdk/client-bedrock-runtime": "^3.700.0",
     "@aws-sdk/client-s3": "^3.700.0",
     "@aws-sdk/s3-request-presigner": "^3.700.0",
+    "@fal-ai/client": "^1.7.0",
     "@google-cloud/vision": "^5.3.6",
     "@google/genai": "^2.0.1",
+    "@higgsfield/client": "0.2.1",
     "@modelcontextprotocol/sdk": "^1.0.4",
     "commander": "^12.1.0",
     "dotenv": "^16.4.7",

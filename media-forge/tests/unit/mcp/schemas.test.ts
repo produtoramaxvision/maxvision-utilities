@@ -47,14 +47,56 @@ const EXPECTED_TOOL_NAMES = [
   'media_refs_compose_moodboard',
   'media_refs_presign',
   'media_refs_index',
+  // webhook (1 — P13 scaffold for P14+ provider callbacks)
+  'media_video_webhook_status',
+  // cost estimation (2 — P13 provider-registry cost tools)
+  'media_video_cost_estimate',
+  'media_video_cost_report',
+  // routing (1 — P13 cross-provider routing heuristic)
+  'media_video_route',
+  // higgsfield (7 — P14 provider tools)
+  'media_higgsfield_soul_id',
+  'media_higgsfield_dop',
+  'media_higgsfield_cinema_studio',
+  'media_higgsfield_speak',
+  'media_higgsfield_marketing_studio',
+  'media_higgsfield_recast',
+  'media_higgsfield_virality_predictor',
+  // higgsfield generate (1 — Codex P2 round 7 PR#10 generic Soul/Soul2 submit)
+  'media_higgsfield_generate',
+  // higgsfield async lifecycle (2 — Codex P2 round 5 PR#10)
+  'media_higgsfield_poll',
+  'media_higgsfield_download',
+  // kling (1 — P15 Task 6)
+  'media_kling_motion_brush',
+  // kling elements CRUD (3 — P15 Tasks 6.5 / 6.6 / 6.7)
+  'media_kling_element_create',
+  'media_kling_element_list',
+  'media_kling_element_delete',
+  // kling elements composition (1 — P15 Task 7)
+  'media_kling_elements',
+  // kling lip-sync (1 — P15 Task 8)
+  'media_kling_lip_sync',
+  // kling omni multi-shot (1 — P15 Task 9)
+  'media_kling_omni_multishot',
+  // kling video extend (1 — P15 Task 10)
+  'media_kling_video_extend',
+  // kling lifecycle (2 — Codex P1 round 6 PR#11)
+  'media_kling_poll',
+  'media_kling_download',
+  // seedance 2.0 (4 — P16 Task 7: t2v / i2v / multishot / reference-fusion)
+  'media_seedance_text_to_video',
+  'media_seedance_image_to_video',
+  'media_seedance_multishot',
+  'media_seedance_reference_fusion',
 ] as const;
 
 // ---------------------------------------------------------------------------
 // Registry shape assertions
 // ---------------------------------------------------------------------------
 describe('MCP_TOOLS registry', () => {
-  it('contains exactly 26 tools', () => {
-    expect(MCP_TOOLS.length).toBe(26);
+  it('contains exactly 54 tools', () => {
+    expect(MCP_TOOLS.length).toBe(54);
   });
 
   it('is frozen (Object.isFrozen)', () => {
@@ -98,11 +140,11 @@ describe('MCP_TOOLS registry', () => {
 // listMCPToolNames()
 // ---------------------------------------------------------------------------
 describe('listMCPToolNames()', () => {
-  it('returns an array of length 26', () => {
-    expect(listMCPToolNames().length).toBe(26);
+  it('returns an array of length 54', () => {
+    expect(listMCPToolNames().length).toBe(54);
   });
 
-  it('contains all 26 expected tool names', () => {
+  it('contains all 54 expected tool names', () => {
     const names = listMCPToolNames();
     for (const expected of EXPECTED_TOOL_NAMES) {
       expect(names).toContain(expected);

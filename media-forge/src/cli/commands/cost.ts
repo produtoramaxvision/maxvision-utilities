@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 import { estimateImageCost, estimateVideoCost, estimateWithRetries, dailyTotal, monthlyTotal, allTimeTotal } from '../../core/cost.js';
 import { IMAGE_MODEL_NANO_BANANA_PRO, IMAGE_MODEL_IMAGEN_4_ULTRA, VIDEO_MODEL_VEO_3_1_PRO } from '../../core/models.js';
+import { queryReport, type CostReport } from '../../core/cost-tracker.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
@@ -104,6 +105,38 @@ export function registerCostCommands(program: Command): void {
         }
       },
     );
+
+  // --- report ---
+  cost
+    .command('report')
+    .description('Multi-provider cost report from SQLite (use --by-provider --period 30d)')
+    .option('--period <period>', 'Period (e.g. 30d, 7d, 90d)', '30d')
+    .option('--by-provider', 'Group by provider', false)
+    .option('--db <path>', 'Override cost.db path')
+    .option('--json', 'Emit JSON', false)
+    .action(
+      (cmdOpts: { period?: string; byProvider?: boolean; db?: string; json?: boolean }) => {
+        const report = buildCostReport({
+          dbPath: cmdOpts.db,
+          period: cmdOpts.period,
+          byProvider: cmdOpts.byProvider ?? false,
+        });
+        if (cmdOpts.json) {
+          process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+          return;
+        }
+        process.stdout.write(
+          `period: ${report.periodDays}d\nestimated: $${report.totalEstUsd.toFixed(4)}\nactual: $${report.totalActualUsd.toFixed(4)}\njobs: ${report.totalJobs}\n`,
+        );
+        if (cmdOpts.byProvider) {
+          for (const [provider, rollup] of Object.entries(report.byProvider)) {
+            process.stdout.write(
+              `  ${provider}: ${rollup.jobs} jobs, est $${rollup.estUsd.toFixed(4)}, actual $${rollup.actualUsd.toFixed(4)}\n`,
+            );
+          }
+        }
+      },
+    );
 }
 
 // Export helpers for testing
@@ -166,6 +199,30 @@ export function getCostSummary(opts: {
   }
   const { usd, entries } = allTimeTotal({ logPath });
   return { date: 'all-time', usd, entries };
+}
+
+export interface BuildCostReportOpts {
+  readonly dbPath?: string;
+  readonly periodDays?: number;
+  readonly period?: string;
+  readonly byProvider?: boolean;
+}
+
+export function buildCostReport(opts: BuildCostReportOpts): CostReport {
+  const dbPath =
+    opts.dbPath ??
+    path.join(
+      process.env['MEDIA_FORGE_PROJECT_DIR'] ?? path.join(process.cwd(), '.media-forge'),
+      'cost.db',
+    );
+  const periodDays = opts.periodDays ?? parsePeriod(opts.period ?? '30d');
+  return queryReport({ dbPath, periodDays });
+}
+
+function parsePeriod(s: string): number {
+  const m = /^(\d+)d$/.exec(s);
+  if (!m) throw new Error(`invalid period: ${s} (expected NNd, e.g. 30d)`);
+  return parseInt(m[1]!, 10);
 }
 
 // Export for testing

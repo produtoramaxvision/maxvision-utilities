@@ -7,7 +7,7 @@
  * 3. startStdioServer() calls server.connect (via McpServer.prototype spy)
  * 4. buildServer() does NOT write to stdout
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { buildServer } from '../../../src/mcp/server.js';
 import type { MediaForgeConfig } from '../../../src/core/config.js';
@@ -53,6 +53,20 @@ function makeFakeClient(): MediaForgeClient {
     ai: {} as never,
   });
 }
+
+// ---------------------------------------------------------------------------
+// D-6: boot validation requires MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT.
+// Set a valid value for all tests in this file.
+// ---------------------------------------------------------------------------
+let _prevPricingEnv: string | undefined;
+beforeAll(() => {
+  _prevPricingEnv = process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
+  process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] = '0.039';
+});
+afterAll(() => {
+  if (_prevPricingEnv === undefined) delete process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
+  else process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] = _prevPricingEnv;
+});
 
 // ---------------------------------------------------------------------------
 // Test 1 & 2: buildServer identity

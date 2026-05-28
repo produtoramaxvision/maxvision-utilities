@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ZodTypeAny } from 'zod';
+import { VIDEO_MODELS } from '../core/models.js';
 
 // Image schemas (P3.1)
 export {
@@ -192,6 +193,629 @@ export const MediaHelpInput = z
 
 export type MediaHelpInputT = z.infer<typeof MediaHelpInput>;
 
+// video_webhook_status — report runtime state of the local webhook router
+// (P14+ provider callback endpoint). Empty input — the tool is a pure query.
+export const VideoWebhookStatusInput = z.object({}).strict();
+export type VideoWebhookStatusInputT = z.infer<typeof VideoWebhookStatusInput>;
+
+// video_cost_estimate — estimate USD cost for a video generation request
+// (any provider in the registry; P13 supports google/Veo only)
+export const VideoCostEstimateInput = z.object({
+  modelId: z.string().min(1),
+  mode: z.enum(['t2v', 'i2v', 'interpolate', 'extend', 'with-refs']),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive(),
+  resolution: z.enum(['720p', '1080p', '2k', '4k']),
+});
+
+export type VideoCostEstimateInputT = z.infer<typeof VideoCostEstimateInput>;
+
+// video_cost_report — aggregate cost report from the local SQLite ledger
+export const VideoCostReportInput = z.object({
+  periodDays: z.number().int().positive().default(30),
+}).strict();
+
+export type VideoCostReportInputT = z.infer<typeof VideoCostReportInput>;
+
+// video_route — pick optimal provider+model for a video generation request
+// (P13: Veo-only heuristic; extended in P14-P16 as more provider adapters land).
+// `preferProvider` accepts the full Provider type union (including not-yet-wired
+// names) so future-facing callers can specify a preference today; the handler
+// throws a clear error when the preference has no candidate in the current
+// registry.
+export const VideoRouteInput = z.object({
+  mode: z.enum([
+    't2v',
+    'i2v',
+    'interpolate',
+    'extend',
+    'with-refs',
+    'multi-shot',
+    'lip-sync',
+    'motion-brush',
+    'elements',
+    'targeted-edit',
+  ]),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive(),
+  // FIX (Codex P2 round 6, PR#12): include 480p — Seedance specs advertise it
+  // and the dedicated Seedance schemas accept it, but the generic router was
+  // rejecting every 480p routing request before it could consider those models.
+  resolution: z.enum(['480p', '720p', '1080p', '2k', '4k']),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']).optional(),
+  preferProvider: z.enum(['google', 'higgsfield', 'kling', 'bytedance']).optional(),
+});
+
+export type VideoRouteInputT = z.infer<typeof VideoRouteInput>;
+
+// ---------------------------------------------------------------------------
+// HiggsfieldSoulIdInput — Soul ID lifecycle (create/list/find/markUsed)
+// ---------------------------------------------------------------------------
+
+// _HiggsfieldSoulIdBase — ZodObject base shape emitted in tools/list.
+// All action-specific fields are optional so the base is a plain ZodObject
+// (required by DEBT-008 constraint that inputSchema must not be ZodEffects).
+// Runtime validation uses HiggsfieldSoulIdInput (discriminatedUnion).
+export const _HiggsfieldSoulIdBase = z.object({
+  action: z.enum(['create', 'list', 'find', 'markUsed']),
+  id: z.string().min(1).optional(),
+  characterName: z.string().min(1).optional(),
+  assetPaths: z.array(z.string().min(1)).optional(),
+});
+
+export const HiggsfieldSoulIdInput = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('create'),
+    id: z.string().min(1),
+    characterName: z.string().min(1),
+    assetPaths: z.array(z.string().min(1)).min(1),
+  }),
+  z.object({ action: z.literal('list') }),
+  z.object({ action: z.literal('find'), characterName: z.string().min(1) }),
+  z.object({ action: z.literal('markUsed'), id: z.string().min(1) }),
+]);
+export type HiggsfieldSoulIdInputT = z.infer<typeof HiggsfieldSoulIdInput>;
+
+// ---------------------------------------------------------------------------
+// HiggsfieldDopInput — DoP image-to-video with WAN Camera Control verbs (P14 Task 9)
+// ---------------------------------------------------------------------------
+
+export const DOP_CAMERA_VERBS = [
+  'dolly_in', 'dolly_out', 'crane_up', 'crane_down', 'orbit', 'crash_zoom',
+  'bullet_time', 'fpv_drone', 'handheld', 'whip_pan', 'tilt_up', 'tilt_down',
+  'pan_left', 'pan_right', 'arc', 'truck', 'pedestal', 'rack_focus',
+  'vertigo_effect', 'static', 'low_angle', 'high_angle',
+] as const;
+
+export const HiggsfieldDopInput = z.object({
+  modelId: z.enum(['higgsfield-dop', 'higgsfield-dop-turbo']),
+  firstFrameImagePath: z.string().min(1),
+  prompt: z.string().min(1),
+  cameraVerbs: z.array(z.enum(DOP_CAMERA_VERBS)).min(1).max(5),
+  durationSec: z.number().positive().max(6),
+  resolution: z.enum(['720p', '1080p']),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']).optional(),
+});
+export type HiggsfieldDopInputT = z.infer<typeof HiggsfieldDopInput>;
+
+// ---------------------------------------------------------------------------
+// HiggsfieldCinemaStudioInput — Cinema Studio 3.5 with full lens dictionary (P14 Task 10)
+// ---------------------------------------------------------------------------
+
+export const HiggsfieldCinemaStudioInput = z.object({
+  prompt: z.string().min(1),
+  firstFrameImagePath: z.string().min(1),
+  durationSec: z.number().positive().max(8),
+  resolution: z.enum(['720p', '1080p']),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']).optional(),
+  focalLengthMm: z.number().positive().max(800).optional(),
+  apertureFStop: z.number().positive().max(32).optional(),
+  sensorSize: z.enum(['full-frame', 'super35', 'apsc', 'm43', 'imax']).optional(),
+  colorGrading: z.string().min(1).optional(),
+  lensId: z.string().min(1).optional(),
+});
+export type HiggsfieldCinemaStudioInputT = z.infer<typeof HiggsfieldCinemaStudioInput>;
+
+// ---------------------------------------------------------------------------
+// HiggsfieldSpeakInput — Speak / Speak 2.0 lip-sync: portrait + audio → talking head (P14 Task 11)
+// ---------------------------------------------------------------------------
+
+const _HiggsfieldSpeakBase = z.object({
+  modelId: z.enum(['higgsfield-speak', 'higgsfield-speak2']),
+  portraitImagePath: z.string().min(1),
+  audioPath: z.string().min(1),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive().max(60),
+  resolution: z.enum(['720p', '1080p']),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1', '4:3', '3:4']).optional(),
+});
+// FIX (Codex P2, PR#10): per-model duration cap. higgsfield-speak (Speak 1.0)
+// caps at 30s; only higgsfield-speak2 supports up to 60s. Without this refine
+// direct handler calls bypass the route-level filter and would submit oversized
+// jobs that the upstream provider rejects with a confusing error.
+export const HiggsfieldSpeakInput = _HiggsfieldSpeakBase.refine(
+  (data) => {
+    if (data.modelId === 'higgsfield-speak' && data.durationSec > 30) return false;
+    return true;
+  },
+  {
+    message:
+      'higgsfield-speak (Speak 1.0) caps at 30s. Use higgsfield-speak2 for durations up to 60s.',
+    path: ['durationSec'],
+  },
+);
+export type HiggsfieldSpeakInputT = z.infer<typeof HiggsfieldSpeakInput>;
+
+// HiggsfieldRecastInput — Recast Studio: swap character in existing video (P14 Task 13)
+// ---------------------------------------------------------------------------
+
+export const HiggsfieldRecastInput = z.object({
+  sourceVideoPath: z.string().min(1),
+  targetCharacterImagePath: z.string().min(1),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive().max(30),
+  resolution: z.enum(['720p', '1080p']),
+});
+export type HiggsfieldRecastInputT = z.infer<typeof HiggsfieldRecastInput>;
+
+// HiggsfieldViralityPredictorInput — Virality Predictor: score an asset (P14 Task 14)
+// ---------------------------------------------------------------------------
+
+export const HiggsfieldViralityPredictorInput = z.object({
+  assetUrl: z.string().url(),
+  platform: z.enum(['tiktok', 'instagram', 'youtube-shorts', 'general']).default('general'),
+});
+export type HiggsfieldViralityPredictorInputT = z.infer<typeof HiggsfieldViralityPredictorInput>;
+
+// HiggsfieldGenerateInput — generic Higgsfield submit (Soul / Soul2 / aesthetic
+// presets) when no specialized tool (dop / cinema_studio / speak / marketing /
+// recast) applies. Codex P2 round 7 PR#10 closed the gap where the director
+// doc routed Soul t2v through media_video_route (a decision-only tool) with
+// no actual submit path.
+// ---------------------------------------------------------------------------
+// _HiggsfieldGenerateBase — raw ZodObject for tools/list (DEBT-008: tools/list
+// requires a plain ZodObject; the refined cross-field check lives on the
+// exported `HiggsfieldGenerateInput` for runtime validation).
+const _HiggsfieldGenerateBase = z.object({
+  modelId: z.enum([
+    'higgsfield-soul-standard',
+    'higgsfield-soul-pro',
+    'higgsfield-soul2',
+  ]),
+  mode: z.enum(['t2v', 'i2v']).default('t2v'),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive().default(5),
+  resolution: z.enum(['720p', '1080p', '2k', '4k']).default('1080p'),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']).optional(),
+  firstFrameImagePath: z.string().min(1).optional(),
+  referenceImagePaths: z.array(z.string().min(1)).max(8).optional(),
+  soulId: z.string().min(1).optional(),
+});
+// FIX (Codex P2 round 13, PR#10): require `firstFrameImagePath` whenever
+// `mode === 'i2v'`. Without this gate, callers can submit i2v jobs that get
+// rejected upstream (or run as text-only) after we already burned credits and
+// recorded the job. The specialized i2v tools (dop, cinema_studio) require
+// the image at the schema level — the generic generate tool now does too.
+export const HiggsfieldGenerateInput = _HiggsfieldGenerateBase.superRefine((v, ctx) => {
+  if (v.mode === 'i2v' && !v.firstFrameImagePath) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['firstFrameImagePath'],
+      message: "firstFrameImagePath is required when mode='i2v'",
+    });
+  }
+});
+export type HiggsfieldGenerateInputT = z.infer<typeof HiggsfieldGenerateInput>;
+
+// HiggsfieldPollInput / HiggsfieldDownloadInput — async lifecycle for the 7
+// Higgsfield generation tools (Codex P2 round 5 PR#10).
+// ---------------------------------------------------------------------------
+export const HiggsfieldPollInput = z.object({
+  jobId: z.string().min(1),
+});
+export type HiggsfieldPollInputT = z.infer<typeof HiggsfieldPollInput>;
+
+export const HiggsfieldDownloadInput = z.object({
+  // Accepts either an internal `hf-…` jobId OR an explicit CDN URL.
+  jobIdOrUrl: z.string().min(1),
+});
+export type HiggsfieldDownloadInputT = z.infer<typeof HiggsfieldDownloadInput>;
+
+// HiggsfieldMarketingStudioInput — Marketing Studio: 9 UGC templates from product URL (P14 Task 12)
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// KlingMotionBrushInput — Kling V3 Pro motion brush: paint regions with motion vectors (P15 Task 6)
+// ---------------------------------------------------------------------------
+
+export const KlingMotionBrushInput = z.object({
+  prompt: z.string().min(1),
+  imageUrl: z.string().url(),
+  regions: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        polygon: z.array(z.tuple([z.number(), z.number()])).min(3),
+        motionVector: z.tuple([z.number(), z.number()]),
+      }),
+    )
+    .min(1, 'at least 1 motion-brush region required'),
+  durationSec: z.number().positive().max(10),
+  modelId: z.enum(['kling-v3-pro']).default('kling-v3-pro'),
+  watermarkEnabled: z.boolean().default(false),
+  videoReferenceUrl: z.string().url().optional(),
+  characterOrientation: z.enum(['image', 'video']).default('image'),
+});
+export type KlingMotionBrushInputT = z.infer<typeof KlingMotionBrushInput>;
+
+export const HiggsfieldMarketingStudioInput = z.object({
+  template: z.enum([
+    'ugc', 'unboxing', 'tv-spot', 'hyper-motion', 'product-review',
+    'asmr', 'lifestyle', 'testimonial', 'reel',
+  ]),
+  productUrl: z.string().url(),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive().max(15),
+  resolution: z.enum(['720p', '1080p']),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1']).optional(),
+});
+export type HiggsfieldMarketingStudioInputT = z.infer<typeof HiggsfieldMarketingStudioInput>;
+
+// ---------------------------------------------------------------------------
+// Kling Elements — CRUD lifecycle (P15 Tasks 6.5 / 6.6 / 6.7)
+// ---------------------------------------------------------------------------
+
+// KlingElementCreateInput — base shape for tools/list (ZodObject, DEBT-008 compliant)
+// validationSchema = KlingElementCreateInput (ZodEffects with .refine for mutual-exclusion)
+export const _KlingElementCreateBase = z.object({
+  imageUrl: z.string().url().optional(),
+  imageBase64: z.string().min(1).optional(),
+  displayName: z.string().min(1).max(100),
+  category: z.enum(['character', 'product', 'location']).optional(),
+});
+
+export const KlingElementCreateInput = _KlingElementCreateBase.refine(
+  (v) => Boolean(v.imageUrl) !== Boolean(v.imageBase64),
+  { message: 'exactly one of imageUrl or imageBase64 required' },
+);
+export type KlingElementCreateInputT = z.infer<typeof KlingElementCreateInput>;
+
+// KlingElementListInput — list from local cache (+ optional backend sync)
+export const KlingElementListInput = z.object({
+  syncWithBackend: z.boolean().default(false),
+  category: z.enum(['character', 'product', 'location']).optional(),
+  includeDeleted: z.boolean().default(false),
+});
+export type KlingElementListInputT = z.infer<typeof KlingElementListInput>;
+
+// KlingElementDeleteInput — soft-delete locally + optionally hard-delete on backend
+// confirm:true is required (literal guard — irreversible on backend)
+export const KlingElementDeleteInput = z.object({
+  elementId: z.string().min(1),
+  confirm: z.literal(true, { errorMap: () => ({ message: 'confirm:true required to delete (irreversible)' }) }),
+  alsoDeleteRemote: z.boolean().default(true),
+});
+export type KlingElementDeleteInputT = z.infer<typeof KlingElementDeleteInput>;
+
+// KlingLipSyncInput — Kling V3 Pro lip-sync: drive a source video with text or audio (P15 Task 8)
+// _KlingLipSyncBase — ZodObject base shape for tools/list (DEBT-008 compliant)
+// KlingLipSyncInput — ZodEffects with two chained refines for mutual-exclusion validation
+export const _KlingLipSyncBase = z.object({
+  videoUrl: z.string().url(),
+  text: z.string().min(1).optional(),
+  audioUrl: z.string().url().optional(),
+  emotion: z.enum(['happy', 'angry', 'sad', 'neutral']).optional(),
+  modelId: z.enum(['kling-v3-pro']).default('kling-v3-pro'),
+  watermarkEnabled: z.boolean().default(false),
+});
+
+export const KlingLipSyncInput = _KlingLipSyncBase
+  .refine((v) => !!v.text || !!v.audioUrl, {
+    message: 'either text or audioUrl required',
+  })
+  .refine((v) => !(v.text && v.audioUrl), {
+    message: 'exactly one of text or audioUrl required (not both)',
+  });
+
+export type KlingLipSyncInputT = z.infer<typeof KlingLipSyncInput>;
+
+// KlingElementsInput — compose up to 4 frame-locked element identities into one shot (P15 Task 7)
+// elementIds: min 1, max 4 per Kling hard limit
+export const KlingElementsInput = z.object({
+  prompt: z.string().min(1),
+  imageUrl: z.string().url(),
+  elementIds: z.array(z.string().min(1)).min(1).max(4, 'max 4 elements per Kling spec'),
+  durationSec: z.number().positive().max(10),
+  modelId: z.enum(['kling-v3-pro']).default('kling-v3-pro'),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1']).default('16:9'),
+  watermarkEnabled: z.boolean().default(false),
+});
+export type KlingElementsInputT = z.infer<typeof KlingElementsInput>;
+
+// KlingOmniMultiShotInput — Kling V3 Omni multi-shot orchestration (P15 Task 9)
+// _KlingOmniMultiShotBase — ZodObject base shape for tools/list (DEBT-008 compliant)
+// KlingOmniMultiShotInput — ZodEffects with two chained refines for runtime validation
+//
+// Single source of truth for caps: VIDEO_MODELS['kling-v3-omni'].limits
+// The non-null assertion is safe: kling-v3-omni is a known static entry in the VIDEO_MODELS
+// registry defined in src/core/models.ts with an explicit limits block.
+const _omniSpec = VIDEO_MODELS['kling-v3-omni']!;
+const OMNI_LIMITS = _omniSpec.limits ?? {
+  maxShots: 6,
+  maxDurationSec: 30,
+  minDurationPerShotSec: 1,
+  maxDurationPerShotSec: 10,
+};
+
+export const _KlingOmniMultiShotBase = z.object({
+  shots: z
+    .array(
+      z.object({
+        // 1-based per Kling Omni API spec. If Kling actually uses 0-based,
+        // update min to 0 and the contiguous refine accordingly.
+        index: z.number().int().min(1).max(OMNI_LIMITS.maxShots ?? 6),
+        prompt: z.string().min(1),
+        // FIX (Codex P2 round 11, PR#11): enforce minDurationPerShotSec from
+        // the registry. Was `gt(0)` which let sub-second shots (e.g. 0.5s)
+        // through schema even though kling-v3-omni.limits.minDurationPerShotSec
+        // is 1. The provider would then ship an invalid clip the model can't
+        // actually produce.
+        duration: z
+          .number()
+          .min(
+            OMNI_LIMITS.minDurationPerShotSec ?? 1,
+            `min ${OMNI_LIMITS.minDurationPerShotSec ?? 1}s per shot`,
+          )
+          .max(
+            OMNI_LIMITS.maxDurationPerShotSec ?? 10,
+            `max ${OMNI_LIMITS.maxDurationPerShotSec ?? 10}s per shot`,
+          ),
+      }),
+    )
+    .min(1, 'shots[] requires at least 1 entry')
+    .max(OMNI_LIMITS.maxShots ?? 6, `max ${OMNI_LIMITS.maxShots ?? 6} shots per Kling Omni spec`),
+  imageRefs: z.array(z.object({ imageUrl: z.string().url() })).min(1),
+  videoRefs: z.array(z.object({ videoUrl: z.string().url() })).optional(),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1']).default('16:9'),
+  watermarkEnabled: z.boolean().default(false),
+});
+
+export const KlingOmniMultiShotInput = _KlingOmniMultiShotBase
+  .refine(
+    (v) => {
+      // Indices must be contiguous 1..N with no duplicates
+      const indices = v.shots.map((s) => s.index).sort((a, b) => a - b);
+      for (let i = 0; i < indices.length; i++) {
+        if (indices[i] !== i + 1) return false;
+      }
+      return true;
+    },
+    { message: 'shot indices must be contiguous 1..N starting at 1 with no duplicates' },
+  )
+  .refine(
+    (v) => v.shots.reduce((sum, s) => sum + s.duration, 0) <= (OMNI_LIMITS.maxDurationSec ?? 30),
+    {
+      message: `Omni multi-shot total duration must <= ${OMNI_LIMITS.maxDurationSec ?? 30}s (sum of all shot durations)`,
+    },
+  );
+
+export type KlingOmniMultiShotInputT = z.infer<typeof KlingOmniMultiShotInput>;
+
+// KlingVideoExtendInput — Kling V3 Pro video extension (P15 Task 10)
+// Plain ZodObject (no refines) — no Base/validation split needed.
+export const KlingVideoExtendInput = z.object({
+  videoUrl: z.string().url(),
+  prompt: z.string().min(1),
+  hops: z.number().int().min(1).max(4, 'max 4 hops per Kling video-extend (cost sanity cap)'),
+  modelId: z.enum(['kling-v3-pro']).default('kling-v3-pro'),
+  watermarkEnabled: z.boolean().default(false),
+});
+export type KlingVideoExtendInputT = z.infer<typeof KlingVideoExtendInput>;
+
+// ---------------------------------------------------------------------------
+// KlingPollInput / KlingDownloadInput — manual completion path
+// FIX (Codex P1 round 6 PR#11): default MCP Kling tools suppress callback_url
+// (HMAC mismatch). Without these, jobs stay 'pending' forever once submitted.
+// ---------------------------------------------------------------------------
+export const KlingPollInput = z.object({ jobId: z.string().min(1) });
+export type KlingPollInputT = z.infer<typeof KlingPollInput>;
+
+export const KlingDownloadInput = z.object({ jobIdOrUrl: z.string().min(1) });
+export type KlingDownloadInputT = z.infer<typeof KlingDownloadInput>;
+
+// ---------------------------------------------------------------------------
+// Seedance 2.0 (ByteDance) MCP tool schemas — P16 Task 7 (A0.5 surface: 4 tools).
+// A0.1: tiers are Fast + Standard only (NO Pro). Standard exclusively supports 1080p.
+// A0.6: tool inputs map 1:1 to fal.ai per-mode request bodies (snake_case → camelCase).
+// Each Input has a `_Base` ZodObject (emitted as tools/list inputSchema per DEBT-008)
+// + a refined ZodEffects (used as validationSchema for the cross-field rules).
+// ---------------------------------------------------------------------------
+
+const _seedanceModelTier = z.enum(['fast', 'standard']);
+const _seedanceResolution = z.enum(['480p', '720p', '1080p']);
+const _seedanceAspect = z
+  .enum(['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'])
+  .default('auto');
+// fal.ai Seedance 2.0 contract: `duration` enum is "auto" | "4" .. "15"
+// (verified via context7 → https://fal.ai/models/bytedance/seedance-2.0/
+// reference-to-video). The CodeRabbit round 9 P1 reading of "2-15s" was
+// based on prose; the upstream enum starts at 4. Keep min=4 to fail fast
+// locally before fal.ai's 422 surfaces.
+const _seedanceDuration = z.number().int().min(4).max(15).optional();
+
+// FIX (CodeRabbit round 18 deferred, PR#12): fal.ai per-modality format whitelist.
+// Image: JPEG/PNG/WebP. Video: MP4/MOV. Audio: MP3/WAV.
+// Permissive: reject only explicitly wrong extensions; URLs without an extension
+// (signed/CDN URLs that encode type out-of-band) pass — fal.ai validates server-side.
+// Regex matches the last path-segment extension before query/fragment.
+const _IMG_EXT_OK = /\.(jpe?g|png|webp)([?#]|$)/i;
+const _VID_EXT_OK = /\.(mp4|mov)([?#]|$)/i;
+const _AUD_EXT_OK = /\.(mp3|wav)([?#]|$)/i;
+const _HAS_EXT = /\.[a-z0-9]{2,5}([?#]|$)/i;
+const _seedanceImageUrl = (msg = 'must be a JPEG/PNG/WebP URL or extension-less (signed/CDN)') =>
+  z
+    .string()
+    .url()
+    .refine((u) => _IMG_EXT_OK.test(u) || !_HAS_EXT.test(u), { message: msg });
+const _seedanceVideoUrl = (msg = 'must be an MP4/MOV URL or extension-less (signed/CDN)') =>
+  z
+    .string()
+    .url()
+    .refine((u) => _VID_EXT_OK.test(u) || !_HAS_EXT.test(u), { message: msg });
+const _seedanceAudioUrl = (msg = 'must be an MP3/WAV URL or extension-less (signed/CDN)') =>
+  z
+    .string()
+    .url()
+    .refine((u) => _AUD_EXT_OK.test(u) || !_HAS_EXT.test(u), { message: msg });
+
+// ---- 1. media_seedance_text_to_video ----
+export const _SeedanceTextToVideoBase = z.object({
+  prompt: z.string().min(1),
+  modelTier: _seedanceModelTier.default('standard'),
+  resolution: _seedanceResolution.default('720p'),
+  durationSec: _seedanceDuration,
+  aspectRatio: _seedanceAspect,
+  generateAudio: z.boolean().default(true),
+  seed: z.number().int().optional(),
+  endUserId: z.string().min(1).optional(),
+});
+
+export const SeedanceTextToVideoInput = _SeedanceTextToVideoBase.refine(
+  (v) => !(v.resolution === '1080p' && v.modelTier === 'fast'),
+  {
+    message: '1080p resolution requires modelTier="standard" (Fast caps at 720p per A0.1)',
+    path: ['resolution'],
+  },
+);
+export type SeedanceTextToVideoInputT = z.infer<typeof SeedanceTextToVideoInput>;
+
+// ---- 2. media_seedance_image_to_video ----
+// I2V with optional end frame — absorbs original `targeted_edit` semantic (A0.5).
+export const _SeedanceImageToVideoBase = z.object({
+  prompt: z.string().min(1),
+  modelTier: _seedanceModelTier.default('standard'),
+  resolution: _seedanceResolution.default('720p'),
+  durationSec: _seedanceDuration,
+  aspectRatio: _seedanceAspect,
+  generateAudio: z.boolean().default(true),
+  seed: z.number().int().optional(),
+  endUserId: z.string().min(1).optional(),
+  imageUrl: _seedanceImageUrl(), // JPEG/PNG/WebP, max 30 MB per fal.ai spec
+  endImageUrl: _seedanceImageUrl().optional(), // last-frame transition (covers targeted_edit semantic)
+});
+
+export const SeedanceImageToVideoInput = _SeedanceImageToVideoBase.refine(
+  (v) => !(v.resolution === '1080p' && v.modelTier === 'fast'),
+  {
+    message: '1080p resolution requires modelTier="standard" (Fast caps at 720p per A0.1)',
+    path: ['resolution'],
+  },
+);
+export type SeedanceImageToVideoInputT = z.infer<typeof SeedanceImageToVideoInput>;
+
+// ---- 3. media_seedance_multishot ----
+// T2V wrapper that structures `shots[]` into multi-shot prompt with timestamp cuts.
+// Endpoint = text-to-video. Validation: shot.end > shot.start, sum(durations) <= 15s.
+export const _SeedanceMultishotBase = z.object({
+  prompt: z.string().min(1),
+  modelTier: _seedanceModelTier.default('standard'),
+  resolution: _seedanceResolution.default('720p'),
+  aspectRatio: _seedanceAspect,
+  shots: z
+    .array(
+      z
+        .object({
+          startSec: z.number().min(0),
+          endSec: z.number().min(0),
+          shotPrompt: z.string().min(1),
+        })
+        .refine((s) => s.endSec > s.startSec, {
+          message: 'shot endSec must be greater than startSec',
+        }),
+    )
+    .min(1, 'at least one shot required')
+    .max(4, 'max 4 shots per multi-shot dispatch'),
+  generateAudio: z.boolean().default(true),
+  seed: z.number().int().optional(),
+  endUserId: z.string().min(1).optional(),
+});
+
+export const SeedanceMultishotInput = _SeedanceMultishotBase
+  .refine(
+    (v) => v.shots.reduce((sum, s) => sum + (s.endSec - s.startSec), 0) <= 15,
+    { message: 'multi-shot total duration must <= 15s (sum of shot endSec-startSec spans)' },
+  )
+  .refine(
+    // FIX (Codex P2 round 11, PR#12): handleSeedanceMultishot derives the fal
+    // `duration` field from `Math.max(...shots.map(s => s.endSec))`. fal.ai's
+    // DurationEnum is "auto" | "4" | "5" | ... | "15" (string-typed). A
+    // request with shot {0, 3} produces durationSec=3 → fal silently degrades
+    // to "auto". Enforce the same enum locally so the error fires here,
+    // not as a confusing upstream behavior. Integer + min 4 + max 15 matches
+    // `_seedanceDuration` for the single-clip tools.
+    (v) => {
+      const max = Math.max(...v.shots.map((s) => s.endSec));
+      return Number.isInteger(max) && max >= 4 && max <= 15;
+    },
+    {
+      message:
+        'multi-shot timeline must yield integer max(endSec) in [4, 15] to match fal.ai DurationEnum (e.g. shot {0, 4} → "4"; shot {0, 3} would silently degrade to "auto")',
+      path: ['shots'],
+    },
+  )
+  .refine((v) => !(v.resolution === '1080p' && v.modelTier === 'fast'), {
+    message: '1080p resolution requires modelTier="standard" (Fast caps at 720p per A0.1)',
+    path: ['resolution'],
+  });
+export type SeedanceMultishotInputT = z.infer<typeof SeedanceMultishotInput>;
+
+// ---- 4. media_seedance_reference_fusion ----
+// R2V with @Image1 / @Video1 / @Audio1 mention syntax. Endpoint = reference-to-video.
+// Hard caps from fal.ai: 9 images, 3 videos, 3 audios. Total refs >= 1.
+// Codex P2 round 7 PR#12 fal.ai contract (verified via context7 docs):
+//   - "Total files across all modalities must not exceed 12."
+//   - "If audio is provided, at least one reference image or video is required."
+export const _SeedanceReferenceFusionBase = z.object({
+  prompt: z.string().min(1), // expected to contain @Image1/@Video1/@Audio1 mention syntax
+  modelTier: _seedanceModelTier.default('standard'),
+  resolution: _seedanceResolution.default('720p'),
+  durationSec: _seedanceDuration,
+  aspectRatio: _seedanceAspect,
+  imageUrls: z.array(_seedanceImageUrl()).max(9, 'at most 9 image refs').default([]),
+  videoUrls: z.array(_seedanceVideoUrl()).max(3, 'at most 3 video refs').default([]),
+  audioUrls: z.array(_seedanceAudioUrl()).max(3, 'at most 3 audio refs').default([]),
+  generateAudio: z.boolean().default(true),
+  seed: z.number().int().optional(),
+  endUserId: z.string().min(1).optional(),
+});
+
+export const SeedanceReferenceFusionInput = _SeedanceReferenceFusionBase
+  .refine(
+    (v) => v.imageUrls.length + v.videoUrls.length + v.audioUrls.length >= 1,
+    { message: 'at least one reference (image/video/audio) required' },
+  )
+  .refine(
+    (v) => v.imageUrls.length + v.videoUrls.length + v.audioUrls.length <= 12,
+    {
+      message:
+        'fal.ai contract: total reference files across all modalities must not exceed 12 (image + video + audio)',
+      path: ['imageUrls'],
+    },
+  )
+  .refine(
+    (v) => !(v.audioUrls.length > 0 && v.imageUrls.length === 0 && v.videoUrls.length === 0),
+    {
+      message:
+        'fal.ai contract: when audioUrls is provided, at least one reference image or video is required',
+      path: ['audioUrls'],
+    },
+  )
+  .refine((v) => !(v.resolution === '1080p' && v.modelTier === 'fast'), {
+    message: '1080p resolution requires modelTier="standard" (Fast caps at 720p per A0.1)',
+    path: ['resolution'],
+  });
+export type SeedanceReferenceFusionInputT = z.infer<typeof SeedanceReferenceFusionInput>;
+
 // ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
@@ -204,8 +828,13 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 26 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs = 26
+// MCP_TOOLS registry — 54 tools total (PR#11 base 50 + P16 4 Seedance = 54)
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route
+// + 7 higgsfield (soul_id, dop, cinema_studio, speak, marketing_studio, recast, virality_predictor)
+// + 1 higgsfield_generate (Codex round 7 PR#10)
+// + 2 higgsfield lifecycle (poll, download — Codex round 5 PR#10)
+// + 11 kling (motion_brush, element_create/list/delete, elements, lip_sync, omni_multishot, video_extend, poll, download, +1 from R6)
+// + 4 seedance (text_to_video, image_to_video, multishot, reference_fusion — P16) = 54
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -352,6 +981,231 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     name: 'media_refs_index',
     description: 'Batch index refs into pgvector for semantic search (Phase 2)',
     inputSchema: RefsIndexInput,
+  },
+
+  // ---- Webhook (1 — P13 scaffold for P14+ provider callbacks) ----
+  {
+    name: 'media_video_webhook_status',
+    description:
+      'Status of the local webhook router (P14+ provider callback endpoint). Reports running state, bind address, and registered handlers.',
+    inputSchema: VideoWebhookStatusInput,
+  },
+
+  // ---- Cost estimation (2 — P13 provider-registry cost tools) ----
+  {
+    name: 'media_video_cost_estimate',
+    description:
+      'Estimate USD cost for a video generation request (any provider in the registry; P13 supports google/Veo only).',
+    inputSchema: VideoCostEstimateInput,
+  },
+  {
+    name: 'media_video_cost_report',
+    description:
+      'Aggregate cost report from the local SQLite ledger. Returns totals and per-provider breakdowns for the specified period.',
+    inputSchema: VideoCostReportInput,
+  },
+
+  // ---- Routing (1 — P13 cross-provider routing heuristic; Veo-only today) ----
+  {
+    name: 'media_video_route',
+    description:
+      'Pick the optimal provider+model for a video generation request (P13: Veo-only; extended in P14-P16).',
+    inputSchema: VideoRouteInput,
+  },
+
+  // ---- Higgsfield Soul ID (1 — P14 character training cache) ----
+  {
+    name: 'media_higgsfield_soul_id',
+    description: 'Soul ID lifecycle (create/list/find/markUsed) — character training cache for Higgsfield.',
+    inputSchema: _HiggsfieldSoulIdBase,
+    validationSchema: HiggsfieldSoulIdInput,
+  },
+
+  // ---- Higgsfield DoP (1 — P14 image-to-video with WAN Camera Control verbs) ----
+  {
+    name: 'media_higgsfield_dop',
+    description: 'Higgsfield Director of Photography — image-to-video with WAN Camera Control verbs.',
+    inputSchema: HiggsfieldDopInput,
+    validationSchema: HiggsfieldDopInput,
+  },
+
+  // ---- Higgsfield Cinema Studio (1 — P14 1,296 virtual lenses, focal/aperture/sensor/grading) ----
+  {
+    name: 'media_higgsfield_cinema_studio',
+    description: 'Higgsfield Cinema Studio 3.5 — 1,296 virtual lenses, focal/aperture/sensor/grading.',
+    inputSchema: HiggsfieldCinemaStudioInput,
+    validationSchema: HiggsfieldCinemaStudioInput,
+  },
+
+  // ---- Higgsfield Speak (1 — P14 Task 11 lip-sync: portrait + audio → talking head) ----
+  {
+    name: 'media_higgsfield_speak',
+    description: 'Higgsfield Speak / Speak 2.0 lip-sync — portrait + audio → talking head.',
+    // debt-008 split: plain ZodObject for MCP inputSchema introspection;
+    // refined schema (with per-model duration cap) for runtime validation.
+    inputSchema: _HiggsfieldSpeakBase,
+    validationSchema: HiggsfieldSpeakInput,
+  },
+
+  // ---- Higgsfield Marketing Studio (1 — P14 Task 12 UGC templates from product URL) ----
+  {
+    name: 'media_higgsfield_marketing_studio',
+    description: 'Higgsfield Marketing Studio — 9 UGC templates from product URL (unboxing/TV spot/reel/etc).',
+    inputSchema: HiggsfieldMarketingStudioInput,
+    validationSchema: HiggsfieldMarketingStudioInput,
+  },
+
+  // ---- Higgsfield Recast (1 — P14 Task 13 character swap in existing video) ----
+  {
+    name: 'media_higgsfield_recast',
+    description: 'Higgsfield Recast Studio — swap character in existing video (Instadump / Character Swap).',
+    inputSchema: HiggsfieldRecastInput,
+    validationSchema: HiggsfieldRecastInput,
+  },
+
+  // ---- Higgsfield Virality Predictor (1 — P14 Task 14 score asset viral/audience/hook) ----
+  {
+    name: 'media_higgsfield_virality_predictor',
+    description: 'Higgsfield Virality Predictor — score an asset (viral / audience-fit / hook-strength).',
+    inputSchema: HiggsfieldViralityPredictorInput,
+    validationSchema: HiggsfieldViralityPredictorInput,
+  },
+
+  // ---- Higgsfield Generate (Codex P2 round 7 PR#10 — generic Soul/Soul2 t2v|i2v submit) ----
+  {
+    name: 'media_higgsfield_generate',
+    description:
+      'Generic Higgsfield submit for Soul / Soul 2.0 / aesthetic presets when none of the specialized tools (dop, cinema_studio, speak, marketing_studio, recast) applies. Required: modelId, prompt. Optional: mode (t2v/i2v), firstFrameImagePath (REQUIRED when mode=i2v), referenceImagePaths, soulId.',
+    // DEBT-008: tools/list wants a plain ZodObject; runtime validation uses
+    // the refined schema (cross-field check: i2v requires firstFrameImagePath).
+    inputSchema: _HiggsfieldGenerateBase,
+    validationSchema: HiggsfieldGenerateInput,
+  },
+
+  // ---- Higgsfield Poll + Download (Codex P2 round 5 PR#10 — async lifecycle for the 7 generation tools) ----
+  {
+    name: 'media_higgsfield_poll',
+    description:
+      'Poll a Higgsfield async job by internal jobId — returns state + assetUrls when completed. Use after any media_higgsfield_* generation tool.',
+    inputSchema: HiggsfieldPollInput,
+    validationSchema: HiggsfieldPollInput,
+  },
+  {
+    name: 'media_higgsfield_download',
+    description:
+      'Download a completed Higgsfield asset by internal jobId OR explicit CDN URL — returns byte length + content type.',
+    inputSchema: HiggsfieldDownloadInput,
+    validationSchema: HiggsfieldDownloadInput,
+  },
+
+  // ---- Kling Motion Brush (1 — P15 Task 6: paint regions of still image with motion vectors) ----
+  {
+    name: 'media_kling_motion_brush',
+    description:
+      'Kling V3 Pro motion brush - paint regions of a still image with motion vectors. Returns a jobId; poll status or wait for webhook callback. Input: imageUrl, prompt, regions[].',
+    inputSchema: KlingMotionBrushInput,
+  },
+
+  // ---- Kling Elements CRUD (3 — P15 Tasks 6.5 / 6.6 / 6.7) ----
+  {
+    name: 'media_kling_element_create',
+    description:
+      'Create a Kling element_id from an uploaded image (URL or base64). Returns element_id for use in media_kling_elements composition. Cached locally in kling_elements SQLite table.',
+    inputSchema: _KlingElementCreateBase,
+    validationSchema: KlingElementCreateInput,
+  },
+  {
+    name: 'media_kling_element_list',
+    description:
+      'List registered Kling element_ids. Defaults to local cache; pass syncWithBackend:true to refresh against Kling API.',
+    inputSchema: KlingElementListInput,
+  },
+  {
+    name: 'media_kling_element_delete',
+    description:
+      'Delete a Kling element_id from local cache + (default) Kling backend. Requires confirm:true (irreversible on backend). Local row is soft-deleted (deleted_at set) for audit.',
+    inputSchema: KlingElementDeleteInput,
+  },
+
+  // ---- Kling Elements composition (1 — P15 Task 7: compose up to 4 frame-locked identities into one shot) ----
+  {
+    name: 'media_kling_elements',
+    description:
+      'Kling V3 Pro Elements - up to 4 frame-locked reference identities (characters, objects, locations) composed into one shot via base image + elementIds. Use for consistent multi-character scenes.',
+    inputSchema: KlingElementsInput,
+  },
+
+  // ---- Kling Lip-Sync (1 — P15 Task 8: drive source video with text or audio) ----
+  {
+    name: 'media_kling_lip_sync',
+    description:
+      'Kling V3 Pro Lip-Sync - drive a source video clip with either generated speech (text + emotion picker: happy/angry/sad/neutral) or supplied audio file URL. Exactly one of text or audioUrl required.',
+    inputSchema: _KlingLipSyncBase,
+    validationSchema: KlingLipSyncInput,
+  },
+
+  // ---- Kling Omni Multi-Shot (1 — P15 Task 9: single-API multi-cut orchestration) ----
+  {
+    name: 'media_kling_omni_multishot',
+    description:
+      'Kling V3 Omni multi-shot orchestration - single API call generates up to 6 contiguous cuts with per-shot prompt + duration, sharing visual identity via imageRefs. Use for music-video / narrative sequences. Total duration = sum of shot durations (max 30s).',
+    inputSchema: _KlingOmniMultiShotBase,
+    validationSchema: KlingOmniMultiShotInput,
+  },
+
+  // ---- Kling Video Extend (1 — P15 Task 10: add ~4.5s continuation per hop, up to 4 hops ~18s) ----
+  {
+    name: 'media_kling_video_extend',
+    description:
+      'Kling V3 Pro video extension - adds ~4.5s of continuation per hop to a source video. Chain up to 4 hops (~18s total extension). Returns first hop jobId + hopsRemaining; re-invoke after webhook fires to chain.',
+    inputSchema: KlingVideoExtendInput,
+  },
+
+  // ---- Kling lifecycle tools (2 — Codex P1 round 6 PR#11: manual completion path when callbacks suppressed) ----
+  {
+    name: 'media_kling_poll',
+    description:
+      'Poll a Kling job by internal jobId. Hydrates native_task_id + endpoint kind from cost-tracker DB, then calls the matching Kling REST poll endpoint. Use when callback URLs are suppressed (default MCP flow) and you need to drive a job to completion manually.',
+    inputSchema: KlingPollInput,
+  },
+  {
+    name: 'media_kling_download',
+    description:
+      'Download a Kling job asset by internal jobId or direct URL. When given a jobId, hydrates state from DB, polls to obtain a fresh URL, downloads the asset, and writes it under MEDIA_FORGE_OUTPUTS_DIR. Asset URLs are TTL-bounded; download immediately after the job reports completed.',
+    inputSchema: KlingDownloadInput,
+  },
+
+  // ---- Seedance 2.0 (ByteDance) — P16 Task 7 (4 tools: t2v/i2v/multishot/reference-fusion) ----
+  // A0.1: 2 tiers (Fast/Standard) — NO Pro. Standard exclusively supports 1080p. A0.5: 4 MCP tools.
+  // NOTE: Seedance has unresolved IP litigation (Disney/Paramount C&D); operator assumes full
+  // compliance responsibility per README "Legal Note on Seedance 2.0".
+  {
+    name: 'media_seedance_text_to_video',
+    description:
+      'Seedance 2.0 text-to-video (Fast / Standard tier). Native audio generation. Resolution 480p/720p (Fast) or 480p/720p/1080p (Standard). NOTE: Seedance has unresolved IP litigation (Disney/Paramount C&D); operator assumes full compliance responsibility, see README "Legal Note on Seedance 2.0".',
+    inputSchema: _SeedanceTextToVideoBase,
+    validationSchema: SeedanceTextToVideoInput,
+  },
+  {
+    name: 'media_seedance_image_to_video',
+    description:
+      'Seedance 2.0 image-to-video (Fast / Standard tier). Accepts imageUrl (start frame) + optional endImageUrl (last-frame transition for frame-anchor edits, replaces targeted_edit). Native audio generation. NOTE: Seedance has unresolved IP litigation (Disney/Paramount C&D); operator assumes full compliance responsibility, see README "Legal Note on Seedance 2.0".',
+    inputSchema: _SeedanceImageToVideoBase,
+    validationSchema: SeedanceImageToVideoInput,
+  },
+  {
+    name: 'media_seedance_multishot',
+    description:
+      'Seedance 2.0 multi-shot text-to-video. Pass `shots: [{startSec, endSec, shotPrompt}]` — the provider serializes them into `[MM:SS-MM:SS] Shot N: ...` markers per ByteDance spec. Best for narrative montages with controlled cuts. Total duration must <= 15s. NOTE: Seedance has unresolved IP litigation (Disney/Paramount C&D); operator assumes full compliance responsibility, see README "Legal Note on Seedance 2.0".',
+    inputSchema: _SeedanceMultishotBase,
+    validationSchema: SeedanceMultishotInput,
+  },
+  {
+    name: 'media_seedance_reference_fusion',
+    description:
+      'Seedance 2.0 reference-to-video (omni-reference fusion). Up to 9 image refs + 3 video refs + 3 audio refs. Prompt should reference them via @Image1/@Video1/@Audio1 mention syntax. The model fuses identity / style / motion / voice across all refs. NOTE: Seedance has unresolved IP litigation (Disney/Paramount C&D); operator assumes full compliance responsibility, see README "Legal Note on Seedance 2.0".',
+    inputSchema: _SeedanceReferenceFusionBase,
+    validationSchema: SeedanceReferenceFusionInput,
   },
 ] as const) as readonly MCPTool[];
 

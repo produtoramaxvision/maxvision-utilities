@@ -15,7 +15,7 @@ Video extension workflow. Extends an existing video clip using Veo 3.1 extension
 1. Receive source video path and continuation directive from $ARGUMENTS.
 2. Validate source video exists. Check current duration to calculate hops needed.
 3. Guard: if requested total duration > 148s (20 hops), warn user and cap at 20 hops.
-4. For each extension hop: dispatch `media-forge:video-editor` in `extend` mode with `hopIndex`.
+4. For each extension hop: dispatch `media-forge:veo-director` in `extend` mode with `hopIndex`.
 5. Download each hop result immediately (2-day TTL — warn if operation age >36h).
 6. Return extended video path chain and `extension-manifest.json`.
 
