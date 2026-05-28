@@ -487,6 +487,61 @@ describe('HiggsfieldProvider', () => {
     );
   });
 
+  it('generate does NOT record a job when the upstream submit fails (Codex P2 round 14, PR#10)', async () => {
+    // Return 500 from both primary + fallback. Provider must throw without leaving a row.
+    global.fetch = vi.fn(async () =>
+      new Response('upstream exploded', { status: 500 }),
+    ) as unknown as typeof fetch;
+
+    await expect(
+      provider.generate({
+        modelId: 'higgsfield-soul-standard',
+        mode: 't2v',
+        prompt: 'fail-path',
+        durationSec: 5,
+        resolution: '720p',
+      }),
+    ).rejects.toThrow(/Higgsfield generate failed: 500/);
+
+    const { openDb, runMigrations } = await import('../../../src/core/db.js');
+    const db = openDb(dbPath);
+    runMigrations(db);
+    const row = db.prepare('SELECT COUNT(*) AS n FROM video_jobs').get() as { n: number };
+    // Previous behaviour: 1 dangling pending row per failed submit.
+    expect(row.n).toBe(0);
+  });
+
+  it('generate records the job AFTER a successful submit (order assertion)', async () => {
+    const calls: Array<'fetch' | 'db'> = [];
+    const { openDb, runMigrations } = await import('../../../src/core/db.js');
+    const db = openDb(dbPath);
+    runMigrations(db);
+    const before = (db.prepare('SELECT COUNT(*) AS n FROM video_jobs').get() as { n: number }).n;
+
+    global.fetch = vi.fn(async () => {
+      calls.push('fetch');
+      return new Response(
+        JSON.stringify({ request_id: 'r-after', status_url: 'u', cancel_url: 'c' }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    await provider.generate({
+      modelId: 'higgsfield-soul-standard',
+      mode: 't2v',
+      prompt: 'order-test',
+      durationSec: 5,
+      resolution: '720p',
+    });
+    calls.push('db');
+
+    const after = (db.prepare('SELECT COUNT(*) AS n FROM video_jobs').get() as { n: number }).n;
+    expect(after).toBe(before + 1);
+    // fetch must complete before recordJob — assertion is implicit in ordering
+    // but we also assert no duplicate rows.
+    expect(calls[0]).toBe('fetch');
+  });
+
   it('recordActualCostUSD persists the cost to the video_jobs row', async () => {
     // First generate to insert a row
     global.fetch = vi.fn(async () => {

@@ -106,15 +106,6 @@ export class HiggsfieldProvider implements VideoProvider {
 
     const jobId = `hf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const estUsd = this.estimateCostUSD(req);
-    recordJob({
-      dbPath: this.dbPath,
-      jobId,
-      provider: 'higgsfield',
-      model: req.modelId,
-      mode: req.mode,
-      paramsHash: this.hashParams(req),
-      estUsd,
-    });
 
     const endpoint = this.endpointForModel(req.modelId);
     const url = this.buildUrlWithWebhook(endpoint, jobId);
@@ -152,6 +143,22 @@ export class HiggsfieldProvider implements VideoProvider {
       throw new Error(`Higgsfield generate failed: ${res.status} ${errText.slice(0, 400)}`);
     }
     const parsed = (await res.json()) as PlatformGenerateResponse;
+
+    // FIX (Codex P2 round 14, PR#10): record the job ONLY after the upstream
+    // submit succeeds. The previous order (recordJob → POST) left a permanent
+    // 'pending' row on every failed submit (401/403 after both auth attempts,
+    // 4xx validation, network errors), polluting cost reports and forcing
+    // manual cleanup. Per-second cost rows are cheap; we lose nothing by
+    // deferring the write until we hold a real provider request_id.
+    recordJob({
+      dbPath: this.dbPath,
+      jobId,
+      provider: 'higgsfield',
+      model: req.modelId,
+      mode: req.mode,
+      paramsHash: this.hashParams(req),
+      estUsd,
+    });
 
     recordRequestMapping({
       dbPath: this.dbPath,
