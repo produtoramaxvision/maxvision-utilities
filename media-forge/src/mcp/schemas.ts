@@ -428,8 +428,11 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 37 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 1 higgsfield-soul-id + 1 higgsfield-dop + 1 higgsfield-cinema-studio + 1 higgsfield-speak + 1 higgsfield-marketing-studio + 1 higgsfield-recast + 1 higgsfield-virality-predictor = 37
+// MCP_TOOLS registry — 40 tools total (PR#10 head)
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost
+// + 1 route + 7 higgsfield (soul_id, dop, cinema_studio, speak, marketing_studio,
+// recast, virality_predictor) + 1 higgsfield_generate (Codex round 7)
+// + 2 higgsfield lifecycle (poll, download — Codex round 5) = 40
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
