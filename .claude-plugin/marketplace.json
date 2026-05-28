@@ -27,7 +27,7 @@
     },
     {
       "name": "gtm-skills",
-      "description": "Google Tag Manager API expert skill â€” create, update, delete, and publish tags, triggers, and variables programmatically",
+      "description": "Google Tag Manager API expert skill — create, update, delete, and publish tags, triggers, and variables programmatically",
       "source": "./gtm-skills",
       "strict": true,
       "skills": [
