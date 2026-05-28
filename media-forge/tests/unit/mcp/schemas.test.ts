@@ -64,6 +64,9 @@ const EXPECTED_TOOL_NAMES = [
   'media_higgsfield_virality_predictor',
   // higgsfield generate (1 — Codex P2 round 7 PR#10 generic Soul/Soul2 submit)
   'media_higgsfield_generate',
+  // higgsfield async lifecycle (2 — Codex P2 round 5 PR#10)
+  'media_higgsfield_poll',
+  'media_higgsfield_download',
 ] as const;
 
 // ---------------------------------------------------------------------------

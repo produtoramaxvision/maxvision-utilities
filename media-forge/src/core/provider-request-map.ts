@@ -63,7 +63,15 @@ export function recordRequestMapping(input: RecordMappingInput): void {
     input.jobId,
   );
   CACHE_JOB_TO_REQ.set(input.jobId, input.providerRequestId);
-  if (input.statusUrl) CACHE_JOB_TO_STATUS_URL.set(input.jobId, input.statusUrl);
+  // FIX (CodeRabbit round 9, PR#10): clear stale cache entry when statusUrl
+  // is omitted on a re-record. Without the delete branch, a re-record without
+  // statusUrl leaves an outdated URL in cache that subsequent lookups would
+  // return — diverging from the DB's NULL value.
+  if (input.statusUrl) {
+    CACHE_JOB_TO_STATUS_URL.set(input.jobId, input.statusUrl);
+  } else {
+    CACHE_JOB_TO_STATUS_URL.delete(input.jobId);
+  }
 }
 
 export function findStatusUrlByJobId(input: FindByJobInput): string | undefined {

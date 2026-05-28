@@ -352,8 +352,10 @@ export async function handleHiggsfieldSpeak(rawInput: unknown): Promise<{
           'Re-run Task 1.5 probe + update Task 6 per .maxvision/intel/2026-05-27-higgsfield-speak-audio-decision.md.',
       );
     }
-    const { readFileSync } = await import('node:fs');
-    const buf = readFileSync(input.audioPath);
+    // FIX (CodeRabbit round 9, PR#10): use async fs.readFile — readFileSync
+    // stalls the event loop for multi-MB audio uploads, blocking every other
+    // concurrent MCP request. `fs` (promises API) is already imported above.
+    const buf = await fs.readFile(input.audioPath);
     audioReference = await (provider as unknown as { uploadAudio: (b: Buffer) => Promise<string> }).uploadAudio(buf);
   } else if (mode !== 'URL') {
     throw new Error(

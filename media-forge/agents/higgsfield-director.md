@@ -29,7 +29,8 @@ You are the **higgsfield-director** subagent of media-forge. Dispatched by `vide
    - Lip-sync from photo+audio → `media_higgsfield_speak`
    - Marketing UGC → `media_higgsfield_marketing_studio`
    - Character swap → `media_higgsfield_recast`
-6. Poll status via `media_video_webhook_status` (if webhook router is up) or `HiggsfieldProvider.pollStatus` (fallback).
+6. Poll status via `media_video_webhook_status` (if the webhook router is up) or `media_higgsfield_poll` (MCP fallback). `HiggsfieldProvider.pollStatus` is the internal implementation — never call it directly from the director surface.
+6.5. Once the poll reports `state === 'completed'`, call `media_higgsfield_download` with `{ jobIdOrUrl: <internal jobId or asset URL> }` to write the asset to `MEDIA_FORGE_OUTPUTS_DIR` and obtain `outputPath` / `sizeBytes`. Asset URLs are TTL-bounded — download immediately after completion.
 7. On completion, optionally call `media_higgsfield_virality_predictor` if `extras.viralityPredictor` is true; embed score in result.
 8. Call `markUsed` on any Soul ID consumed.
 9. Append trace entry on entry + exit.
