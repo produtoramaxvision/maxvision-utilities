@@ -72,8 +72,35 @@ import {
 } from './schemas.js';
 import { queryReport, type CostReport } from '../core/cost-tracker.js';
 import { normalizeCostUSD } from '../core/pricing.js';
-import type { Provider } from '../core/models.js';
+import type { Provider, VideoModelSpec } from '../core/models.js';
 import { join } from 'node:path';
+import {
+  createSoulId,
+  listSoulIds,
+  findByCharacterName,
+  markUsed,
+  type SoulIdRecord,
+} from '../core/soul-id-cache.js';
+import { HiggsfieldSoulIdInput, type HiggsfieldSoulIdInputT } from './schemas.js';
+import { HiggsfieldDopInput, type HiggsfieldDopInputT } from './schemas.js';
+import { HiggsfieldCinemaStudioInput, type HiggsfieldCinemaStudioInputT } from './schemas.js';
+import { HiggsfieldSpeakInput, type HiggsfieldSpeakInputT } from './schemas.js';
+import { HiggsfieldMarketingStudioInput, type HiggsfieldMarketingStudioInputT } from './schemas.js';
+import { HiggsfieldRecastInput, type HiggsfieldRecastInputT } from './schemas.js';
+import { HiggsfieldViralityPredictorInput, type HiggsfieldViralityPredictorInputT } from './schemas.js';
+import { HiggsfieldGenerateInput, type HiggsfieldGenerateInputT } from './schemas.js';
+import { buildHiggsfieldHeaders } from '../video/providers/auth/higgsfield-headers.js';
+import { HiggsfieldProvider } from '../video/providers/higgsfield.js';
+
+// ---------------------------------------------------------------------------
+// ADAPTED_PROVIDERS — routing gate: only providers with a wired adapter here.
+// Prevents the router from selecting models that have no execution backend.
+//
+// P14: HiggsfieldProvider landed in Task 6 — 'higgsfield' enters ADAPTED_PROVIDERS.
+// P15: 'kling' will be appended when KlingProvider lands.
+// P16: 'bytedance' will be appended when SeedanceProvider lands.
+// ---------------------------------------------------------------------------
+const ADAPTED_PROVIDERS = new Set<Provider>(['google', 'higgsfield']);
 
 // ---------------------------------------------------------------------------
 // Webhook router module-level handle (P13 scaffold for P14+ provider callbacks)
@@ -114,6 +141,360 @@ function defaultDbPath(): string {
 }
 
 // ---------------------------------------------------------------------------
+// D-7: lazy singleton — HiggsfieldProvider is constructed on first use and
+// cached for the lifetime of the MCP server process. Avoids per-call
+// construction overhead AND ensures all handlers share the in-memory
+// `provider-request-map` cache + the same HiggsfieldProvider instance.
+// ---------------------------------------------------------------------------
+let _hfProvider: HiggsfieldProvider | undefined;
+
+function higgsfieldProvider(): HiggsfieldProvider {
+  if (_hfProvider) return _hfProvider;
+  _hfProvider = new HiggsfieldProvider({
+    dbPath: defaultDbPath(),
+    publicWebhookBaseUrl: process.env['MEDIA_FORGE_WEBHOOK_PUBLIC_URL'],
+  });
+  return _hfProvider;
+}
+
+/** Test utility — resets the singleton so each test gets a fresh provider bound to the
+ *  current dbPath / env. Tests with their own tmp dbPath MUST call this in beforeEach. */
+export function _resetHiggsfieldProviderForTests(): void {
+  _hfProvider = undefined;
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldPoll / handleHiggsfieldDownload — async job lifecycle for the
+// 7 Higgsfield generation tools (Codex P2 round 5 PR#10).
+// ---------------------------------------------------------------------------
+
+export async function handleHiggsfieldPoll(rawInput: unknown): Promise<{
+  jobId: string;
+  state: string;
+  progress?: number;
+  assetUrls?: ReadonlyArray<string>;
+  errorMessage?: string;
+}> {
+  const input = rawInput as { jobId?: unknown };
+  if (typeof input?.jobId !== 'string' || input.jobId.length === 0) {
+    throw new Error('media_higgsfield_poll requires { jobId: string }');
+  }
+  const provider = higgsfieldProvider();
+  const status = await provider.pollStatus(input.jobId);
+  return {
+    jobId: status.jobId,
+    state: status.state,
+    ...(status.progress !== undefined ? { progress: status.progress } : {}),
+    ...(status.assetUrls ? { assetUrls: status.assetUrls } : {}),
+    ...(status.errorMessage ? { errorMessage: status.errorMessage } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldGenerate — generic Soul / Soul2 / aesthetic submit
+// (Codex P2 round 7 PR#10): closes the doc-vs-implementation gap where the
+// director routed Soul t2v through media_video_route (a decision-only tool)
+// with no actual submit path.
+// ---------------------------------------------------------------------------
+export async function handleHiggsfieldGenerate(rawInput: unknown): Promise<{
+  provider: string;
+  jobId: string;
+  providerNativeId?: string;
+  estimatedCostUSD: number;
+}> {
+  const input: HiggsfieldGenerateInputT = HiggsfieldGenerateInput.parse(rawInput);
+  const provider = higgsfieldProvider();
+  const req = {
+    modelId: input.modelId,
+    mode: input.mode,
+    prompt: input.prompt,
+    durationSec: input.durationSec,
+    resolution: input.resolution,
+    ...(input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}),
+    ...(input.firstFrameImagePath ? { firstFrameImagePath: input.firstFrameImagePath } : {}),
+    ...(input.referenceImagePaths ? { referenceImagePaths: input.referenceImagePaths } : {}),
+    extras: {
+      providerKind: 'higgsfield' as const,
+      ...(input.soulId ? { soulId: input.soulId } : {}),
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    provider: handle.provider,
+    jobId: handle.jobId,
+    providerNativeId: handle.providerNativeId,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+export async function handleHiggsfieldDownload(rawInput: unknown): Promise<{
+  bytes: number;
+  contentType: string;
+  cdnUrl?: string;
+}> {
+  const input = rawInput as { jobIdOrUrl?: unknown };
+  if (typeof input?.jobIdOrUrl !== 'string' || input.jobIdOrUrl.length === 0) {
+    throw new Error('media_higgsfield_download requires { jobIdOrUrl: string }');
+  }
+  const provider = higgsfieldProvider();
+  const asset = await provider.download(input.jobIdOrUrl);
+  return {
+    bytes: asset.buffer.length,
+    contentType: asset.metadata.contentType,
+    ...(asset.metadata.cdnUrl ? { cdnUrl: asset.metadata.cdnUrl } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldDop — DoP image-to-video with WAN Camera Control verbs
+// ---------------------------------------------------------------------------
+
+export async function handleHiggsfieldDop(rawInput: unknown): Promise<{
+  provider: string;
+  jobId: string;
+  providerNativeId?: string;
+  estimatedCostUSD: number;
+}> {
+  const input: HiggsfieldDopInputT = HiggsfieldDopInput.parse(rawInput);
+  const provider = higgsfieldProvider();
+  const req = {
+    modelId: input.modelId,
+    mode: 'i2v' as const,
+    prompt: input.prompt,
+    durationSec: input.durationSec,
+    resolution: input.resolution,
+    aspectRatio: input.aspectRatio,
+    firstFrameImagePath: input.firstFrameImagePath,
+    extras: {
+      providerKind: 'higgsfield' as const,
+      dopCameraVerbs: input.cameraVerbs,
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    provider: handle.provider,
+    jobId: handle.jobId,
+    providerNativeId: handle.providerNativeId,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldCinemaStudio — Cinema Studio 3.5 with 1,296 virtual lenses
+// ---------------------------------------------------------------------------
+
+export async function handleHiggsfieldCinemaStudio(rawInput: unknown): Promise<{
+  provider: string;
+  jobId: string;
+  providerNativeId?: string;
+  estimatedCostUSD: number;
+}> {
+  const input: HiggsfieldCinemaStudioInputT = HiggsfieldCinemaStudioInput.parse(rawInput);
+  const provider = higgsfieldProvider();
+  const req = {
+    modelId: 'higgsfield-cinema-studio-3.5',
+    mode: 'i2v' as const,
+    prompt: input.prompt,
+    durationSec: input.durationSec,
+    resolution: input.resolution,
+    aspectRatio: input.aspectRatio,
+    firstFrameImagePath: input.firstFrameImagePath,
+    extras: {
+      providerKind: 'higgsfield' as const,
+      cinemaStudioParams: {
+        focalLengthMm: input.focalLengthMm,
+        apertureFStop: input.apertureFStop,
+        sensorSize: input.sensorSize,
+        colorGrading: input.colorGrading,
+        lensId: input.lensId,
+      },
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    provider: handle.provider,
+    jobId: handle.jobId,
+    providerNativeId: handle.providerNativeId,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldSpeak — Speak / Speak 2.0 lip-sync: portrait + audio → talking head
+// Task 1.5 audio mode wiring: MEDIA_FORGE_HF_SPEAK_AUDIO_MODE controls how the
+// audio reference is resolved before the generate request is submitted.
+//   'URL' (default / unset): audioReference = input.audioPath (pass-through)
+//   'SIGNED_UPLOAD': upload audio bytes to Higgsfield — NOT implemented (PRELIMINAR_URL
+//     per intel/2026-05-27-higgsfield-speak-audio-decision.md). Throws if set.
+// ---------------------------------------------------------------------------
+
+export async function handleHiggsfieldSpeak(rawInput: unknown): Promise<{
+  provider: string;
+  jobId: string;
+  providerNativeId?: string;
+  estimatedCostUSD: number;
+}> {
+  const input: HiggsfieldSpeakInputT = HiggsfieldSpeakInput.parse(rawInput);
+  const provider = higgsfieldProvider();
+
+  // Task 1.5 decision wiring: when SIGNED_UPLOAD was the empirical outcome, the local
+  // audio file must be uploaded to a Higgsfield-managed URL before submitting the generate
+  // request. When URL was the outcome, the local path is passed through (the platform
+  // expects a publicly fetchable HTTP URL — the caller is responsible for hosting it).
+  // The decision is read from MEDIA_FORGE_HF_SPEAK_AUDIO_MODE env var ('URL' | 'SIGNED_UPLOAD'),
+  // which `commands/setup.md` writes after the operator records the Task 1.5 outcome.
+  let audioReference = input.audioPath;
+  const mode = process.env['MEDIA_FORGE_HF_SPEAK_AUDIO_MODE'] ?? 'URL';
+  if (mode === 'SIGNED_UPLOAD') {
+    if (typeof (provider as unknown as { uploadAudio?: (b: Buffer) => Promise<string> }).uploadAudio !== 'function') {
+      throw new Error(
+        'MEDIA_FORGE_HF_SPEAK_AUDIO_MODE=SIGNED_UPLOAD but HiggsfieldProvider.uploadAudio() is not implemented. ' +
+          'Re-run Task 1.5 probe + update Task 6 per .maxvision/intel/2026-05-27-higgsfield-speak-audio-decision.md.',
+      );
+    }
+    // FIX (CodeRabbit round 9, PR#10): use async fs.readFile — readFileSync
+    // stalls the event loop for multi-MB audio uploads, blocking every other
+    // concurrent MCP request. `fs` (promises API) is already imported above.
+    const buf = await fs.readFile(input.audioPath);
+    audioReference = await (provider as unknown as { uploadAudio: (b: Buffer) => Promise<string> }).uploadAudio(buf);
+  } else if (mode !== 'URL') {
+    throw new Error(
+      `MEDIA_FORGE_HF_SPEAK_AUDIO_MODE='${mode}' invalid. Must be 'URL' or 'SIGNED_UPLOAD' (set by setup wizard after Task 1.5).`,
+    );
+  }
+
+  const req = {
+    modelId: input.modelId,
+    mode: 'lip-sync' as const,
+    prompt: input.prompt,
+    durationSec: input.durationSec,
+    resolution: input.resolution,
+    aspectRatio: input.aspectRatio,
+    firstFrameImagePath: input.portraitImagePath,
+    extras: {
+      providerKind: 'higgsfield' as const,
+      speakAudioPath: audioReference,
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    provider: handle.provider,
+    jobId: handle.jobId,
+    providerNativeId: handle.providerNativeId,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldMarketingStudio — Marketing Studio: 9 UGC templates from product URL
+// ---------------------------------------------------------------------------
+
+export async function handleHiggsfieldMarketingStudio(rawInput: unknown): Promise<{
+  provider: string;
+  jobId: string;
+  providerNativeId?: string;
+  estimatedCostUSD: number;
+}> {
+  const input: HiggsfieldMarketingStudioInputT = HiggsfieldMarketingStudioInput.parse(rawInput);
+  const provider = higgsfieldProvider();
+  const req = {
+    modelId: 'higgsfield-marketing-studio',
+    mode: 't2v' as const,
+    prompt: input.prompt,
+    durationSec: input.durationSec,
+    resolution: input.resolution,
+    aspectRatio: input.aspectRatio,
+    extras: {
+      providerKind: 'higgsfield' as const,
+      marketingStudioTemplate: input.template,
+      marketingStudioProductUrl: input.productUrl,
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    provider: handle.provider,
+    jobId: handle.jobId,
+    providerNativeId: handle.providerNativeId,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldRecast — Recast Studio: swap character in existing video
+// ---------------------------------------------------------------------------
+
+export async function handleHiggsfieldRecast(rawInput: unknown): Promise<{
+  provider: string;
+  jobId: string;
+  providerNativeId?: string;
+  estimatedCostUSD: number;
+}> {
+  const input: HiggsfieldRecastInputT = HiggsfieldRecastInput.parse(rawInput);
+  const provider = higgsfieldProvider();
+  const req = {
+    modelId: 'higgsfield-recast',
+    mode: 'targeted-edit' as const,
+    prompt: input.prompt,
+    durationSec: input.durationSec,
+    resolution: input.resolution,
+    firstFrameImagePath: input.sourceVideoPath, // platform reads first_frame_url as source ref
+    extras: {
+      providerKind: 'higgsfield' as const,
+      recastTargetCharacterPath: input.targetCharacterImagePath,
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    provider: handle.provider,
+    jobId: handle.jobId,
+    providerNativeId: handle.providerNativeId,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldViralityPredictor — score an asset (viral/audience-fit/hook-strength)
+// Uses fetch DIRECTLY — no provider generate cycle, just a scoring POST.
+// ---------------------------------------------------------------------------
+
+export async function handleHiggsfieldViralityPredictor(rawInput: unknown): Promise<{
+  viralityScore: number;
+  audienceFit?: number;
+  hookStrength?: number;
+  raw: Record<string, unknown>;
+}> {
+  const input: HiggsfieldViralityPredictorInputT = HiggsfieldViralityPredictorInput.parse(rawInput);
+  const res = await fetch('https://platform.higgsfield.ai/higgsfield-ai/virality-predictor', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json',
+      ...buildHiggsfieldHeaders(),
+    },
+    body: JSON.stringify({ asset_url: input.assetUrl, platform: input.platform }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Higgsfield virality predictor failed: ${res.status} ${text.slice(0, 300)}`);
+  }
+  const data = (await res.json()) as Record<string, unknown>;
+  const num = (k: string): number | undefined => {
+    const v = data[k];
+    return typeof v === 'number' ? v : undefined;
+  };
+  const score = num('virality_score');
+  if (typeof score !== 'number') {
+    throw new Error('virality predictor response missing virality_score');
+  }
+  return {
+    viralityScore: score,
+    audienceFit: num('audience_fit'),
+    hookStrength: num('hook_strength'),
+    raw: data,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // handleVideoCostEstimate — estimate USD cost for a video generation request
 // ---------------------------------------------------------------------------
 
@@ -147,11 +528,18 @@ export async function handleVideoCostReport(rawInput: unknown): Promise<CostRepo
 // ---------------------------------------------------------------------------
 // handleVideoRoute — pick optimal provider+model for a video generation request
 // ---------------------------------------------------------------------------
-// Cross-provider routing heuristic. In P13 the registry contains only Veo, so
-// every supported-mode call resolves to `google/veo-3.1-generate-preview`.
-// P14-P16 will add Higgsfield (credits-per-video), Kling (usd-per-second), and
-// Seedance (usd-per-video) — the sort already uses `normalizeCostUSD` so cross-
-// unit comparison stays correct without re-architecture.
+// Capability-before-cost routing heuristic. P14 adds Higgsfield to ADAPTED_PROVIDERS.
+//
+// Ranking rules (in priority order):
+//   1. preferProvider filter — caller can force a specific provider.
+//   2. For shared modes (t2v, i2v, with-refs, interpolate, extend):
+//      google is preferred over higgsfield by default so P13 behaviour is
+//      preserved. Higgsfield wins only when it is the sole capable provider
+//      (lip-sync, targeted-edit) OR when preferProvider='higgsfield'.
+//   3. Within a provider tier, sort by USD-equivalent cost (cross-unit aware).
+//
+// P15: 'kling' will integrate here when KlingProvider lands.
+// P16: 'bytedance' will integrate here when SeedanceProvider lands.
 
 export interface VideoRouteResult {
   readonly provider: Provider;
@@ -164,53 +552,164 @@ export interface VideoRouteResult {
 export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteResult> {
   const input: VideoRouteInputT = VideoRouteInput.parse(rawInput);
 
-  const candidates = Object.values(VIDEO_MODELS).filter((spec) =>
-    spec.modes.includes(input.mode as never),
-  );
-  if (candidates.length === 0) {
-    throw new Error(`no provider supports mode ${input.mode} in current registry`);
+  const allByMode = Object.values(VIDEO_MODELS)
+    .filter((spec) => spec.modes.includes(input.mode as never))
+    // Constrain to providers with a wired adapter. Models registered for
+    // future providers (Kling P15, Seedance P16) must not be selected until
+    // their adapter is available in ADAPTED_PROVIDERS.
+    .filter((spec) => ADAPTED_PROVIDERS.has(spec.provider))
+    // FIX (Codex P2, PR#10): filter candidates by requested duration +
+    // resolution BEFORE cost sort. Without this, sorter could pick cheapest
+    // model that fails downstream validation (e.g. higgsfield-speak with
+    // maxDurationSec=30 cheaper than higgsfield-speak2 maxDurationSec=60 for
+    // a 45s lip-sync request → submit rejected). Defensive: spec missing
+    // maxDurationSec or resolutions arrays does not filter out.
+    .filter((spec) =>
+      typeof spec.maxDurationSec === 'number'
+        ? spec.maxDurationSec >= input.durationSec
+        : true,
+    )
+    .filter((spec) =>
+      Array.isArray(spec.resolutions) && spec.resolutions.length > 0
+        ? (spec.resolutions as readonly string[]).includes(input.resolution)
+        : true,
+    );
+  if (allByMode.length === 0) {
+    throw new Error(
+      `no provider supports mode='${input.mode}' with durationSec=${input.durationSec} resolution=${input.resolution} in current registry`,
+    );
   }
-  const filtered = input.preferProvider
-    ? candidates.filter((c) => c.provider === input.preferProvider)
-    : candidates;
-  if (filtered.length === 0) {
+
+  const preferred = input.preferProvider
+    ? allByMode.filter((c) => c.provider === input.preferProvider)
+    : allByMode;
+  if (preferred.length === 0) {
     throw new Error(
       `preferProvider ${input.preferProvider} has no model supporting mode ${input.mode}`,
     );
   }
 
-  // Sort by USD-equivalent cost (cross-unit aware via normalizeCostUSD).
-  // For credits-per-video providers (P14+ Higgsfield), the caller can pass
-  // input.usdPerCredit in extras; for P13 (Veo only, usd-per-second) the helper
-  // is duration-aware and produces a meaningful sort. Sorting by raw
-  // `pricing.rate` would silently mis-rank across providers with heterogeneous
-  // units the moment P14+ adapters land — never reintroduce that shortcut.
-  const sorted = [...filtered].sort(
-    (a, b) =>
-      normalizeCostUSD(a, { durationSec: input.durationSec }) -
-      normalizeCostUSD(b, { durationSec: input.durationSec }),
-  );
+  // Sort candidates with capability-before-cost and google-default tiebreaker.
+  // When no preferProvider is set, google is ranked above higgsfield for shared
+  // modes to preserve P13 default behaviour. Higgsfield wins only when it is the
+  // sole capable provider (lip-sync, targeted-edit) or when preferProvider forces it.
+  // Within a provider tier, sort by USD-equivalent cost ascending.
+  //
+  // Future: when VideoRouteInput grows Higgsfield-specific extras (cinemaStudioParams,
+  // dopCameraVerbs, soulId, etc.), add a hasHiggsfieldSignal() predicate here that
+  // raises the Higgsfield tier above google for those shared modes.
+  const sorted = [...preferred].sort((a, b) => {
+    if (!input.preferProvider) {
+      if (a.provider === 'google' && b.provider !== 'google') return -1;
+      if (b.provider === 'google' && a.provider !== 'google') return 1;
+    }
+    const aUsd = normalizeCostUSDSafe(a, input);
+    const bUsd = normalizeCostUSDSafe(b, input);
+    return aUsd - bUsd;
+  });
   const picked = sorted[0]!;
 
-  const provider = new GoogleVeoProvider({ dbPath: defaultDbPath() });
-  const estimatedCostUSD =
-    picked.provider === 'google'
-      ? provider.estimateCostUSD({
-          modelId: picked.id,
-          mode: input.mode as never,
-          prompt: input.prompt,
-          durationSec: input.durationSec,
-          resolution: input.resolution,
-        })
-      : normalizeCostUSD(picked, { durationSec: input.durationSec });
+  const estimatedCostUSD = normalizeCostUSDSafe(picked, input);
+  // FIX (Codex P2 round 5, PR#10): when ALL viable candidates ended up
+  // unpriced (Infinity), surface the misconfiguration instead of returning a
+  // routing decision whose cost is NaN-equivalent. Triggers when all matches
+  // are credit-priced AND MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT is unset.
+  if (!Number.isFinite(estimatedCostUSD)) {
+    throw new Error(
+      `no priceable provider for mode='${input.mode}' durationSec=${input.durationSec} resolution=${input.resolution}. ` +
+        `All candidates are credit-priced and MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT is unset/invalid. ` +
+        `Set the env var to a positive number (USD per Higgsfield credit) before routing.`,
+    );
+  }
+  const rationale = buildRationale(picked, input, sorted.length);
 
   return {
     provider: picked.provider,
     modelId: picked.id,
     mode: input.mode,
     estimatedCostUSD,
-    rationale: `P13: only google/Veo is wired. Selected ${picked.id} for mode ${input.mode}.`,
+    rationale,
   };
+}
+
+function normalizeCostUSDSafe(spec: VideoModelSpec, input: VideoRouteInputT): number {
+  try {
+    const usdPerCredit = parseFloat(
+      process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] ?? 'NaN',
+    );
+    const result = normalizeCostUSD(spec, {
+      durationSec: input.durationSec,
+      usdPerCredit,
+    });
+    // Guard against NaN / ±Infinity from malformed env values (e.g. usdPerCredit=NaN
+    // multiplied by rate produces NaN, which breaks sort comparisons).
+    return Number.isFinite(result) ? result : Number.POSITIVE_INFINITY;
+  } catch {
+    // If a credits-per-video spec is missing a valid usdPerCredit, treat it as
+    // infinite cost so it never wins ranking against a priced provider. The
+    // director surfaces the configuration error to the user separately.
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+function buildRationale(
+  picked: VideoModelSpec,
+  input: VideoRouteInputT,
+  candidateCount: number,
+): string {
+  if (input.mode === 'lip-sync') {
+    return `Only higgsfield supports lip-sync in P14 → ${picked.id}.`;
+  }
+  if (input.mode === 'targeted-edit') {
+    return `Only higgsfield Recast supports targeted-edit in P14 → ${picked.id}.`;
+  }
+  if (input.preferProvider) {
+    return `preferProvider=${input.preferProvider} → ${picked.id}.`;
+  }
+  if (candidateCount === 1) {
+    return `${picked.id} is the only candidate for mode ${input.mode}.`;
+  }
+  return (
+    `google is the default for shared modes; higgsfield wins only via preferProvider ` +
+    `or capability-required mode. Selected ${picked.id} for mode ${input.mode}.`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldSoulId — Soul ID lifecycle for Higgsfield character cache
+// ---------------------------------------------------------------------------
+
+export async function handleHiggsfieldSoulId(rawInput: unknown): Promise<
+  | { ok: true; id: string }
+  | { records: SoulIdRecord[] }
+  | { record: SoulIdRecord | undefined }
+> {
+  const input: HiggsfieldSoulIdInputT = HiggsfieldSoulIdInput.parse(rawInput);
+  const dbPath = defaultDbPath();
+  switch (input.action) {
+    case 'create':
+      createSoulId({
+        dbPath,
+        id: input.id,
+        provider: 'higgsfield',
+        characterName: input.characterName,
+        assetPaths: input.assetPaths,
+      });
+      return { ok: true, id: input.id };
+    case 'list':
+      return { records: listSoulIds({ dbPath, provider: 'higgsfield' }) };
+    case 'find':
+      return {
+        record: findByCharacterName({
+          dbPath,
+          characterName: input.characterName,
+          provider: 'higgsfield',
+        }),
+      };
+    case 'markUsed':
+      markUsed({ dbPath, id: input.id });
+      return { ok: true, id: input.id };
+  }
 }
 
 export interface HandlersDeps {
@@ -1052,6 +1551,115 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Video Provider Routing', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleVideoRoute(input))),
+    );
+  }
+
+  // ---- Higgsfield Soul ID (1 — P14 character training cache) ----
+
+  {
+    const t = getTool('media_higgsfield_soul_id');
+    reg(
+      t.name,
+      {
+        title: 'Higgsfield Soul ID',
+        description: t.description,
+        inputSchema: t.inputSchema as never,
+      },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldSoulId(input))),
+    );
+  }
+
+  // ---- Higgsfield DoP (1 — P14 image-to-video with WAN Camera Control verbs) ----
+
+  {
+    const t = getTool('media_higgsfield_dop');
+    reg(
+      t.name,
+      { title: 'Higgsfield DoP', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldDop(input))),
+    );
+  }
+
+  // ---- Higgsfield Cinema Studio (1 — P14 1,296 virtual lenses, focal/aperture/sensor/grading) ----
+
+  {
+    const t = getTool('media_higgsfield_cinema_studio');
+    reg(
+      t.name,
+      { title: 'Higgsfield Cinema Studio', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldCinemaStudio(input))),
+    );
+  }
+
+  // ---- Higgsfield Speak (1 — P14 Task 11 lip-sync: portrait + audio → talking head) ----
+
+  {
+    const t = getTool('media_higgsfield_speak');
+    reg(
+      t.name,
+      { title: 'Higgsfield Speak', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldSpeak(input))),
+    );
+  }
+
+  // ---- Higgsfield Marketing Studio (1 — P14 Task 12 UGC templates from product URL) ----
+
+  {
+    const t = getTool('media_higgsfield_marketing_studio');
+    reg(
+      t.name,
+      { title: 'Higgsfield Marketing Studio', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldMarketingStudio(input))),
+    );
+  }
+
+  // ---- Higgsfield Recast (1 — P14 Task 13 character swap in existing video) ----
+
+  {
+    const t = getTool('media_higgsfield_recast');
+    reg(
+      t.name,
+      { title: 'Higgsfield Recast', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldRecast(input))),
+    );
+  }
+
+  // ---- Higgsfield Virality Predictor (1 — P14 Task 14 score asset viral/audience/hook) ----
+
+  {
+    const t = getTool('media_higgsfield_virality_predictor');
+    reg(
+      t.name,
+      { title: 'Higgsfield Virality Predictor', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldViralityPredictor(input))),
+    );
+  }
+
+  // ---- Higgsfield Generate (Codex P2 round 7 PR#10 — generic Soul/Soul2 submit) ----
+  {
+    const t = getTool('media_higgsfield_generate');
+    reg(
+      t.name,
+      { title: 'Higgsfield Generate', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldGenerate(input))),
+    );
+  }
+
+  // ---- Higgsfield Poll + Download (Codex P2 round 5 PR#10 — async lifecycle) ----
+  {
+    const t = getTool('media_higgsfield_poll');
+    reg(
+      t.name,
+      { title: 'Higgsfield Poll', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldPoll(input))),
+    );
+  }
+  {
+    const t = getTool('media_higgsfield_download');
+    reg(
+      t.name,
+      { title: 'Higgsfield Download', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldDownload(input))),
     );
   }
 }

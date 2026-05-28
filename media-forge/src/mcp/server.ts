@@ -10,12 +10,16 @@ import { logger } from '../core/logger.js';
 import { loadConfig } from '../core/config.js';
 import { createClient } from '../core/client.js';
 import { loadPricingOverridesFromEnv } from '../core/pricing.js';
+import { validateHiggsfieldPricingAtBoot } from '../core/higgsfield-pricing.js';
 import { registerAllTools, setWebhookRouter } from './handlers.js';
 import {
   startWebhookRouter,
   stopWebhookRouter,
+  registerWebhookHandler,
   type WebhookRouter,
 } from '../video/providers/webhook-router.js';
+import { createHiggsfieldWebhookHandler } from '../video/providers/higgsfield-webhook-handler.js';
+import { join } from 'node:path';
 
 export interface BuildServerOpts {
   // Injection point for tests — config + client come from outside in tests
@@ -26,6 +30,24 @@ export interface BuildServerOpts {
 export function buildServer(opts: BuildServerOpts = {}): McpServer {
   const config = opts.config ?? loadConfig(process.env as Record<string, string | undefined>);
   const client = opts.client ?? createClient({ config });
+  // D-6: validate MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT before any handler fires.
+  // Fail fast — server cannot price Higgsfield jobs without the validated constant.
+  //
+  // FIX (Codex P1, PR#10): only validate when Higgsfield is actually configured.
+  // P13 Google-only installs upgrading to v0.3.0-p14 must boot without setting
+  // MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT. Heuristic: validate iff at least one
+  // Higgsfield auth env var is set (HF_API_KEY or HIGGSFIELD_API_KEY).
+  const hasHiggsfieldAuth =
+    Boolean(process.env['HF_API_KEY']?.trim()) ||
+    Boolean(process.env['HIGGSFIELD_API_KEY']?.trim());
+  if (hasHiggsfieldAuth) {
+    try {
+      validateHiggsfieldPricingAtBoot();
+    } catch (err) {
+      process.stderr.write(`[boot-error] ${(err as Error).message}\n`);
+      process.exit(2);
+    }
+  }
   // Honor MEDIA_FORGE_PRICING_OVERRIDES (enterprise/contract rates) BEFORE
   // registerAllTools — otherwise media_video_route + media_video_cost_estimate
   // silently report compiled-in public rates and the override env var is a no-op.
@@ -79,6 +101,14 @@ export async function startStdioServer(): Promise<void> {
   const router = await maybeStartWebhookRouter();
   if (router) {
     setWebhookRouter(router);
+    // FIX (Codex P2 round 6, PR#10): register the Higgsfield handler so opt-in
+    // webhook URL emission (MEDIA_FORGE_HF_WEBHOOK_ENABLE=true) does not 404.
+    // P14 keeps the body as a logging stub — full payload reconciliation is
+    // P14.1 once Higgsfield publishes a stable callback schema.
+    const projectDir =
+      process.env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
+    const dbPath = join(projectDir, 'cost.db');
+    registerWebhookHandler(router, 'higgsfield', createHiggsfieldWebhookHandler({ dbPath }));
     // Wire SIGTERM/SIGINT shutdown — close the router before exiting so the
     // OS port + handler map are released cleanly. Errors during close are
     // logged but do not block exit (the process is going down regardless).

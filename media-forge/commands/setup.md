@@ -19,20 +19,72 @@ Onboarding wizard. Run this once after installing media-forge to configure your 
      - `openssl rand -hex 32`
      - `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`
    - **Graceful degradation**: if `MEDIA_FORGE_WEBHOOK_SECRET` is unset, the router stays disabled and the `media_video_webhook_status` MCP tool reports `running: false`. P13 (Veo only) works fine without it — Veo polls GCS for completion. P14+ providers will fall back to polling when callbacks are unavailable.
-4. Higgsfield API setup (P14+, required only if you plan to use Higgsfield video generation):
-   - The Higgsfield platform API requires two separate credentials — an API key and an API secret.
-   - Auth format verified from `@higgsfield/client@0.2.1` (`dist/client.js`): two custom headers `hf-api-key` and `hf-secret`. No Bearer token.
-   - Set in your environment (or `.env`):
-     - `HF_API_KEY` — your Higgsfield API key ID
-     - `HF_API_SECRET` — your Higgsfield API secret
-   - Both must be set and non-empty. The setup wizard will prompt and validate that neither is blank.
-   - **Never echo the secret in full** — only confirm the last 4 chars when storing.
-   - **Never echo the generated secret back in full** — only show the last 4 chars when confirming the value was stored.
-   **Default provider (P13)**:
-   - Ask the user which provider they want as their default. In P13 only `google` (Veo via GCS polling) is functional; other values are reserved for P14+.
-   - Set `MEDIA_FORGE_DEFAULT_PROVIDER=google` in their environment or `.env`.
+4. Higgsfield credentials + plan selection (required for P14 onward):
+
+   Ask the user (in order):
+
+   1. **API credentials**:
+      > "Paste your Higgsfield API key and secret from https://cloud.higgsfield.ai/api-keys. They unlock the Higgsfield provider (Soul / Soul ID / DoP / Cinema Studio / Speak / Marketing Studio / Recast / Virality Predictor)."
+
+      Write `HF_API_KEY` and `HF_API_SECRET` to the project `.env`. NEVER echo the secret value in confirmation — show only the last 4 chars (e.g. `****ab12`).
+
+   2. **Plan + usdPerCredit**:
+      > "Which Higgsfield plan are you on?"
+      >   - **Plus** — $39/month, 1000 credits → 0.039 USD/credit
+      >   - **Ultra** — $79/month, 2500 credits → 0.0316 USD/credit
+      >   - **Business** — $399/month, 15000 credits → 0.0266 USD/credit
+      >   - **Custom / enterprise** — paste your effective USD/credit rate manually
+
+      Write the chosen value to `MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT` in the project `.env`.
+
+   3. **Webhook public URL** (optional):
+      > "If you want Higgsfield to push completion events instead of media-forge polling, paste your public-facing URL (the one media-forge's webhook router is reachable from)."
+
+      Write to `MEDIA_FORGE_WEBHOOK_PUBLIC_URL`. When unset, generate() omits `?hf_webhook=...` and the director falls back to polling `status_url`.
+
+   4. **Confirm `MEDIA_FORGE_WEBHOOK_SECRET`** was generated in P13 setup; if not, prompt user to run `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` and paste.
+
+   #### Local-dev webhook URL via tunnel (optional, for P14.1 forward)
+
+   P14 ships polling-only (D-2) — webhook URL is unused. When P14.1 lights up the webhook receiver, you'll need a publicly reachable URL pointing at your local MCP server. Two zero-config options:
+
+   **ngrok** (recommended for casual dev):
+
+   ```bash
+   # 1. install once
+   pnpm dlx ngrok config add-authtoken <token-from-dashboard.ngrok.com>
+
+   # 2. start the tunnel (in a separate terminal — leave running)
+   pnpm dlx ngrok http 3001     # match your MCP server's webhook port
+
+   # 3. copy the https URL ngrok prints (e.g. https://abc-123.ngrok-free.app)
+   # 4. write to .env
+   echo 'MEDIA_FORGE_WEBHOOK_PUBLIC_URL=https://abc-123.ngrok-free.app' >> .env
+   ```
+
+   **cloudflared** (more stable for long-running dev sessions):
+
+   ```bash
+   # 1. install cloudflared (macOS: brew install cloudflared / Windows: scoop install cloudflared)
+   # 2. start a quick tunnel (no account needed)
+   cloudflared tunnel --url http://localhost:3001
+
+   # 3. copy the trycloudflare.com URL printed in stdout
+   # 4. write to .env
+   echo 'MEDIA_FORGE_WEBHOOK_PUBLIC_URL=https://<random>.trycloudflare.com' >> .env
+   ```
+
+   Notes:
+   - The path the platform calls is `${MEDIA_FORGE_WEBHOOK_PUBLIC_URL}/webhooks/higgsfield/${jobId}` — your MCP server must mount the webhook router at `/webhooks/higgsfield/:jobId` to receive callbacks.
+   - Both tunnel URLs rotate when you restart — re-export to `.env` each session.
+   - For production, use your real public hostname (not a tunnel).
+   - P14 leaves `MEDIA_FORGE_HF_WEBHOOK_ENABLE` UNSET (polling-only). Do not set it to `true` until P14.1 lands.
+
+   **Default provider (P14)**:
+   - Ask the user which provider they want as their default.
+   - Set `MEDIA_FORGE_DEFAULT_PROVIDER` in their environment or `.env`.
    - If the user does not specify a value, default to `google` silently. Do not error on omission.
-   - Inform the user: "In P14+ you will be able to change this to `higgsfield`, `kling`, or `seedance` once those providers are fully wired."
+   - With P14 shipped you can now answer `higgsfield` to default new requests to Higgsfield. Each MCP tool still accepts an explicit `preferProvider` override.
 4. After configuration, display the doctor check results.
 5. On success, suggest the first generation command as an example.
 6. On failure, display the specific error and a troubleshooting tip.

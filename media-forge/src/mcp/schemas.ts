@@ -245,6 +245,195 @@ export const VideoRouteInput = z.object({
 export type VideoRouteInputT = z.infer<typeof VideoRouteInput>;
 
 // ---------------------------------------------------------------------------
+// HiggsfieldSoulIdInput — Soul ID lifecycle (create/list/find/markUsed)
+// ---------------------------------------------------------------------------
+
+// _HiggsfieldSoulIdBase — ZodObject base shape emitted in tools/list.
+// All action-specific fields are optional so the base is a plain ZodObject
+// (required by DEBT-008 constraint that inputSchema must not be ZodEffects).
+// Runtime validation uses HiggsfieldSoulIdInput (discriminatedUnion).
+export const _HiggsfieldSoulIdBase = z.object({
+  action: z.enum(['create', 'list', 'find', 'markUsed']),
+  id: z.string().min(1).optional(),
+  characterName: z.string().min(1).optional(),
+  assetPaths: z.array(z.string().min(1)).optional(),
+});
+
+export const HiggsfieldSoulIdInput = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('create'),
+    id: z.string().min(1),
+    characterName: z.string().min(1),
+    assetPaths: z.array(z.string().min(1)).min(1),
+  }),
+  z.object({ action: z.literal('list') }),
+  z.object({ action: z.literal('find'), characterName: z.string().min(1) }),
+  z.object({ action: z.literal('markUsed'), id: z.string().min(1) }),
+]);
+export type HiggsfieldSoulIdInputT = z.infer<typeof HiggsfieldSoulIdInput>;
+
+// ---------------------------------------------------------------------------
+// HiggsfieldDopInput — DoP image-to-video with WAN Camera Control verbs (P14 Task 9)
+// ---------------------------------------------------------------------------
+
+export const DOP_CAMERA_VERBS = [
+  'dolly_in', 'dolly_out', 'crane_up', 'crane_down', 'orbit', 'crash_zoom',
+  'bullet_time', 'fpv_drone', 'handheld', 'whip_pan', 'tilt_up', 'tilt_down',
+  'pan_left', 'pan_right', 'arc', 'truck', 'pedestal', 'rack_focus',
+  'vertigo_effect', 'static', 'low_angle', 'high_angle',
+] as const;
+
+export const HiggsfieldDopInput = z.object({
+  modelId: z.enum(['higgsfield-dop', 'higgsfield-dop-turbo']),
+  firstFrameImagePath: z.string().min(1),
+  prompt: z.string().min(1),
+  cameraVerbs: z.array(z.enum(DOP_CAMERA_VERBS)).min(1).max(5),
+  durationSec: z.number().positive().max(6),
+  resolution: z.enum(['720p', '1080p']),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']).optional(),
+});
+export type HiggsfieldDopInputT = z.infer<typeof HiggsfieldDopInput>;
+
+// ---------------------------------------------------------------------------
+// HiggsfieldCinemaStudioInput — Cinema Studio 3.5 with full lens dictionary (P14 Task 10)
+// ---------------------------------------------------------------------------
+
+export const HiggsfieldCinemaStudioInput = z.object({
+  prompt: z.string().min(1),
+  firstFrameImagePath: z.string().min(1),
+  durationSec: z.number().positive().max(8),
+  resolution: z.enum(['720p', '1080p']),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']).optional(),
+  focalLengthMm: z.number().positive().max(800).optional(),
+  apertureFStop: z.number().positive().max(32).optional(),
+  sensorSize: z.enum(['full-frame', 'super35', 'apsc', 'm43', 'imax']).optional(),
+  colorGrading: z.string().min(1).optional(),
+  lensId: z.string().min(1).optional(),
+});
+export type HiggsfieldCinemaStudioInputT = z.infer<typeof HiggsfieldCinemaStudioInput>;
+
+// ---------------------------------------------------------------------------
+// HiggsfieldSpeakInput — Speak / Speak 2.0 lip-sync: portrait + audio → talking head (P14 Task 11)
+// ---------------------------------------------------------------------------
+
+const _HiggsfieldSpeakBase = z.object({
+  modelId: z.enum(['higgsfield-speak', 'higgsfield-speak2']),
+  portraitImagePath: z.string().min(1),
+  audioPath: z.string().min(1),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive().max(60),
+  resolution: z.enum(['720p', '1080p']),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1', '4:3', '3:4']).optional(),
+});
+// FIX (Codex P2, PR#10): per-model duration cap. higgsfield-speak (Speak 1.0)
+// caps at 30s; only higgsfield-speak2 supports up to 60s. Without this refine
+// direct handler calls bypass the route-level filter and would submit oversized
+// jobs that the upstream provider rejects with a confusing error.
+export const HiggsfieldSpeakInput = _HiggsfieldSpeakBase.refine(
+  (data) => {
+    if (data.modelId === 'higgsfield-speak' && data.durationSec > 30) return false;
+    return true;
+  },
+  {
+    message:
+      'higgsfield-speak (Speak 1.0) caps at 30s. Use higgsfield-speak2 for durations up to 60s.',
+    path: ['durationSec'],
+  },
+);
+export type HiggsfieldSpeakInputT = z.infer<typeof HiggsfieldSpeakInput>;
+
+// HiggsfieldRecastInput — Recast Studio: swap character in existing video (P14 Task 13)
+// ---------------------------------------------------------------------------
+
+export const HiggsfieldRecastInput = z.object({
+  sourceVideoPath: z.string().min(1),
+  targetCharacterImagePath: z.string().min(1),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive().max(30),
+  resolution: z.enum(['720p', '1080p']),
+});
+export type HiggsfieldRecastInputT = z.infer<typeof HiggsfieldRecastInput>;
+
+// HiggsfieldViralityPredictorInput — Virality Predictor: score an asset (P14 Task 14)
+// ---------------------------------------------------------------------------
+
+export const HiggsfieldViralityPredictorInput = z.object({
+  assetUrl: z.string().url(),
+  platform: z.enum(['tiktok', 'instagram', 'youtube-shorts', 'general']).default('general'),
+});
+export type HiggsfieldViralityPredictorInputT = z.infer<typeof HiggsfieldViralityPredictorInput>;
+
+// HiggsfieldGenerateInput — generic Higgsfield submit (Soul / Soul2 / aesthetic
+// presets) when no specialized tool (dop / cinema_studio / speak / marketing /
+// recast) applies. Codex P2 round 7 PR#10 closed the gap where the director
+// doc routed Soul t2v through media_video_route (a decision-only tool) with
+// no actual submit path.
+// ---------------------------------------------------------------------------
+// _HiggsfieldGenerateBase — raw ZodObject for tools/list (DEBT-008: tools/list
+// requires a plain ZodObject; the refined cross-field check lives on the
+// exported `HiggsfieldGenerateInput` for runtime validation).
+const _HiggsfieldGenerateBase = z.object({
+  modelId: z.enum([
+    'higgsfield-soul-standard',
+    'higgsfield-soul-pro',
+    'higgsfield-soul2',
+  ]),
+  mode: z.enum(['t2v', 'i2v']).default('t2v'),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive().default(5),
+  resolution: z.enum(['720p', '1080p', '2k', '4k']).default('1080p'),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']).optional(),
+  firstFrameImagePath: z.string().min(1).optional(),
+  referenceImagePaths: z.array(z.string().min(1)).max(8).optional(),
+  soulId: z.string().min(1).optional(),
+});
+// FIX (Codex P2 round 13, PR#10): require `firstFrameImagePath` whenever
+// `mode === 'i2v'`. Without this gate, callers can submit i2v jobs that get
+// rejected upstream (or run as text-only) after we already burned credits and
+// recorded the job. The specialized i2v tools (dop, cinema_studio) require
+// the image at the schema level — the generic generate tool now does too.
+export const HiggsfieldGenerateInput = _HiggsfieldGenerateBase.superRefine((v, ctx) => {
+  if (v.mode === 'i2v' && !v.firstFrameImagePath) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['firstFrameImagePath'],
+      message: "firstFrameImagePath is required when mode='i2v'",
+    });
+  }
+});
+export type HiggsfieldGenerateInputT = z.infer<typeof HiggsfieldGenerateInput>;
+
+// HiggsfieldPollInput / HiggsfieldDownloadInput — async lifecycle for the 7
+// Higgsfield generation tools (Codex P2 round 5 PR#10).
+// ---------------------------------------------------------------------------
+export const HiggsfieldPollInput = z.object({
+  jobId: z.string().min(1),
+});
+export type HiggsfieldPollInputT = z.infer<typeof HiggsfieldPollInput>;
+
+export const HiggsfieldDownloadInput = z.object({
+  // Accepts either an internal `hf-…` jobId OR an explicit CDN URL.
+  jobIdOrUrl: z.string().min(1),
+});
+export type HiggsfieldDownloadInputT = z.infer<typeof HiggsfieldDownloadInput>;
+
+// HiggsfieldMarketingStudioInput — Marketing Studio: 9 UGC templates from product URL (P14 Task 12)
+// ---------------------------------------------------------------------------
+
+export const HiggsfieldMarketingStudioInput = z.object({
+  template: z.enum([
+    'ugc', 'unboxing', 'tv-spot', 'hyper-motion', 'product-review',
+    'asmr', 'lifestyle', 'testimonial', 'reel',
+  ]),
+  productUrl: z.string().url(),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive().max(15),
+  resolution: z.enum(['720p', '1080p']),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1']).optional(),
+});
+export type HiggsfieldMarketingStudioInputT = z.infer<typeof HiggsfieldMarketingStudioInput>;
+
+// ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
 export interface MCPTool {
@@ -256,8 +445,11 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 30 tools total
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route = 30
+// MCP_TOOLS registry — 40 tools total (PR#10 head)
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost
+// + 1 route + 7 higgsfield (soul_id, dop, cinema_studio, speak, marketing_studio,
+// recast, virality_predictor) + 1 higgsfield_generate (Codex round 7)
+// + 2 higgsfield lifecycle (poll, download — Codex round 5) = 40
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -434,6 +626,91 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description:
       'Pick the optimal provider+model for a video generation request (P13: Veo-only; extended in P14-P16).',
     inputSchema: VideoRouteInput,
+  },
+
+  // ---- Higgsfield Soul ID (1 — P14 character training cache) ----
+  {
+    name: 'media_higgsfield_soul_id',
+    description: 'Soul ID lifecycle (create/list/find/markUsed) — character training cache for Higgsfield.',
+    inputSchema: _HiggsfieldSoulIdBase,
+    validationSchema: HiggsfieldSoulIdInput,
+  },
+
+  // ---- Higgsfield DoP (1 — P14 image-to-video with WAN Camera Control verbs) ----
+  {
+    name: 'media_higgsfield_dop',
+    description: 'Higgsfield Director of Photography — image-to-video with WAN Camera Control verbs.',
+    inputSchema: HiggsfieldDopInput,
+    validationSchema: HiggsfieldDopInput,
+  },
+
+  // ---- Higgsfield Cinema Studio (1 — P14 1,296 virtual lenses, focal/aperture/sensor/grading) ----
+  {
+    name: 'media_higgsfield_cinema_studio',
+    description: 'Higgsfield Cinema Studio 3.5 — 1,296 virtual lenses, focal/aperture/sensor/grading.',
+    inputSchema: HiggsfieldCinemaStudioInput,
+    validationSchema: HiggsfieldCinemaStudioInput,
+  },
+
+  // ---- Higgsfield Speak (1 — P14 Task 11 lip-sync: portrait + audio → talking head) ----
+  {
+    name: 'media_higgsfield_speak',
+    description: 'Higgsfield Speak / Speak 2.0 lip-sync — portrait + audio → talking head.',
+    // debt-008 split: plain ZodObject for MCP inputSchema introspection;
+    // refined schema (with per-model duration cap) for runtime validation.
+    inputSchema: _HiggsfieldSpeakBase,
+    validationSchema: HiggsfieldSpeakInput,
+  },
+
+  // ---- Higgsfield Marketing Studio (1 — P14 Task 12 UGC templates from product URL) ----
+  {
+    name: 'media_higgsfield_marketing_studio',
+    description: 'Higgsfield Marketing Studio — 9 UGC templates from product URL (unboxing/TV spot/reel/etc).',
+    inputSchema: HiggsfieldMarketingStudioInput,
+    validationSchema: HiggsfieldMarketingStudioInput,
+  },
+
+  // ---- Higgsfield Recast (1 — P14 Task 13 character swap in existing video) ----
+  {
+    name: 'media_higgsfield_recast',
+    description: 'Higgsfield Recast Studio — swap character in existing video (Instadump / Character Swap).',
+    inputSchema: HiggsfieldRecastInput,
+    validationSchema: HiggsfieldRecastInput,
+  },
+
+  // ---- Higgsfield Virality Predictor (1 — P14 Task 14 score asset viral/audience/hook) ----
+  {
+    name: 'media_higgsfield_virality_predictor',
+    description: 'Higgsfield Virality Predictor — score an asset (viral / audience-fit / hook-strength).',
+    inputSchema: HiggsfieldViralityPredictorInput,
+    validationSchema: HiggsfieldViralityPredictorInput,
+  },
+
+  // ---- Higgsfield Generate (Codex P2 round 7 PR#10 — generic Soul/Soul2 t2v|i2v submit) ----
+  {
+    name: 'media_higgsfield_generate',
+    description:
+      'Generic Higgsfield submit for Soul / Soul 2.0 / aesthetic presets when none of the specialized tools (dop, cinema_studio, speak, marketing_studio, recast) applies. Required: modelId, prompt. Optional: mode (t2v/i2v), firstFrameImagePath (REQUIRED when mode=i2v), referenceImagePaths, soulId.',
+    // DEBT-008: tools/list wants a plain ZodObject; runtime validation uses
+    // the refined schema (cross-field check: i2v requires firstFrameImagePath).
+    inputSchema: _HiggsfieldGenerateBase,
+    validationSchema: HiggsfieldGenerateInput,
+  },
+
+  // ---- Higgsfield Poll + Download (Codex P2 round 5 PR#10 — async lifecycle for the 7 generation tools) ----
+  {
+    name: 'media_higgsfield_poll',
+    description:
+      'Poll a Higgsfield async job by internal jobId — returns state + assetUrls when completed. Use after any media_higgsfield_* generation tool.',
+    inputSchema: HiggsfieldPollInput,
+    validationSchema: HiggsfieldPollInput,
+  },
+  {
+    name: 'media_higgsfield_download',
+    description:
+      'Download a completed Higgsfield asset by internal jobId OR explicit CDN URL — returns byte length + content type.',
+    inputSchema: HiggsfieldDownloadInput,
+    validationSchema: HiggsfieldDownloadInput,
   },
 ] as const) as readonly MCPTool[];
 

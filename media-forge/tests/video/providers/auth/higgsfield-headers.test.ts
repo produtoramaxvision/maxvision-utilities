@@ -8,6 +8,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   buildHiggsfieldHeaders,
+  buildPrimaryHeaders,
+  buildFallbackHeaders,
   HiggsfieldAuthConfigError,
 } from '../../../../src/video/providers/auth/higgsfield-headers.js';
 
@@ -131,5 +133,19 @@ describe('buildHiggsfieldHeaders', () => {
 
     expect(() => buildHiggsfieldHeaders()).toThrow(HiggsfieldAuthConfigError);
     expect(() => buildHiggsfieldHeaders()).toThrow(KEY_ENV);
+  });
+
+  describe('auth resilience (D-5)', () => {
+    it('buildPrimaryHeaders and buildFallbackHeaders return DIFFERENT shapes', () => {
+      process.env['HF_API_KEY'] = 'pk';
+      process.env['HF_API_SECRET'] = 'sk';
+      const p = buildPrimaryHeaders();
+      const f = buildFallbackHeaders();
+      expect(JSON.stringify(p)).not.toBe(JSON.stringify(f));
+      // One has Authorization, the other has hf-api-key — never both.
+      const hasAuthP = 'Authorization' in p;
+      const hasAuthF = 'Authorization' in f;
+      expect(hasAuthP).not.toBe(hasAuthF);
+    });
   });
 });

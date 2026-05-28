@@ -119,10 +119,10 @@ describe('registerAllTools()', () => {
     tools = getCapturedTools(server);
   });
 
-  // Test 1: exactly 30 tools registered (26 base + media_video_webhook_status + media_video_cost_estimate + media_video_cost_report + media_video_route added P13)
-  it('calls registerTool exactly 30 times', () => {
+  // Test 1: 39 tools registered (P13 base + 7 Higgsfield generators + 2 Higgsfield lifecycle PR#10 round 5)
+  it('calls registerTool exactly 40 times', () => {
     const mock = server as unknown as { registerTool: ReturnType<typeof vi.fn> };
-    expect(mock.registerTool).toHaveBeenCalledTimes(30);
+    expect(mock.registerTool).toHaveBeenCalledTimes(40);
   });
 
   // Test 2: set equality with listMCPToolNames()

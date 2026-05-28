@@ -17,7 +17,7 @@
  * exposes a public accessor or renames the field, update both the helper below
  * and bump the version annotation.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { buildServer } from '../../src/mcp/server.js';
 import type { MediaForgeConfig } from '../../src/core/config.js';
@@ -93,6 +93,19 @@ function listRegisteredToolNames(server: McpServer): string[] {
 // ---------------------------------------------------------------------------
 
 describe('MCP server tool registration', () => {
+  let prevPricing: string | undefined;
+
+  beforeAll(() => {
+    prevPricing = process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
+    // D-6: boot validation requires this env var; set a valid value for tests.
+    process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] = '0.039';
+  });
+
+  afterAll(() => {
+    if (prevPricing === undefined) delete process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
+    else process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] = prevPricing;
+  });
+
   it('registers all 4 new P13 video provider tools', () => {
     const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
     const names = listRegisteredToolNames(server);
