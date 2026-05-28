@@ -3,7 +3,7 @@
  *
  * Covers:
  * 1. buildServer() returns an McpServer instance
- * 2. Server advertises name 'media-forge', version '0.1.0'
+ * 2. Server advertises name 'media-forge', version '0.1.1'
  * 3. startStdioServer() calls server.connect (via McpServer.prototype spy)
  * 4. buildServer() does NOT write to stdout
  */

@@ -46,7 +46,7 @@ function main(): number {
   console.error('  version:', MEDIA_FORGE_VERSION);
   console.error('  payload:', JSON.stringify(payload, null, 2));
 
-  if (MEDIA_FORGE_VERSION !== '0.1.0') {
+  if (MEDIA_FORGE_VERSION !== '0.1.1') {
     console.error('FAIL: unexpected MEDIA_FORGE_VERSION:', MEDIA_FORGE_VERSION);
     return 1;
   }
