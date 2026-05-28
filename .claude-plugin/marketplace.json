@@ -7,7 +7,7 @@
   },
   "metadata": {
     "description": "MaxVision's curated Claude Code marketplace â€” production-grade skills for n8n workflows, Google Tag Manager API, and more.",
-    "version": "0.1.0"
+    "version": "0.1.1"
   },
   "plugins": [
     {

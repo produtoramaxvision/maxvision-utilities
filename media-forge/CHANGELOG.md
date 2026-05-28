@@ -6,6 +6,23 @@ All notable changes to `media-forge` are documented here. The format follows
 
 ## [Unreleased]
 
+## 0.1.1 — 2026-05-28
+
+### Official initial stable release
+
+Version reset to `0.1.1` to establish clean semver-aligned baseline for the
+public marketplace listing. Code is the consolidated state of phases P13–P16
+(provider abstraction → Higgsfield → Kling → Seedance) plus the two PR#13
+release-time security hotfixes. No code changes from `0.5.0-p16`; this is a
+metadata-only bump that:
+
+- Aligns plugin + package + marketplace metadata versions
+- Drops the in-development `-pNN` phase suffix from the public version string
+- Establishes the version pattern future releases will increment from
+
+For the per-phase change history see the sections below (`0.5.0-p16` and
+earlier preserve the original phase-numbered release notes).
+
 ## 0.5.0-p16 — 2026-05-27
 
 ### P16 — Seedance 2.0 FULL Integration
