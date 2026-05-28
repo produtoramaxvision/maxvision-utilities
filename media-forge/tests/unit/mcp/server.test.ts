@@ -82,7 +82,7 @@ describe('buildServer()', () => {
     expect(typeof server.connect).toBe('function');
   });
 
-  it('server advertises name=media-forge and version=0.1.0', () => {
+  it('server advertises name=media-forge and version=0.1.1', () => {
     const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
     // McpServer wraps a lower-level Server at .server._serverInfo
     const inner = (
