@@ -35,7 +35,7 @@ describe('media_kling_element_create handler', () => {
     vi.restoreAllMocks();
   });
 
-  it('(a) success with imageUrl — returns elementId and posts to create endpoint', async () => {
+  it('(a) success with imageUrl — sync fast-path returns elementId and posts to documented endpoint (Codex P2 round 14, PR#11)', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -53,16 +53,20 @@ describe('media_kling_element_create handler', () => {
     expect(result.displayName).toBe('Hero Character');
     expect(result.category).toBe('character');
     expect(typeof result.createdAt).toBe('string');
-    // Verify POST to unverified endpoint
+    // Documented endpoint per kling.ai docs.
     const [url, init] = fetchImpl.mock.calls[0] as [string, { body: string }];
-    expect(url).toBe('https://api-singapore.klingai.com/v1/elements/create');
+    expect(url).toBe('https://api-singapore.klingai.com/v1/general/advanced-custom-elements/');
     const body = JSON.parse(init.body) as Record<string, unknown>;
-    expect(body['image_url']).toBe('https://example.com/char.png');
-    expect(body['name']).toBe('Hero Character');
-    expect(body['category']).toBe('character');
+    expect(body['element_name']).toBe('Hero Character');
+    expect(body['element_description']).toBe('Hero Character');
+    expect(body['reference_type']).toBe('image_refer');
+    const list = body['element_image_list'] as Record<string, unknown>;
+    expect(list['frontal_image']).toBe('https://example.com/char.png');
+    expect(list['refer_images']).toEqual([]);
+    expect(body['tag_list']).toEqual([{ tag_id: 'o_102' }]);
   });
 
-  it('(b) success with imageBase64 — returns elementId', async () => {
+  it('(b) success with imageBase64 — sync fast-path returns elementId', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -80,8 +84,9 @@ describe('media_kling_element_create handler', () => {
     expect(result.displayName).toBe('Product Shot');
     const [, init] = fetchImpl.mock.calls[0] as [string, { body: string }];
     const body = JSON.parse(init.body) as Record<string, unknown>;
-    expect(body['image_base64']).toBe('base64data==');
-    expect(body['image_url']).toBeUndefined();
+    const list = body['element_image_list'] as Record<string, unknown>;
+    expect(list['frontal_image']).toBe('base64data==');
+    expect(body['tag_list']).toEqual([{ tag_id: 'o_104' }]);
   });
 
   it('(c) rejects when both imageUrl and imageBase64 provided', async () => {
