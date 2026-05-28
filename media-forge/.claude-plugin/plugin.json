@@ -1,7 +1,7 @@
 {
   "name": "media-forge",
   "version": "0.1.1",
-  "description": "Production-grade Claude Code plugin for image and video generation using top-tier Google AI models. 10 domain-specialized subagents with smart-routing quality review.",
+  "description": "Production-grade Claude Code plugin for image and video generation. Top-tier Google AI (Nano Banana Pro, Imagen 4 Ultra, Veo 3.1) plus multi-provider video (Higgsfield, Kling 3.0, Seedance 2.0). 14 domain-specialized subagents with smart-routing quality review.",
   "author": {
     "name": "Produtora MaxVision",
     "email": "produtoramaxvision@gmail.com",
@@ -16,6 +16,9 @@
     "nano-banana-pro",
     "veo-3.1",
     "imagen-4",
+    "higgsfield",
+    "kling",
+    "seedance",
     "multi-agent"
   ]
 }

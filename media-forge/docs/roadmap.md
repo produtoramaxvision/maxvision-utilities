@@ -2,20 +2,32 @@
 
 ---
 
-## v0.1.0 — Current Release
+## v0.1.1 — Current Release
 
-**Scope:** Production-ready plugin for top-tier Google AI image and video generation via Claude Code, MCP, and CLI.
+**Scope:** Production-ready plugin for top-tier image and video generation via Claude Code, MCP, and CLI. Google-only image plus multi-provider video (Veo, Higgsfield, Kling 3.0, Seedance 2.0).
 
-### What ships in v0.1.0
+> History: v0.1.1 consolidates v0.1.0 (P0–P12 baseline) + refs-integration (MinIO/pgvector reference library) + P13 provider abstraction + P14 Higgsfield + P15 Kling 3.0 + P16 Seedance 2.0. The `0.1.1` tag is a clean semver reset of the in-development `-pNN` phase suffixes; no code change from `0.5.0-p16`.
+
+### What ships in v0.1.1
 
 **Model support:**
 - `gemini-3-pro-image-preview` (Nano Banana Pro) — full feature set: 4K, 10 aspect ratios, up to 14 reference images, thinking levels, editing, composition
 - `imagen-4.0-ultra-generate-001` (Imagen 4 Ultra) — seed, negative prompt, multi-image batches
 - `veo-3.1-generate-preview` (Veo 3.1 Pro) — T2V, I2V, interpolation, extension chains up to ~148s
 
+**Video providers (4) behind a unified `VideoProvider` interface:**
+- Google Veo 3.1 — T2V/I2V/interpolate/extend
+- Higgsfield — Soul / Soul ID / DoP / Cinema Studio / Speak / Marketing Studio / Recast / Virality Predictor
+- Kling 3.0 (Kuaishou) — t2v/i2v Standard+Pro, 4K Master, Omni multi-shot, motion brush, elements, lip-sync
+- Seedance 2.0 (ByteDance, via fal.ai) — Standard/Fast tiers, multi-shot, reference fusion, native audio; feature-flagged (`MEDIA_FORGE_SEEDANCE_ENABLED`)
+- `video-router` agent picks provider by capability + cost + IP-risk; SQLite cost tracker + webhook router
+
+**Reference library (refs-integration):**
+- Curated MinIO bucket wired as semantic reference source; pgvector search (Voyage Multimodal-3), Marengo 3.0 alt backend (AWS Bedrock); 4 refs MCP tools + NBP moodboard fusion
+
 **Plugin surfaces (3):**
-- Claude Code plugin: 10 agents, 11 skills, 10 slash commands
-- MCP server: 22 tools via stdio transport
+- Claude Code plugin: 14 agents, 14 skills, 10 slash commands
+- MCP server: 54 tools via stdio transport (50 with Seedance disabled)
 - CLI: `media-forge` binary with `image`, `video`, `cost`, `audit`, `prompts`, `models`, `config`, `doctor` subcommands
 
 **Quality review pipeline:**
@@ -35,8 +47,8 @@
 - Dry-run default for all generation commands
 
 **Test coverage:**
-- 760 unit tests (~95% line coverage)
-- 16 integration tests (mocked E2E) + 6 gated (live API + dispatch + evals)
+- 1281 tests passing (8 skipped, live-API gated) across unit + integration + MCP + CLI + provider suites
+- Per-phase regression tests (p13–p16) + live smoke tests gated behind `MEDIA_FORGE_RUN_LIVE_TESTS=true`
 - 5 golden PSNR comparison tests
 - Reviewer calibration eval (15 scenarios, ≥80% accuracy target)
 
@@ -92,9 +104,9 @@ The local PaddleOCR WASM backend is stubbed in `src/review/ocr-validator.ts`. v0
 
 ---
 
-## Known Debts Carried into v0.1.0
+## Known Debts (as of v0.1.1)
 
-The following debts are tracked in `.maxvision/notes/2026-05-22-media-forge-pending-debts.md` (planning repo, not in the plugin tree). Each has been explicitly accepted or deferred.
+The following debts are tracked in `.maxvision/notes/2026-05-22-media-forge-pending-debts.md` (planning repo, not in the plugin tree). Each has been explicitly accepted, deferred, or resolved.
 
 | ID | Severity | Status | Summary |
 |---|---|---|---|
@@ -105,4 +117,7 @@ The following debts are tracked in `.maxvision/notes/2026-05-22-media-forge-pend
 | DEBT-005 | Low | Accepted | `ImageInput`/`VideoInput` discriminated unions skip `superRefine`. MCP layer uses individual schemas (verified). |
 | DEBT-006 | Low | Accepted (pending SDK update) | Imagen 4 Ultra `imageSize` not in SDK `GenerateImagesConfig`; emits `logger.warn` and proceeds. Wires in when SDK adds the field. |
 | DEBT-007 | Low | Deferred to v0.2.0 | `paddleocr-wasm` backend stubbed; Cloud Vision default is production-ready for v0.1.0. |
-| DEBT-008 | **Medium** | Workaround documented | ZodEffects schemas return `inputSchema: {}` in `tools/list` for ~10 of 22 tools. Runtime validation is correct. Client UI introspection is degraded. Workaround: use Option A (register `_Base` ZodObject for introspection, full schema in handler) before v0.2.0. See `docs/troubleshooting.md`. |
+| DEBT-008 | Medium | **RESOLVED (v0.1.0)** | ZodEffects `tools/list` empty `inputSchema` fixed: `_Base` ZodObject registered for JSON Schema emission, `validationSchema` re-parsed at handler boundary. Upstream filed `modelcontextprotocol/typescript-sdk#2145`. |
+| FU-P13 | Low | Open (P17 quality-maxout) | Dual cost ledger (`cost.jsonl` + SQLite `cost.db`) runs in parallel; unify into one source of truth. |
+| FU-P15 | Low | Open — verify on first live run | Kling V3 Master (4K) ~$0.18/s and Omni multi-shot ~$0.168/s are placeholder rates flagged `pricing.source: 'volatile-by-tier'`. Confirm against live invoice. |
+| FU-P16 | Operator risk | Accepted (operator responsibility) | Seedance 2.0 under active Disney/Paramount IP litigation. Zero runtime IP gating shipped; emergency removal via `MEDIA_FORGE_SEEDANCE_ENABLED=false`. |

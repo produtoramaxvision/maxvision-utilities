@@ -36,7 +36,7 @@
     },
     {
       "name": "media-forge",
-      "description": "Production-grade image and video generation via Google's top-tier AI (Nano Banana Pro, Imagen 4 Ultra, Veo 3.1 Pro). 10 domain-specialized subagents, 11 skills, 22 MCP tools, smart-routing quality reviewer, dual surface (Claude Code plugin + MCP server + CLI).",
+      "description": "Production-grade image and video generation. Google top-tier AI (Nano Banana Pro, Imagen 4 Ultra, Veo 3.1) plus multi-provider video (Higgsfield, Kling 3.0, Seedance 2.0). 14 domain-specialized subagents, 14 skills, 54 MCP tools, smart-routing quality reviewer, dual surface (Claude Code plugin + MCP server + CLI).",
       "source": "./media-forge",
       "strict": true,
       "skills": [
@@ -48,8 +48,11 @@
         "./skills/cinematic-short",
         "./skills/create",
         "./skills/extend-video",
+        "./skills/higgsfield-prompting",
+        "./skills/kling-prompting",
         "./skills/ocr-validate",
         "./skills/scene-compose",
+        "./skills/seedance-prompting",
         "./skills/setup"
       ]
     }
