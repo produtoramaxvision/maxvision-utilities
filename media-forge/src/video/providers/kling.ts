@@ -131,15 +131,25 @@ export class KlingProvider implements VideoProvider {
     const db = openDb(this.dbPath);
     runMigrations(db);
     const row = db
-      .prepare('SELECT native_task_id, mode FROM video_jobs WHERE id = ?')
-      .get(jobId) as { native_task_id?: string; mode?: string } | undefined;
+      .prepare('SELECT native_task_id, mode, endpoint_kind FROM video_jobs WHERE id = ?')
+      .get(jobId) as {
+        native_task_id?: string;
+        mode?: string;
+        endpoint_kind?: string;
+      } | undefined;
     if (!row?.native_task_id) {
       throw new Error(
         `Kling hydrateFromDb: jobId '${jobId}' missing from video_jobs (or native_task_id unset). ` +
           `Cannot poll: either jobId is wrong or the submit step never persisted native_task_id.`,
       );
     }
-    const endpointKind = pickEndpoint(row.mode ?? 't2v', undefined);
+    // FIX (Codex P2 round 17, PR#11): prefer the persisted endpoint_kind over
+    // re-deriving from `mode`. Extras-routed jobs (base mode + elementIds /
+    // lipSync) submit to /v1/motion or /advanced-lip-sync; pickEndpoint(mode,
+    // undefined) returns the wrong path on hydrate and the job is unpollable.
+    // Fallback to pickEndpoint for legacy rows persisted before this column.
+    const endpointKind = (row.endpoint_kind as KlingEndpointKind | undefined) ??
+      pickEndpoint(row.mode ?? 't2v', undefined);
     this.jobTypeMap.set(jobId, { endpointKind, nativeTaskId: row.native_task_id });
   }
 
@@ -203,6 +213,10 @@ export class KlingProvider implements VideoProvider {
     this.jobTypeMap.set(jobId, { endpointKind, nativeTaskId });
 
     // Cost-tracker entry (estimate, status=pending)
+    // FIX (Codex P2 round 17, PR#11): persist endpointKind so hydrateFromDb
+    // can reconstruct the actual poll path. Without this, extras-routed jobs
+    // (base mode + elementIds/lipSync) become unpollable after a restart
+    // because pickEndpoint(mode, undefined) returns the wrong endpoint.
     const estUsd = this.estimateCostUSD(req);
     recordJob({
       dbPath: this.dbPath,
@@ -213,6 +227,7 @@ export class KlingProvider implements VideoProvider {
       paramsHash: hashParams(req),
       estUsd,
       nativeTaskId,
+      endpointKind,
     });
 
     // NOTE: no global request_id<->jobId map needed. The webhook handler resolves identity from

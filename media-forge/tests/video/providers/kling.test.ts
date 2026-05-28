@@ -486,6 +486,43 @@ describe('KlingProvider', () => {
     expect(() => p.hydrateFromDb('does-not-exist')).toThrow(/missing from video_jobs|native_task_id/i);
   });
 
+  it('hydrateFromDb honors persisted endpoint_kind (extras-routed job — Codex P2 round 17, PR#11)', async () => {
+    // Simulate a submission where base mode='i2v' was routed to /v1/motion via
+    // extras.elementIds — endpoint_kind='motion-brush' must be persisted so
+    // hydrateFromDb after a restart polls the correct path, NOT /image2video.
+    const { recordJob } = await import('../../../src/core/cost-tracker.js');
+    recordJob({
+      dbPath,
+      jobId: 'internal-extras-routed',
+      provider: 'kling',
+      model: 'kling-v3-pro',
+      mode: 'i2v', // base mode that pickEndpoint(mode, undefined) → image2video
+      paramsHash: 'h-extras',
+      estUsd: 0.5,
+      nativeTaskId: 'kling-native-motion',
+      endpointKind: 'motion-brush', // actual endpoint resolved at submit
+    });
+
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 0,
+        data: {
+          task_id: 'kling-native-motion',
+          task_status: 'succeed',
+          task_result: { videos: [{ id: 'v1', url: 'https://cdn/motion.mp4', duration: '5' }] },
+        },
+      }),
+    });
+    const p = new KlingProvider({ dbPath, env, fetchImpl });
+    p.hydrateFromDb('internal-extras-routed');
+    await p.pollStatus('internal-extras-routed');
+    const [url] = fetchImpl.mock.calls[0];
+    // Must hit /v1/motion path, NOT /image2video (the wrong-poll bug Codex flagged).
+    expect(String(url)).toMatch(/\/v1\/motion\//);
+  });
+
   // -------------------------------------------------------------------------
   // Codex P2 round 11 — motion-brush + elements bodies must forward `duration`
   // -------------------------------------------------------------------------

@@ -13,6 +13,15 @@ export interface RecordJobInput {
   readonly createdAtOverride?: string;
   /** Native provider task ID (e.g. Kling task_id). Persisted for TTL-refresh re-poll. */
   readonly nativeTaskId?: string;
+  /**
+   * Provider-specific endpoint kind chosen for this submission (e.g. Kling
+   * resolves to one of text2video/image2video/omni-video/motion-brush/lip-sync/
+   * video-extend). Persisted so hydrateFromDb after a restart can target the
+   * correct poll path — `mode` alone is insufficient when the routing decision
+   * depends on extras (elementIds, lipSync, motionBrushRegions, etc.).
+   * Codex P2 round 17 (PR#11).
+   */
+  readonly endpointKind?: string;
 }
 
 export interface RecordActualInput {
@@ -48,8 +57,8 @@ export function recordJob(input: RecordJobInput): void {
   const createdAt = input.createdAtOverride ?? new Date().toISOString();
   db.prepare(
     `INSERT INTO video_jobs
-     (id, provider, model, mode, params_hash, est_usd, status, created_at, native_task_id)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+     (id, provider, model, mode, params_hash, est_usd, status, created_at, native_task_id, endpoint_kind)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
   ).run(
     input.jobId,
     input.provider,
@@ -59,6 +68,7 @@ export function recordJob(input: RecordJobInput): void {
     input.estUsd,
     createdAt,
     input.nativeTaskId ?? null,
+    input.endpointKind ?? null,
   );
 }
 
