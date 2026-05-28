@@ -89,7 +89,10 @@ import { HiggsfieldSpeakInput, type HiggsfieldSpeakInputT } from './schemas.js';
 import { HiggsfieldMarketingStudioInput, type HiggsfieldMarketingStudioInputT } from './schemas.js';
 import { HiggsfieldRecastInput, type HiggsfieldRecastInputT } from './schemas.js';
 import { HiggsfieldViralityPredictorInput, type HiggsfieldViralityPredictorInputT } from './schemas.js';
-import { buildHiggsfieldHeaders } from '../video/providers/auth/higgsfield-headers.js';
+import {
+  buildHiggsfieldHeaders,
+  buildFallbackHeaders,
+} from '../video/providers/auth/higgsfield-headers.js';
 import { HiggsfieldProvider } from '../video/providers/higgsfield.js';
 import { KlingProvider } from '../video/providers/kling.js';
 import { KlingMotionBrushInput, type KlingMotionBrushInputT } from './schemas.js';
@@ -409,15 +412,31 @@ export async function handleHiggsfieldViralityPredictor(rawInput: unknown): Prom
   raw: Record<string, unknown>;
 }> {
   const input: HiggsfieldViralityPredictorInputT = HiggsfieldViralityPredictorInput.parse(rawInput);
-  const res = await fetch('https://platform.higgsfield.ai/higgsfield-ai/virality-predictor', {
-    method: 'POST',
-    headers: {
+  // FIX (Codex P2 round 12, PR#11): every other Higgsfield endpoint
+  // (HiggsfieldProvider.generate / pollStatus / etc.) does a primary→fallback
+  // auth handshake on 401/403 — virality_predictor was missed in the round 5
+  // hardening, so it fails outright in deployments accepting only the
+  // fallback scheme. Mirror the same retry-once pattern here.
+  const url = 'https://platform.higgsfield.ai/higgsfield-ai/virality-predictor';
+  const body = JSON.stringify({ asset_url: input.assetUrl, platform: input.platform });
+  const primaryHeaders = {
+    'content-type': 'application/json',
+    accept: 'application/json',
+    ...buildHiggsfieldHeaders(),
+  };
+  let res = await fetch(url, { method: 'POST', headers: primaryHeaders, body });
+  if (res.status === 401 || res.status === 403) {
+    process.stderr.write(
+      `[higgsfield-auth] virality_predictor primary auth rejected (status=${res.status}) — retrying once with fallback scheme.\n`,
+    );
+    process.env['MEDIA_FORGE_HF_AUTH_FALLBACK_USED'] = 'true';
+    const fallbackHeaders = {
       'content-type': 'application/json',
       accept: 'application/json',
-      ...buildHiggsfieldHeaders(),
-    },
-    body: JSON.stringify({ asset_url: input.assetUrl, platform: input.platform }),
-  });
+      ...buildFallbackHeaders(),
+    };
+    res = await fetch(url, { method: 'POST', headers: fallbackHeaders, body });
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`Higgsfield virality predictor failed: ${res.status} ${text.slice(0, 300)}`);
@@ -777,7 +796,8 @@ export async function handleKlingElementList(
   if (input.syncWithBackend) {
     const remote = await listKlingElementsFromBackend({ env: process.env as never, fetchImpl: opts.fetchImpl });
     const localById = new Map(elements.map((e) => [e.elementId, e]));
-    elements = remote.map((r) => ({ ...r, category: r.category, lastUsedAt: localById.get(r.elementId)?.lastUsedAt }));
+    // Upsert ALL remote rows so the local cache stays complete regardless of
+    // caller's category filter — cache freshness is independent of the query.
     const upsert = db.prepare(
       `INSERT OR REPLACE INTO kling_elements (element_id, display_name, category, created_at, last_used_at)
        VALUES (?, ?, ?, ?, ?)`,
@@ -785,6 +805,20 @@ export async function handleKlingElementList(
     for (const e of remote) {
       upsert.run(e.elementId, e.displayName, e.category ?? null, e.createdAt, localById.get(e.elementId)?.lastUsedAt ?? null);
     }
+    // FIX (Codex P2 round 12, PR#11): preserve `input.category` filter when
+    // returning the synced list. Round 9 added the local SQL WHERE clause for
+    // category, but the sync branch overwrote `elements` with the unfiltered
+    // remote map — so `{ category: 'character', syncWithBackend: true }`
+    // returned products/locations too. Filter the returned list only; the
+    // upsert above keeps the cache fresh either way.
+    const remoteMapped = remote.map((r) => ({
+      ...r,
+      category: r.category,
+      lastUsedAt: localById.get(r.elementId)?.lastUsedAt,
+    }));
+    elements = input.category
+      ? remoteMapped.filter((e) => e.category === input.category)
+      : remoteMapped;
     return { source: 'cache+backend', elements };
   }
   return { source: 'cache', elements };
