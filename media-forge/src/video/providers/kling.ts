@@ -247,16 +247,26 @@ export class KlingProvider implements VideoProvider {
       throw new Error(`Kling poll API ${res.status}: ${errBody.message ?? '(no message)'}`);
     }
     const payload = (await res.json()) as KlingPollResponseBody;
-    const klingState = payload.data?.task_status ?? 'processing';
+    // FIX (Codex P2 round 15, PR#11): mirror the generate() envelope check.
+    // Kling can return HTTP 200 with a non-zero `code` (auth expired, quota,
+    // upstream error) and no usable `data`. The previous fall-through coerced
+    // task_status to 'processing', masking the failure as in-progress so the
+    // caller polled forever and the cost row stayed pending.
+    if (payload.code !== 0 || !payload.data) {
+      throw new Error(
+        `Kling poll API returned non-zero code ${payload.code ?? 'unknown'} ${payload.message ?? ''}`.trim(),
+      );
+    }
+    const klingState = payload.data.task_status ?? 'processing';
     const state = mapKlingState(klingState);
-    const assetUrls = (payload.data?.task_result?.videos ?? [])
+    const assetUrls = (payload.data.task_result?.videos ?? [])
       .map((v) => v.url)
       .filter((u): u is string => typeof u === 'string');
     return {
       jobId,
       state,
       assetUrls: assetUrls.length > 0 ? assetUrls : undefined,
-      errorMessage: state === 'failed' ? payload.data?.task_status_msg : undefined,
+      errorMessage: state === 'failed' ? payload.data.task_status_msg : undefined,
       progress: state === 'completed' ? 1 : undefined,
     };
   }

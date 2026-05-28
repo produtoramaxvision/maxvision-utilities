@@ -420,6 +420,23 @@ describe('KlingProvider', () => {
     expect(status.errorMessage).toMatch(/nsfw/i);
   });
 
+  it('pollStatus throws on HTTP 200 with non-zero code (Codex P2 round 15, PR#11)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 1001,
+        message: 'quota exceeded',
+        data: null,
+      }),
+    });
+    const p = new KlingProvider({ dbPath, env, fetchImpl });
+    p._rememberJobType('internal-quota', 'text2video', 'kling-quota');
+    await expect(p.pollStatus('internal-quota')).rejects.toThrow(
+      /non-zero code 1001.*quota exceeded/i,
+    );
+  });
+
   // -------------------------------------------------------------------------
   // hydrateFromDb — Codex P1 round 6, PR#11
   // Default MCP Kling flow suppresses callback URLs (HMAC mismatch). The

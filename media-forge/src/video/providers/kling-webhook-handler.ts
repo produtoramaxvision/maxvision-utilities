@@ -75,8 +75,16 @@ export function createKlingWebhookHandler(opts: CreateKlingWebhookHandlerOpts): 
     const videos = payload.task_result?.videos ?? [];
     if (videos.length === 0) {
       process.stderr.write(
-        `[kling-webhook] job ${internalJobId} succeeded but no video assets in payload\n`,
+        `[kling-webhook] job ${internalJobId} succeeded but no video assets in payload — marking failed\n`,
       );
+      // FIX (Codex P2 round 15, PR#11): persist a terminal state. The previous
+      // log+return left the row stuck at 'pending' forever — symmetric with the
+      // round 4 failed-status bug. A succeed envelope with no assets cannot
+      // produce a downloadable artifact; treat it as failure so cost reports
+      // distinguish it from in-progress work.
+      db.prepare(
+        "UPDATE video_jobs SET status = 'failed', actual_usd = COALESCE(actual_usd, 0), completed_at = ? WHERE id = ? AND status != 'completed'",
+      ).run(new Date().toISOString(), internalJobId);
       return;
     }
 

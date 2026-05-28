@@ -122,6 +122,38 @@ describe('createKlingWebhookHandler', () => {
     expect((errSpy.mock.calls[0][0] as string).toLowerCase()).toContain('content moderation');
   });
 
+  it('marks job failed when task_status=succeed but task_result.videos is empty (Codex P2 round 15, PR#11)', async () => {
+    recordJob({
+      dbPath,
+      jobId: 'internal-job-empty',
+      provider: 'kling',
+      model: 'kling-v3-standard',
+      mode: 't2v',
+      paramsHash: 'h-empty',
+      estUsd: 0.63,
+    });
+    const fetchImpl = vi.fn();
+    const handler = createKlingWebhookHandler({ dbPath, outputsDir, fetchImpl: fetchImpl as never });
+    await handler({
+      provider: 'kling',
+      jobId: 'internal-job-empty',
+      payload: {
+        task_id: 'kling-native-empty',
+        task_status: 'succeed',
+        task_result: { videos: [] },
+      },
+      headers: {},
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    const db = openDb(dbPath);
+    const row = db
+      .prepare('SELECT status, completed_at FROM video_jobs WHERE id = ?')
+      .get('internal-job-empty') as { status: string; completed_at: string | null };
+    expect(row.status).toBe('failed');
+    expect(row.completed_at).not.toBeNull();
+    closeDb(dbPath);
+  });
+
   it('throws when no cost-tracker DB record exists for ctx.jobId (orphan webhook)', async () => {
     const fetchImpl = vi.fn();
     const handler = createKlingWebhookHandler({ dbPath, outputsDir, fetchImpl: fetchImpl as never });
