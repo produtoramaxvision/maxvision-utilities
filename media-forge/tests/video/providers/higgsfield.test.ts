@@ -406,8 +406,10 @@ describe('HiggsfieldProvider', () => {
   });
 
   it('download fetches the CDN URL and returns DownloadedAsset with metadata', async () => {
-    global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('https://cdn.higgsfield.ai/asset.mp4');
+      // Codex P1 round 13 (PR#10): every download fetch MUST disable auto-follow.
+      expect(init?.redirect).toBe('manual');
       const buf = Buffer.from('FAKEMP4DATA');
       return new Response(buf, {
         status: 200,
@@ -420,6 +422,69 @@ describe('HiggsfieldProvider', () => {
     expect(asset.metadata.contentType).toBe('video/mp4');
     expect(asset.metadata.sizeBytes).toBe(11);
     expect(asset.metadata.cdnUrl).toBe('https://cdn.higgsfield.ai/asset.mp4');
+  });
+
+  it('download follows a safe redirect to another https CDN host', async () => {
+    let call = 0;
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.redirect).toBe('manual');
+      call += 1;
+      if (call === 1) {
+        expect(String(input)).toBe('https://cdn.higgsfield.ai/asset.mp4');
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'https://signed-cdn.amazonaws.com/asset.mp4' },
+        });
+      }
+      expect(String(input)).toBe('https://signed-cdn.amazonaws.com/asset.mp4');
+      const buf = Buffer.from('REDIRECTED');
+      return new Response(buf, {
+        status: 200,
+        headers: { 'content-type': 'video/mp4' },
+      });
+    }) as unknown as typeof fetch;
+
+    const asset = await provider.download('https://cdn.higgsfield.ai/asset.mp4');
+    expect(asset.buffer.toString()).toBe('REDIRECTED');
+    expect(call).toBe(2);
+  });
+
+  it('download refuses a redirect pointing at AWS IMDS (SSRF defense)', async () => {
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.redirect).toBe('manual');
+      expect(String(input)).toBe('https://cdn.higgsfield.ai/asset.mp4');
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'https://169.254.169.254/latest/meta-data/iam/security-credentials/' },
+      });
+    }) as unknown as typeof fetch;
+
+    await expect(provider.download('https://cdn.higgsfield.ai/asset.mp4')).rejects.toThrow(
+      /unsafe redirect target/i,
+    );
+  });
+
+  it('download refuses a 3xx response without Location header', async () => {
+    global.fetch = vi.fn(async () => {
+      return new Response(null, { status: 302, headers: {} });
+    }) as unknown as typeof fetch;
+
+    await expect(provider.download('https://cdn.higgsfield.ai/asset.mp4')).rejects.toThrow(
+      /without Location header/i,
+    );
+  });
+
+  it('download refuses a redirect loop beyond the hop cap', async () => {
+    global.fetch = vi.fn(async () => {
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'https://cdn.higgsfield.ai/loop.mp4' },
+      });
+    }) as unknown as typeof fetch;
+
+    await expect(provider.download('https://cdn.higgsfield.ai/asset.mp4')).rejects.toThrow(
+      /too many redirects|chain longer/i,
+    );
   });
 
   it('recordActualCostUSD persists the cost to the video_jobs row', async () => {

@@ -113,4 +113,16 @@ describe('media_higgsfield_generate handler', () => {
       }),
     ).rejects.toThrow();
   });
+
+  it("rejects mode='i2v' without firstFrameImagePath (Codex P2 round 13, PR#10)", async () => {
+    await expect(
+      handleHiggsfieldGenerate({
+        modelId: 'higgsfield-soul-standard',
+        mode: 'i2v',
+        prompt: 'animate the still',
+        durationSec: 5,
+        resolution: '1080p',
+      }),
+    ).rejects.toThrow(/firstFrameImagePath/i);
+  });
 });

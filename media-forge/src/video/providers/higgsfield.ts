@@ -274,7 +274,43 @@ export class HiggsfieldProvider implements VideoProvider {
       );
     }
 
-    const res = await this.doFetch(cdnUrl, { method: 'GET' });
+    // FIX (Codex P1 round 13, PR#10): re-validate after each redirect. Default
+    // `fetch` follows redirects automatically, so a CDN-allowlisted host can
+    // 302 to an internal target (loopback / 169.254.169.254 / RFC1918 / IPv6
+    // ULA) and bypass the pre-fetch guard above. Use `redirect: 'manual'` and
+    // run every `Location` through `isSafeHiggsfieldAssetUrl` before following.
+    let currentUrl = cdnUrl;
+    let res: Response;
+    const maxRedirects = 3;
+    for (let hop = 0; ; hop++) {
+      res = await this.doFetch(currentUrl, { method: 'GET', redirect: 'manual' });
+      if (res.status < 300 || res.status >= 400) break;
+      if (hop >= maxRedirects) {
+        throw new Error(
+          `Higgsfield download: refusing chain longer than ${maxRedirects} redirects (SSRF defense).`,
+        );
+      }
+      const location = res.headers.get('location');
+      if (!location) {
+        throw new Error(
+          `Higgsfield download: ${res.status} redirect without Location header (SSRF defense).`,
+        );
+      }
+      let nextUrl: string;
+      try {
+        nextUrl = new URL(location, currentUrl).toString();
+      } catch {
+        throw new Error(
+          `Higgsfield download: refusing malformed redirect target '${location}' (SSRF defense).`,
+        );
+      }
+      if (!isSafeHiggsfieldAssetUrl(nextUrl)) {
+        throw new Error(
+          `Higgsfield download: refusing unsafe redirect target '${nextUrl}' (SSRF defense).`,
+        );
+      }
+      currentUrl = nextUrl;
+    }
     if (!res.ok) {
       throw new Error(`Higgsfield download failed: ${res.status}`);
     }

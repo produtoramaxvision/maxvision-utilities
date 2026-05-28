@@ -369,7 +369,10 @@ export type HiggsfieldViralityPredictorInputT = z.infer<typeof HiggsfieldViralit
 // doc routed Soul t2v through media_video_route (a decision-only tool) with
 // no actual submit path.
 // ---------------------------------------------------------------------------
-export const HiggsfieldGenerateInput = z.object({
+// _HiggsfieldGenerateBase — raw ZodObject for tools/list (DEBT-008: tools/list
+// requires a plain ZodObject; the refined cross-field check lives on the
+// exported `HiggsfieldGenerateInput` for runtime validation).
+const _HiggsfieldGenerateBase = z.object({
   modelId: z.enum([
     'higgsfield-soul-standard',
     'higgsfield-soul-pro',
@@ -383,6 +386,20 @@ export const HiggsfieldGenerateInput = z.object({
   firstFrameImagePath: z.string().min(1).optional(),
   referenceImagePaths: z.array(z.string().min(1)).max(8).optional(),
   soulId: z.string().min(1).optional(),
+});
+// FIX (Codex P2 round 13, PR#10): require `firstFrameImagePath` whenever
+// `mode === 'i2v'`. Without this gate, callers can submit i2v jobs that get
+// rejected upstream (or run as text-only) after we already burned credits and
+// recorded the job. The specialized i2v tools (dop, cinema_studio) require
+// the image at the schema level — the generic generate tool now does too.
+export const HiggsfieldGenerateInput = _HiggsfieldGenerateBase.superRefine((v, ctx) => {
+  if (v.mode === 'i2v' && !v.firstFrameImagePath) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['firstFrameImagePath'],
+      message: "firstFrameImagePath is required when mode='i2v'",
+    });
+  }
 });
 export type HiggsfieldGenerateInputT = z.infer<typeof HiggsfieldGenerateInput>;
 
@@ -673,8 +690,10 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   {
     name: 'media_higgsfield_generate',
     description:
-      'Generic Higgsfield submit for Soul / Soul 2.0 / aesthetic presets when none of the specialized tools (dop, cinema_studio, speak, marketing_studio, recast) applies. Required: modelId, prompt. Optional: mode (t2v/i2v), firstFrameImagePath, referenceImagePaths, soulId.',
-    inputSchema: HiggsfieldGenerateInput,
+      'Generic Higgsfield submit for Soul / Soul 2.0 / aesthetic presets when none of the specialized tools (dop, cinema_studio, speak, marketing_studio, recast) applies. Required: modelId, prompt. Optional: mode (t2v/i2v), firstFrameImagePath (REQUIRED when mode=i2v), referenceImagePaths, soulId.',
+    // DEBT-008: tools/list wants a plain ZodObject; runtime validation uses
+    // the refined schema (cross-field check: i2v requires firstFrameImagePath).
+    inputSchema: _HiggsfieldGenerateBase,
     validationSchema: HiggsfieldGenerateInput,
   },
 
