@@ -4,6 +4,7 @@ import {
   startWebhookRouter,
   stopWebhookRouter,
   registerWebhookHandler,
+  registerAuthValidator,
   type WebhookRouter,
 } from '../../../src/video/providers/webhook-router.js';
 
@@ -171,5 +172,99 @@ describe('WebhookRouter', () => {
       { method: 'POST', headers: signedHeaders(body), body },
     );
     expect(res.status).toBe(404);
+  });
+
+  // P16.W FASE 2 (PR#12) — multi-scheme auth tests
+  it('custom auth validator overrides default HMAC for that provider', async () => {
+    let handlerCalled = false;
+    registerWebhookHandler(router, 'bytedance', async () => {
+      handlerCalled = true;
+    });
+    // Custom validator accepts anything (simulates ED25519+JWKS pass)
+    registerAuthValidator(router, 'bytedance', async () => ({ valid: true }));
+
+    const body = JSON.stringify({ request_id: 'r1', status: 'OK' });
+    const res = await fetch(
+      `http://127.0.0.1:${router.address.port}/webhooks/bytedance/job-1`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' }, // no HMAC headers
+        body,
+      },
+    );
+    expect(res.status).toBe(200);
+    expect(handlerCalled).toBe(true);
+  });
+
+  it('custom auth validator can reject — returns 401, handler NOT called', async () => {
+    let handlerCalled = false;
+    registerWebhookHandler(router, 'bytedance', async () => {
+      handlerCalled = true;
+    });
+    registerAuthValidator(router, 'bytedance', async () => ({
+      valid: false,
+      reason: 'forced reject',
+    }));
+
+    const body = JSON.stringify({ request_id: 'r1' });
+    const res = await fetch(
+      `http://127.0.0.1:${router.address.port}/webhooks/bytedance/job-1`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body,
+      },
+    );
+    expect(res.status).toBe(401);
+    expect(handlerCalled).toBe(false);
+  });
+
+  it('provider WITHOUT custom validator still uses default HMAC (back-compat)', async () => {
+    let handlerCalled = false;
+    registerWebhookHandler(router, 'kling', async () => {
+      handlerCalled = true;
+    });
+    // No registerAuthValidator for 'kling' — must fall back to HMAC default.
+
+    // Without HMAC headers → 401
+    const body = JSON.stringify({ task_id: 't1' });
+    const resNoHmac = await fetch(
+      `http://127.0.0.1:${router.address.port}/webhooks/kling/job-1`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body,
+      },
+    );
+    expect(resNoHmac.status).toBe(401);
+    expect(handlerCalled).toBe(false);
+
+    // With valid HMAC headers → 200
+    const resWithHmac = await fetch(
+      `http://127.0.0.1:${router.address.port}/webhooks/kling/job-1`,
+      { method: 'POST', headers: signedHeaders(body), body },
+    );
+    expect(resWithHmac.status).toBe(200);
+    expect(handlerCalled).toBe(true);
+  });
+
+  it('custom validator throwing → 500 (not 200/401 — surfaces bug loudly)', async () => {
+    registerWebhookHandler(router, 'bytedance', async () => {
+      /* would-be handler */
+    });
+    registerAuthValidator(router, 'bytedance', async () => {
+      throw new Error('validator boom');
+    });
+
+    const body = JSON.stringify({});
+    const res = await fetch(
+      `http://127.0.0.1:${router.address.port}/webhooks/bytedance/job-1`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body,
+      },
+    );
+    expect(res.status).toBe(500);
   });
 });

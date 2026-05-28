@@ -16,10 +16,14 @@ import {
   startWebhookRouter,
   stopWebhookRouter,
   registerWebhookHandler,
+  registerAuthValidator,
   type WebhookRouter,
 } from '../video/providers/webhook-router.js';
 import { createKlingWebhookHandler } from '../video/providers/kling-webhook-handler.js';
 import { createHiggsfieldWebhookHandler } from '../video/providers/higgsfield-webhook-handler.js';
+import { createBytedanceWebhookHandler } from '../video/providers/bytedance-webhook-handler.js';
+import { verifyFalWebhookSignature } from '../video/providers/auth/fal-ed25519.js';
+import { isSeedanceEnabled } from '../core/feature-flags.js';
 import { join } from 'node:path';
 
 export interface BuildServerOpts {
@@ -125,6 +129,43 @@ export async function startStdioServer(): Promise<void> {
         env: process.env as unknown as Parameters<typeof createKlingWebhookHandler>[0]['env'],
       }),
     );
+
+    // P16.W FASE 4 (PR#12): fal.ai/Seedance webhook wiring with native
+    // ED25519+JWKS signature verification.
+    //
+    // (1) ED25519 validator — ALWAYS registered (independent of feature flag).
+    //     The validator dispatches per-provider in webhook-router.ts; without
+    //     this override, default HMAC would reject every fal.ai callback 401
+    //     because fal.ai never sends our x-webhook-* headers (it sends
+    //     x-fal-webhook-*). Registering the validator unconditionally lets the
+    //     router authenticate fal.ai callbacks even when MEDIA_FORGE_SEEDANCE_
+    //     ENABLED=false (jobs submitted before flag toggle still get acked).
+    registerAuthValidator(router, 'bytedance', async (req, body) =>
+      verifyFalWebhookSignature({ headers: req.headers, body }),
+    );
+
+    // (2) Handler — ALWAYS registered (drain or real). Without a handler, the
+    //     router returns 404 even after auth passes; fal.ai treats that as
+    //     delivery failure and retries 10× over 2h. A no-op drain returns 200
+    //     immediately to short-circuit the retry storm when Seedance is
+    //     disabled mid-flight.
+    const seedanceOutputsDir = join(projectDir, 'outputs', 'seedance');
+    if (isSeedanceEnabled()) {
+      registerWebhookHandler(
+        router,
+        'bytedance',
+        createBytedanceWebhookHandler({ dbPath, outputsDir: seedanceOutputsDir }),
+      );
+    } else {
+      // Drain handler — flag disabled but callbacks for in-flight jobs still
+      // need a 200 ACK to stop fal.ai's 10×/2h retry policy.
+      registerWebhookHandler(router, 'bytedance', async (ctx) => {
+        process.stderr.write(
+          `[bytedance-webhook] drained: MEDIA_FORGE_SEEDANCE_ENABLED=false. ` +
+            `jobId='${ctx.jobId}'. Set flag + restart to re-enable real ingestion.\n`,
+        );
+      });
+    }
 
     // Wire SIGTERM/SIGINT shutdown — close the router before exiting so the
     // OS port + handler map are released cleanly. Errors during close are

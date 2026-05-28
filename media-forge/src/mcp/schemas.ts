@@ -238,7 +238,10 @@ export const VideoRouteInput = z.object({
   ]),
   prompt: z.string().min(1),
   durationSec: z.number().positive(),
-  resolution: z.enum(['720p', '1080p', '2k', '4k']),
+  // FIX (Codex P2 round 6, PR#12): include 480p — Seedance specs advertise it
+  // and the dedicated Seedance schemas accept it, but the generic router was
+  // rejecting every 480p routing request before it could consider those models.
+  resolution: z.enum(['480p', '720p', '1080p', '2k', '4k']),
   aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']).optional(),
   preferProvider: z.enum(['google', 'higgsfield', 'kling', 'bytedance']).optional(),
 });
@@ -621,6 +624,199 @@ export const KlingDownloadInput = z.object({ jobIdOrUrl: z.string().min(1) });
 export type KlingDownloadInputT = z.infer<typeof KlingDownloadInput>;
 
 // ---------------------------------------------------------------------------
+// Seedance 2.0 (ByteDance) MCP tool schemas — P16 Task 7 (A0.5 surface: 4 tools).
+// A0.1: tiers are Fast + Standard only (NO Pro). Standard exclusively supports 1080p.
+// A0.6: tool inputs map 1:1 to fal.ai per-mode request bodies (snake_case → camelCase).
+// Each Input has a `_Base` ZodObject (emitted as tools/list inputSchema per DEBT-008)
+// + a refined ZodEffects (used as validationSchema for the cross-field rules).
+// ---------------------------------------------------------------------------
+
+const _seedanceModelTier = z.enum(['fast', 'standard']);
+const _seedanceResolution = z.enum(['480p', '720p', '1080p']);
+const _seedanceAspect = z
+  .enum(['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'])
+  .default('auto');
+// fal.ai Seedance 2.0 contract: `duration` enum is "auto" | "4" .. "15"
+// (verified via context7 → https://fal.ai/models/bytedance/seedance-2.0/
+// reference-to-video). The CodeRabbit round 9 P1 reading of "2-15s" was
+// based on prose; the upstream enum starts at 4. Keep min=4 to fail fast
+// locally before fal.ai's 422 surfaces.
+const _seedanceDuration = z.number().int().min(4).max(15).optional();
+
+// FIX (CodeRabbit round 18 deferred, PR#12): fal.ai per-modality format whitelist.
+// Image: JPEG/PNG/WebP. Video: MP4/MOV. Audio: MP3/WAV.
+// Permissive: reject only explicitly wrong extensions; URLs without an extension
+// (signed/CDN URLs that encode type out-of-band) pass — fal.ai validates server-side.
+// Regex matches the last path-segment extension before query/fragment.
+const _IMG_EXT_OK = /\.(jpe?g|png|webp)([?#]|$)/i;
+const _VID_EXT_OK = /\.(mp4|mov)([?#]|$)/i;
+const _AUD_EXT_OK = /\.(mp3|wav)([?#]|$)/i;
+const _HAS_EXT = /\.[a-z0-9]{2,5}([?#]|$)/i;
+const _seedanceImageUrl = (msg = 'must be a JPEG/PNG/WebP URL or extension-less (signed/CDN)') =>
+  z
+    .string()
+    .url()
+    .refine((u) => _IMG_EXT_OK.test(u) || !_HAS_EXT.test(u), { message: msg });
+const _seedanceVideoUrl = (msg = 'must be an MP4/MOV URL or extension-less (signed/CDN)') =>
+  z
+    .string()
+    .url()
+    .refine((u) => _VID_EXT_OK.test(u) || !_HAS_EXT.test(u), { message: msg });
+const _seedanceAudioUrl = (msg = 'must be an MP3/WAV URL or extension-less (signed/CDN)') =>
+  z
+    .string()
+    .url()
+    .refine((u) => _AUD_EXT_OK.test(u) || !_HAS_EXT.test(u), { message: msg });
+
+// ---- 1. media_seedance_text_to_video ----
+export const _SeedanceTextToVideoBase = z.object({
+  prompt: z.string().min(1),
+  modelTier: _seedanceModelTier.default('standard'),
+  resolution: _seedanceResolution.default('720p'),
+  durationSec: _seedanceDuration,
+  aspectRatio: _seedanceAspect,
+  generateAudio: z.boolean().default(true),
+  seed: z.number().int().optional(),
+  endUserId: z.string().min(1).optional(),
+});
+
+export const SeedanceTextToVideoInput = _SeedanceTextToVideoBase.refine(
+  (v) => !(v.resolution === '1080p' && v.modelTier === 'fast'),
+  {
+    message: '1080p resolution requires modelTier="standard" (Fast caps at 720p per A0.1)',
+    path: ['resolution'],
+  },
+);
+export type SeedanceTextToVideoInputT = z.infer<typeof SeedanceTextToVideoInput>;
+
+// ---- 2. media_seedance_image_to_video ----
+// I2V with optional end frame — absorbs original `targeted_edit` semantic (A0.5).
+export const _SeedanceImageToVideoBase = z.object({
+  prompt: z.string().min(1),
+  modelTier: _seedanceModelTier.default('standard'),
+  resolution: _seedanceResolution.default('720p'),
+  durationSec: _seedanceDuration,
+  aspectRatio: _seedanceAspect,
+  generateAudio: z.boolean().default(true),
+  seed: z.number().int().optional(),
+  endUserId: z.string().min(1).optional(),
+  imageUrl: _seedanceImageUrl(), // JPEG/PNG/WebP, max 30 MB per fal.ai spec
+  endImageUrl: _seedanceImageUrl().optional(), // last-frame transition (covers targeted_edit semantic)
+});
+
+export const SeedanceImageToVideoInput = _SeedanceImageToVideoBase.refine(
+  (v) => !(v.resolution === '1080p' && v.modelTier === 'fast'),
+  {
+    message: '1080p resolution requires modelTier="standard" (Fast caps at 720p per A0.1)',
+    path: ['resolution'],
+  },
+);
+export type SeedanceImageToVideoInputT = z.infer<typeof SeedanceImageToVideoInput>;
+
+// ---- 3. media_seedance_multishot ----
+// T2V wrapper that structures `shots[]` into multi-shot prompt with timestamp cuts.
+// Endpoint = text-to-video. Validation: shot.end > shot.start, sum(durations) <= 15s.
+export const _SeedanceMultishotBase = z.object({
+  prompt: z.string().min(1),
+  modelTier: _seedanceModelTier.default('standard'),
+  resolution: _seedanceResolution.default('720p'),
+  aspectRatio: _seedanceAspect,
+  shots: z
+    .array(
+      z
+        .object({
+          startSec: z.number().min(0),
+          endSec: z.number().min(0),
+          shotPrompt: z.string().min(1),
+        })
+        .refine((s) => s.endSec > s.startSec, {
+          message: 'shot endSec must be greater than startSec',
+        }),
+    )
+    .min(1, 'at least one shot required')
+    .max(4, 'max 4 shots per multi-shot dispatch'),
+  generateAudio: z.boolean().default(true),
+  seed: z.number().int().optional(),
+  endUserId: z.string().min(1).optional(),
+});
+
+export const SeedanceMultishotInput = _SeedanceMultishotBase
+  .refine(
+    (v) => v.shots.reduce((sum, s) => sum + (s.endSec - s.startSec), 0) <= 15,
+    { message: 'multi-shot total duration must <= 15s (sum of shot endSec-startSec spans)' },
+  )
+  .refine(
+    // FIX (Codex P2 round 11, PR#12): handleSeedanceMultishot derives the fal
+    // `duration` field from `Math.max(...shots.map(s => s.endSec))`. fal.ai's
+    // DurationEnum is "auto" | "4" | "5" | ... | "15" (string-typed). A
+    // request with shot {0, 3} produces durationSec=3 → fal silently degrades
+    // to "auto". Enforce the same enum locally so the error fires here,
+    // not as a confusing upstream behavior. Integer + min 4 + max 15 matches
+    // `_seedanceDuration` for the single-clip tools.
+    (v) => {
+      const max = Math.max(...v.shots.map((s) => s.endSec));
+      return Number.isInteger(max) && max >= 4 && max <= 15;
+    },
+    {
+      message:
+        'multi-shot timeline must yield integer max(endSec) in [4, 15] to match fal.ai DurationEnum (e.g. shot {0, 4} → "4"; shot {0, 3} would silently degrade to "auto")',
+      path: ['shots'],
+    },
+  )
+  .refine((v) => !(v.resolution === '1080p' && v.modelTier === 'fast'), {
+    message: '1080p resolution requires modelTier="standard" (Fast caps at 720p per A0.1)',
+    path: ['resolution'],
+  });
+export type SeedanceMultishotInputT = z.infer<typeof SeedanceMultishotInput>;
+
+// ---- 4. media_seedance_reference_fusion ----
+// R2V with @Image1 / @Video1 / @Audio1 mention syntax. Endpoint = reference-to-video.
+// Hard caps from fal.ai: 9 images, 3 videos, 3 audios. Total refs >= 1.
+// Codex P2 round 7 PR#12 fal.ai contract (verified via context7 docs):
+//   - "Total files across all modalities must not exceed 12."
+//   - "If audio is provided, at least one reference image or video is required."
+export const _SeedanceReferenceFusionBase = z.object({
+  prompt: z.string().min(1), // expected to contain @Image1/@Video1/@Audio1 mention syntax
+  modelTier: _seedanceModelTier.default('standard'),
+  resolution: _seedanceResolution.default('720p'),
+  durationSec: _seedanceDuration,
+  aspectRatio: _seedanceAspect,
+  imageUrls: z.array(_seedanceImageUrl()).max(9, 'at most 9 image refs').default([]),
+  videoUrls: z.array(_seedanceVideoUrl()).max(3, 'at most 3 video refs').default([]),
+  audioUrls: z.array(_seedanceAudioUrl()).max(3, 'at most 3 audio refs').default([]),
+  generateAudio: z.boolean().default(true),
+  seed: z.number().int().optional(),
+  endUserId: z.string().min(1).optional(),
+});
+
+export const SeedanceReferenceFusionInput = _SeedanceReferenceFusionBase
+  .refine(
+    (v) => v.imageUrls.length + v.videoUrls.length + v.audioUrls.length >= 1,
+    { message: 'at least one reference (image/video/audio) required' },
+  )
+  .refine(
+    (v) => v.imageUrls.length + v.videoUrls.length + v.audioUrls.length <= 12,
+    {
+      message:
+        'fal.ai contract: total reference files across all modalities must not exceed 12 (image + video + audio)',
+      path: ['imageUrls'],
+    },
+  )
+  .refine(
+    (v) => !(v.audioUrls.length > 0 && v.imageUrls.length === 0 && v.videoUrls.length === 0),
+    {
+      message:
+        'fal.ai contract: when audioUrls is provided, at least one reference image or video is required',
+      path: ['audioUrls'],
+    },
+  )
+  .refine((v) => !(v.resolution === '1080p' && v.modelTier === 'fast'), {
+    message: '1080p resolution requires modelTier="standard" (Fast caps at 720p per A0.1)',
+    path: ['resolution'],
+  });
+export type SeedanceReferenceFusionInputT = z.infer<typeof SeedanceReferenceFusionInput>;
+
+// ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
 export interface MCPTool {
@@ -632,12 +828,13 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 50 tools total (PR#11 = PR#10 base + 11 Kling - 1 router consolidated)
+// MCP_TOOLS registry — 54 tools total (PR#11 base 50 + P16 4 Seedance = 54)
 // 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route
 // + 7 higgsfield (soul_id, dop, cinema_studio, speak, marketing_studio, recast, virality_predictor)
 // + 1 higgsfield_generate (Codex round 7 PR#10)
 // + 2 higgsfield lifecycle (poll, download — Codex round 5 PR#10)
-// + 11 kling (motion_brush, element_create/list/delete, elements, lip_sync, omni_multishot, video_extend, poll, download, +1 from R6) = 50
+// + 11 kling (motion_brush, element_create/list/delete, elements, lip_sync, omni_multishot, video_extend, poll, download, +1 from R6)
+// + 4 seedance (text_to_video, image_to_video, multishot, reference_fusion — P16) = 54
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -976,6 +1173,39 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description:
       'Download a Kling job asset by internal jobId or direct URL. When given a jobId, hydrates state from DB, polls to obtain a fresh URL, downloads the asset, and writes it under MEDIA_FORGE_OUTPUTS_DIR. Asset URLs are TTL-bounded; download immediately after the job reports completed.',
     inputSchema: KlingDownloadInput,
+  },
+
+  // ---- Seedance 2.0 (ByteDance) — P16 Task 7 (4 tools: t2v/i2v/multishot/reference-fusion) ----
+  // A0.1: 2 tiers (Fast/Standard) — NO Pro. Standard exclusively supports 1080p. A0.5: 4 MCP tools.
+  // NOTE: Seedance has unresolved IP litigation (Disney/Paramount C&D); operator assumes full
+  // compliance responsibility per README "Legal Note on Seedance 2.0".
+  {
+    name: 'media_seedance_text_to_video',
+    description:
+      'Seedance 2.0 text-to-video (Fast / Standard tier). Native audio generation. Resolution 480p/720p (Fast) or 480p/720p/1080p (Standard). NOTE: Seedance has unresolved IP litigation (Disney/Paramount C&D); operator assumes full compliance responsibility, see README "Legal Note on Seedance 2.0".',
+    inputSchema: _SeedanceTextToVideoBase,
+    validationSchema: SeedanceTextToVideoInput,
+  },
+  {
+    name: 'media_seedance_image_to_video',
+    description:
+      'Seedance 2.0 image-to-video (Fast / Standard tier). Accepts imageUrl (start frame) + optional endImageUrl (last-frame transition for frame-anchor edits, replaces targeted_edit). Native audio generation. NOTE: Seedance has unresolved IP litigation (Disney/Paramount C&D); operator assumes full compliance responsibility, see README "Legal Note on Seedance 2.0".',
+    inputSchema: _SeedanceImageToVideoBase,
+    validationSchema: SeedanceImageToVideoInput,
+  },
+  {
+    name: 'media_seedance_multishot',
+    description:
+      'Seedance 2.0 multi-shot text-to-video. Pass `shots: [{startSec, endSec, shotPrompt}]` — the provider serializes them into `[MM:SS-MM:SS] Shot N: ...` markers per ByteDance spec. Best for narrative montages with controlled cuts. Total duration must <= 15s. NOTE: Seedance has unresolved IP litigation (Disney/Paramount C&D); operator assumes full compliance responsibility, see README "Legal Note on Seedance 2.0".',
+    inputSchema: _SeedanceMultishotBase,
+    validationSchema: SeedanceMultishotInput,
+  },
+  {
+    name: 'media_seedance_reference_fusion',
+    description:
+      'Seedance 2.0 reference-to-video (omni-reference fusion). Up to 9 image refs + 3 video refs + 3 audio refs. Prompt should reference them via @Image1/@Video1/@Audio1 mention syntax. The model fuses identity / style / motion / voice across all refs. NOTE: Seedance has unresolved IP litigation (Disney/Paramount C&D); operator assumes full compliance responsibility, see README "Legal Note on Seedance 2.0".',
+    inputSchema: _SeedanceReferenceFusionBase,
+    validationSchema: SeedanceReferenceFusionInput,
   },
 ] as const) as readonly MCPTool[];
 

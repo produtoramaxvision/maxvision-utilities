@@ -84,14 +84,19 @@ const EXPECTED_TOOL_NAMES = [
   // kling lifecycle (2 — Codex P1 round 6 PR#11)
   'media_kling_poll',
   'media_kling_download',
+  // seedance 2.0 (4 — P16 Task 7: t2v / i2v / multishot / reference-fusion)
+  'media_seedance_text_to_video',
+  'media_seedance_image_to_video',
+  'media_seedance_multishot',
+  'media_seedance_reference_fusion',
 ] as const;
 
 // ---------------------------------------------------------------------------
 // Registry shape assertions
 // ---------------------------------------------------------------------------
 describe('MCP_TOOLS registry', () => {
-  it('contains exactly 50 tools', () => {
-    expect(MCP_TOOLS.length).toBe(50);
+  it('contains exactly 54 tools', () => {
+    expect(MCP_TOOLS.length).toBe(54);
   });
 
   it('is frozen (Object.isFrozen)', () => {
@@ -135,11 +140,11 @@ describe('MCP_TOOLS registry', () => {
 // listMCPToolNames()
 // ---------------------------------------------------------------------------
 describe('listMCPToolNames()', () => {
-  it('returns an array of length 50', () => {
-    expect(listMCPToolNames().length).toBe(50);
+  it('returns an array of length 54', () => {
+    expect(listMCPToolNames().length).toBe(54);
   });
 
-  it('contains all 50 expected tool names', () => {
+  it('contains all 54 expected tool names', () => {
     const names = listMCPToolNames();
     for (const expected of EXPECTED_TOOL_NAMES) {
       expect(names).toContain(expected);

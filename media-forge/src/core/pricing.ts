@@ -8,6 +8,13 @@ export interface NormalizeInput {
    * Required when spec.pricing.unit === 'credits-per-video'.
    */
   readonly usdPerCredit?: number;
+  /**
+   * FIX (Codex P2 round 16, PR#12): output resolution. When the spec carries
+   * `pricing.resolutionMultipliers` (e.g. fal.ai Seedance token-formula billing),
+   * the per-second cost scales with this value. Without it, router-level cost
+   * estimates ranked 1080p Seedance at 720p baseline price.
+   */
+  readonly resolution?: '480p' | '720p' | '1080p' | '2k' | '4k';
 }
 
 /**
@@ -34,7 +41,16 @@ export function normalizeCostUSD(spec: VideoModelSpec, req: NormalizeInput): num
   const unit: PricingUnit = pricing.unit;
   switch (unit) {
     case 'usd-per-second':
-      return pricing.rate * req.durationSec;
+    case 'per-second': {
+      // FIX (Codex P2 round 16, PR#12): apply resolutionMultipliers when present
+      // so cross-provider ranking compares apples-to-apples for resolution-aware
+      // billing (Seedance 1080p is 2.25× the 720p baseline, etc.).
+      const multiplier =
+        req.resolution !== undefined
+          ? pricing.resolutionMultipliers?.[req.resolution] ?? 1
+          : 1;
+      return pricing.rate * multiplier * req.durationSec;
+    }
     case 'usd-per-video':
       return pricing.rate;
     case 'credits-per-video':

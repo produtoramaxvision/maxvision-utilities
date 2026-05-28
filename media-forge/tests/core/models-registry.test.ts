@@ -161,3 +161,72 @@ describe('P15 — Kling models registered', () => {
     expect(spec.limits?.maxDurationPerShotSec).toBe(10);
   });
 });
+
+// PATCHED per Amendment A0 — 2 tiers (Standard + Fast), per-second pricing, no Pro
+describe('Seedance 2.0 models (P16)', () => {
+  const SEEDANCE_IDS = ['seedance-2.0-fast', 'seedance-2.0-standard'] as const;
+
+  it('registers seedance-2.0-fast + seedance-2.0-standard in VIDEO_MODELS', () => {
+    expect(VIDEO_MODELS['seedance-2.0-fast']).toBeDefined();
+    expect(VIDEO_MODELS['seedance-2.0-standard']).toBeDefined();
+    // A0.1: NO Pro tier in v2
+    expect(VIDEO_MODELS['seedance-2.0-pro' as string]).toBeUndefined();
+  });
+
+  it('all Seedance specs declare provider = bytedance', () => {
+    for (const id of SEEDANCE_IDS) {
+      expect(VIDEO_MODELS[id].provider).toBe('bytedance');
+    }
+  });
+
+  it('Seedance specs declare pricing.unit = per-second (fal.ai bills per second of 720p output)', () => {
+    for (const id of SEEDANCE_IDS) {
+      expect(VIDEO_MODELS[id].pricing.unit).toBe('per-second');
+    }
+  });
+
+  it('Seedance specs include t2v, i2v, with-refs, multi-shot, targeted-edit modes (no extend/lip-sync — not on fal.ai v2)', () => {
+    const fast = VIDEO_MODELS['seedance-2.0-fast'];
+    expect(fast.modes).toEqual(
+      expect.arrayContaining(['t2v', 'i2v', 'with-refs', 'multi-shot', 'targeted-edit']),
+    );
+    expect(fast.modes).not.toContain('extend');
+    expect(fast.modes).not.toContain('lip-sync');
+  });
+
+  it('Seedance specs declare audioNative = true (native audio generation, default on)', () => {
+    for (const id of SEEDANCE_IDS) {
+      expect(VIDEO_MODELS[id].audioNative).toBe(true);
+    }
+  });
+
+  it('Seedance specs declare ipRiskLevel = high (Disney/Paramount C&D context)', () => {
+    for (const id of SEEDANCE_IDS) {
+      expect(VIDEO_MODELS[id].ipRiskLevel).toBe('high');
+    }
+  });
+
+  it('PROVIDERS runtime array includes bytedance', () => {
+    expect([...PROVIDERS]).toContain('bytedance');
+  });
+
+  it('pricing rates follow Fast < Standard (Fast cheaper per second)', () => {
+    const fast = VIDEO_MODELS['seedance-2.0-fast'].pricing.rate;
+    const std = VIDEO_MODELS['seedance-2.0-standard'].pricing.rate;
+    expect(fast).toBeLessThan(std);
+    expect(fast).toBeCloseTo(0.2419, 4);
+    expect(std).toBeCloseTo(0.3024, 4);
+  });
+
+  it('Standard supports 1080p; Fast caps at 720p (verified fal.ai gallery)', () => {
+    expect(VIDEO_MODELS['seedance-2.0-standard'].resolutions).toContain('1080p');
+    expect(VIDEO_MODELS['seedance-2.0-fast'].resolutions).not.toContain('1080p');
+    expect(VIDEO_MODELS['seedance-2.0-fast'].resolutions).toContain('720p');
+  });
+
+  it('maxDurationSec = 15 for both tiers (fal.ai enum cap)', () => {
+    for (const id of SEEDANCE_IDS) {
+      expect(VIDEO_MODELS[id].maxDurationSec).toBe(15);
+    }
+  });
+});

@@ -124,6 +124,22 @@ import {
 } from '../video/providers/kling-elements.js';
 import { openDb, runMigrations } from '../core/db.js';
 import { recordActualCost } from '../core/cost-tracker.js';
+import {
+  getBytedanceSeedanceProvider,
+  type BytedanceSeedanceEnv,
+} from '../video/providers/bytedance-seedance.js';
+import {
+  SeedanceTextToVideoInput,
+  type SeedanceTextToVideoInputT,
+  SeedanceImageToVideoInput,
+  type SeedanceImageToVideoInputT,
+  SeedanceMultishotInput,
+  type SeedanceMultishotInputT,
+  SeedanceReferenceFusionInput,
+  type SeedanceReferenceFusionInputT,
+} from './schemas.js';
+import type { BytedanceSeedanceExtras } from '../video/providers/base.js';
+import { isSeedanceEnabled } from '../core/feature-flags.js';
 
 // ---------------------------------------------------------------------------
 // ADAPTED_PROVIDERS — routing gate: only providers with a wired adapter here.
@@ -131,9 +147,21 @@ import { recordActualCost } from '../core/cost-tracker.js';
 //
 // P14: HiggsfieldProvider landed in Task 6 — 'higgsfield' enters ADAPTED_PROVIDERS.
 // P15: KlingProvider landed in Task 4 — 'kling' enters ADAPTED_PROVIDERS.
-// P16: 'bytedance' will be appended when SeedanceProvider lands.
+// P16: BytedanceSeedanceProvider landed in Task 6 — 'bytedance' enters ADAPTED_PROVIDERS (Task 7).
+//      Task 8.5: 'bytedance' is excluded when MEDIA_FORGE_SEEDANCE_ENABLED=false.
 // ---------------------------------------------------------------------------
-const ADAPTED_PROVIDERS = new Set<Provider>(['google', 'higgsfield', 'kling']);
+const ADAPTED_PROVIDERS_BASE = new Set<Provider>(['google', 'higgsfield', 'kling']);
+
+/**
+ * Returns the active set of adapted providers, excluding 'bytedance' when the
+ * MEDIA_FORGE_SEEDANCE_ENABLED feature flag is false. Evaluated at call time
+ * (not module load) so tests can toggle the env var per-test.
+ */
+function getAdaptedProviders(): ReadonlySet<Provider> {
+  if (!isSeedanceEnabled()) return ADAPTED_PROVIDERS_BASE;
+  // Build on-demand when Seedance is enabled — avoids mutating the base set.
+  return new Set<Provider>([...ADAPTED_PROVIDERS_BASE, 'bytedance']);
+}
 
 // ---------------------------------------------------------------------------
 // Webhook router module-level handle (P13 scaffold for P14+ provider callbacks)
@@ -607,8 +635,9 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
     .filter((spec) => spec.modes.includes(input.mode as never))
     // Constrain to providers with a wired adapter. Models registered for
     // future providers (Kling P15, Seedance P16) must not be selected until
-    // their adapter is available in ADAPTED_PROVIDERS.
-    .filter((spec) => ADAPTED_PROVIDERS.has(spec.provider))
+    // their adapter is available in getAdaptedProviders(). When
+    // MEDIA_FORGE_SEEDANCE_ENABLED=false, 'bytedance' is excluded here.
+    .filter((spec) => getAdaptedProviders().has(spec.provider))
     // FIX (Codex P2, PR#10): filter candidates by requested duration +
     // resolution BEFORE cost sort. Without this, sorter could pick cheapest
     // model that fails downstream validation (e.g. higgsfield-speak with
@@ -675,72 +704,6 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
     estimatedCostUSD,
     rationale,
   };
-}
-
-function normalizeCostUSDSafe(spec: VideoModelSpec, input: VideoRouteInputT): number {
-  try {
-    const usdPerCredit = parseFloat(
-      process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] ?? 'NaN',
-    );
-    const result = normalizeCostUSD(spec, {
-      durationSec: input.durationSec,
-      usdPerCredit,
-    });
-    // Guard against NaN / ±Infinity from malformed env values (e.g. usdPerCredit=NaN
-    // multiplied by rate produces NaN, which breaks sort comparisons).
-    return Number.isFinite(result) ? result : Number.POSITIVE_INFINITY;
-  } catch {
-    // If a credits-per-video spec is missing a valid usdPerCredit, treat it as
-    // infinite cost so it never wins ranking against a priced provider. The
-    // director surfaces the configuration error to the user separately.
-    return Number.POSITIVE_INFINITY;
-  }
-}
-
-// P15: explicit tier overrides — hard-wire specific modes/resolutions to a Kling model
-// before the cost-based sort. Only checked when preferProvider is not set.
-function pickExplicitTier(
-  input: VideoRouteInputT,
-  candidates: ReadonlyArray<VideoModelSpec>,
-): VideoModelSpec | undefined {
-  // 4K resolution → kling-v3-master (only registered 4K-native provider)
-  if (input.resolution === '4k') {
-    return candidates.find((c) => c.id === 'kling-v3-master');
-  }
-  // Multi-shot → kling-v3-omni (unique to Kling; Veo + Higgsfield do not support it)
-  if (input.mode === 'multi-shot') {
-    return candidates.find((c) => c.id === 'kling-v3-omni');
-  }
-  // Motion-brush, elements, and lip-sync are Kling V3 Pro-only modes in the current registry
-  if (input.mode === 'motion-brush' || input.mode === 'elements' || input.mode === 'lip-sync') {
-    return candidates.find((c) => c.id === 'kling-v3-pro');
-  }
-  return undefined;
-}
-
-function buildRationale(
-  picked: VideoModelSpec,
-  input: VideoRouteInputT,
-  candidateCount: number,
-  isExplicitTier: boolean,
-): string {
-  if (isExplicitTier) {
-    return `P15 explicit tier: mode=${input.mode}/resolution=${input.resolution} routes to ${picked.id}.`;
-  }
-  if (input.mode === 'targeted-edit') {
-    return `Only higgsfield Recast supports targeted-edit in P14 → ${picked.id}.`;
-  }
-  if (input.preferProvider) {
-    return `preferProvider=${input.preferProvider} → ${picked.id}.`;
-  }
-  if (candidateCount === 1) {
-    return `${picked.id} is the only candidate for mode ${input.mode}.`;
-  }
-  return (
-    `Cheapest USD-equivalent candidate for mode ${input.mode}: ${picked.id} at ` +
-    `$${normalizeCostUSDSafe(picked, input).toFixed(4)}/s. ` +
-    `Use preferProvider to override.`
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1245,6 +1208,361 @@ export async function handleKlingDownload(
     contentType: asset.metadata.contentType,
     ...(typeof actualUsd === 'number' ? { actualUsd } : {}),
   };
+}
+
+function normalizeCostUSDSafe(spec: VideoModelSpec, input: VideoRouteInputT): number {
+  try {
+    const usdPerCredit = parseFloat(
+      process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] ?? 'NaN',
+    );
+    const result = normalizeCostUSD(spec, {
+      durationSec: input.durationSec,
+      usdPerCredit,
+      // FIX (Codex P2 round 16, PR#12): forward resolution so per-second specs
+      // with resolutionMultipliers (Seedance) price 1080p/480p correctly during
+      // cross-provider ranking instead of always at 720p baseline.
+      resolution: input.resolution,
+    });
+    // Guard against NaN / ±Infinity from malformed env values (e.g. usdPerCredit=NaN
+    // multiplied by rate produces NaN, which breaks sort comparisons).
+    return Number.isFinite(result) ? result : Number.POSITIVE_INFINITY;
+  } catch {
+    // If a credits-per-video spec is missing a valid usdPerCredit, treat it as
+    // infinite cost so it never wins ranking against a priced provider. The
+    // director surfaces the configuration error to the user separately.
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+// P15: explicit tier overrides — hard-wire specific modes/resolutions to a Kling model
+// before the cost-based sort. Only checked when preferProvider is not set.
+function pickExplicitTier(
+  input: VideoRouteInputT,
+  candidates: ReadonlyArray<VideoModelSpec>,
+): VideoModelSpec | undefined {
+  // 4K resolution → kling-v3-master (only registered 4K-native provider)
+  if (input.resolution === '4k') {
+    return candidates.find((c) => c.id === 'kling-v3-master');
+  }
+  // Multi-shot routing (Codex P2 round 12, PR#12): P15 hard-wired this to
+  // kling-v3-omni because Veo + Higgsfield did not support it. P16 added
+  // Seedance which advertises 'multi-shot' too. Kling-omni only retains
+  // the explicit-tier crown when the request exceeds Seedance's caps
+  // (>15s total OR >4 shots — see SeedanceMultishotInput refines).
+  // Otherwise fall through to the cost sort so the cheaper provider wins.
+  if (input.mode === 'multi-shot') {
+    const beyondSeedance = input.durationSec > 15;
+    if (beyondSeedance) {
+      return candidates.find((c) => c.id === 'kling-v3-omni');
+    }
+    // For requests within Seedance's range, let the cost sort decide
+    // between kling-v3-omni and seedance-2.0-standard/fast.
+    return undefined;
+  }
+  // Motion-brush, elements, and lip-sync are Kling V3 Pro-only modes in the current registry
+  if (input.mode === 'motion-brush' || input.mode === 'elements' || input.mode === 'lip-sync') {
+    return candidates.find((c) => c.id === 'kling-v3-pro');
+  }
+  return undefined;
+}
+
+function buildRationale(
+  picked: VideoModelSpec,
+  input: VideoRouteInputT,
+  candidateCount: number,
+  isExplicitTier: boolean,
+): string {
+  if (isExplicitTier) {
+    return `P15 explicit tier: mode=${input.mode}/resolution=${input.resolution} routes to ${picked.id}.`;
+  }
+  if (input.mode === 'targeted-edit') {
+    // FIX (CodeRabbit round 12, PR#12): stale exclusivity claim. P16 added
+    // Seedance Standard/Fast which also support targeted-edit (via i2v.endImageUrl).
+    // Reflect provider in the rationale instead of asserting Recast exclusivity.
+    if (picked.provider === 'higgsfield') {
+      return `higgsfield Recast handles targeted-edit (P14) → ${picked.id}.`;
+    }
+    if (picked.provider === 'bytedance') {
+      return `Seedance absorbs targeted-edit via i2v.endImageUrl (P16) → ${picked.id}.`;
+    }
+    return `targeted-edit routed to ${picked.id}.`;
+  }
+  if (input.preferProvider) {
+    return `preferProvider=${input.preferProvider} → ${picked.id}.`;
+  }
+  if (candidateCount === 1) {
+    return `${picked.id} is the only candidate for mode ${input.mode}.`;
+  }
+  return (
+    `Cheapest USD-equivalent candidate for mode ${input.mode}: ${picked.id} at ` +
+    `$${normalizeCostUSDSafe(picked, input).toFixed(4)}/s. ` +
+    `Use preferProvider to override.`
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Seedance 2.0 (ByteDance) handlers — P16 Task 7 (4 tools per A0.5)
+// All four reuse the lazy singleton getBytedanceSeedanceProvider() — provider
+// is stateful (in-memory routeByJobId + falConfigured flag) so per-call
+// construction would lose webhook routing context. The singleton is bound at
+// first-use to defaultDbPath()/process.env; tests override via the
+// __resetBytedanceSeedanceSingleton() hook before each test runs.
+// ---------------------------------------------------------------------------
+
+interface SeedanceHandlerResult {
+  jobId: string;
+  provider: string;
+  model: string;
+  mode: string;
+  estimatedCostUSD: number;
+  providerNativeId?: string;
+}
+
+function seedanceProvider(): ReturnType<typeof getBytedanceSeedanceProvider> {
+  return getBytedanceSeedanceProvider({
+    dbPath: defaultDbPath(),
+    env: process.env as unknown as BytedanceSeedanceEnv,
+  });
+}
+
+function seedanceModelIdFor(tier: 'fast' | 'standard'): 'seedance-2.0-fast' | 'seedance-2.0-standard' {
+  return tier === 'fast' ? 'seedance-2.0-fast' : 'seedance-2.0-standard';
+}
+
+/**
+ * Resolve a duration suitable for cost estimation + the provider request. When
+ * the caller leaves `durationSec` unset (default `'auto'` on fal.ai), we fall
+ * back to 5s for cost preview — fal.ai's auto-mode typically lands in the 4-6s
+ * range and the actual cost is recorded via pollStatus from the per-second
+ * registry rate once the job completes.
+ *
+ * FIX (Codex P2 round 13, PR#12): also return whether the caller opted in to
+ * fal.ai auto-mode so `buildFalInput` can omit `duration` from the payload.
+ * The previous behavior coerced `undefined → 5` and then always sent
+ * `duration: "5"` to fal, fixing the clip length even when the user wanted
+ * auto-mode.
+ */
+function seedanceDurationOrDefault(
+  durationSec: number | undefined,
+): { value: number; isAuto: boolean } {
+  return typeof durationSec === 'number'
+    ? { value: durationSec, isAuto: false }
+    : { value: 5, isAuto: true };
+}
+
+/**
+ * The base `VideoGenerationRequest.resolution` union (`'720p'|'1080p'|'2k'|'4k'`)
+ * predates Seedance — it does NOT yet include `'480p'`. Seedance providers
+ * already accept the string at runtime (bytedance-seedance.ts internally casts
+ * to `'480p'|'720p'|'1080p'`). Widening the base contract is deferred to a
+ * separate base.ts refactor; for now we cast at the handler boundary. The
+ * provider's `pickEndpoint` + `buildFalInput` already validate the runtime
+ * value against per-mode capability.
+ */
+function castSeedanceResolution(r: '480p' | '720p' | '1080p'): '720p' | '1080p' | '2k' | '4k' {
+  return r as unknown as '720p' | '1080p' | '2k' | '4k';
+}
+
+// ---- 1. handleSeedanceTextToVideo ----
+
+export async function handleSeedanceTextToVideo(
+  rawInput: unknown,
+): Promise<SeedanceHandlerResult> {
+  const input: SeedanceTextToVideoInputT = SeedanceTextToVideoInput.parse(rawInput);
+  const provider = seedanceProvider();
+  const modelId = seedanceModelIdFor(input.modelTier);
+  const duration = seedanceDurationOrDefault(input.durationSec);
+  const extras: BytedanceSeedanceExtras = {
+    providerKind: 'bytedance',
+    ...(typeof input.seed === 'number' ? { seed: input.seed } : {}),
+    // FIX (Codex P2, PR#12): propagate caller's generateAudio + endUserId.
+    ...(typeof input.generateAudio === 'boolean' ? { generateAudio: input.generateAudio } : {}),
+    ...(input.endUserId ? { endUserId: input.endUserId } : {}),
+    ...(duration.isAuto ? { durationAutoMode: true } : {}),
+  };
+  const req = {
+    modelId,
+    mode: 't2v' as const,
+    prompt: input.prompt,
+    durationSec: duration.value,
+    resolution: castSeedanceResolution(input.resolution),
+    ...(input.aspectRatio !== 'auto'
+      ? { aspectRatio: input.aspectRatio as '16:9' | '9:16' | '1:1' | '21:9' | '4:3' | '3:4' }
+      : {}),
+    extras,
+  };
+  const handle = await provider.generate(req);
+  const result: SeedanceHandlerResult = {
+    jobId: handle.jobId,
+    provider: handle.provider,
+    model: handle.model,
+    mode: handle.mode,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+  if (handle.providerNativeId !== undefined) {
+    result.providerNativeId = handle.providerNativeId;
+  }
+  return result;
+}
+
+// ---- 2. handleSeedanceImageToVideo (absorbs targeted_edit via endImageUrl) ----
+
+export async function handleSeedanceImageToVideo(
+  rawInput: unknown,
+): Promise<SeedanceHandlerResult> {
+  const input: SeedanceImageToVideoInputT = SeedanceImageToVideoInput.parse(rawInput);
+  const provider = seedanceProvider();
+  const modelId = seedanceModelIdFor(input.modelTier);
+  const duration = seedanceDurationOrDefault(input.durationSec);
+  const extras: BytedanceSeedanceExtras = {
+    providerKind: 'bytedance',
+    ...(typeof input.seed === 'number' ? { seed: input.seed } : {}),
+    // FIX (Codex P2, PR#12): propagate caller's generateAudio + endUserId.
+    ...(typeof input.generateAudio === 'boolean' ? { generateAudio: input.generateAudio } : {}),
+    ...(input.endUserId ? { endUserId: input.endUserId } : {}),
+    ...(duration.isAuto ? { durationAutoMode: true } : {}),
+  };
+  const req = {
+    modelId,
+    mode: 'i2v' as const,
+    prompt: input.prompt,
+    durationSec: duration.value,
+    resolution: castSeedanceResolution(input.resolution),
+    ...(input.aspectRatio !== 'auto'
+      ? { aspectRatio: input.aspectRatio as '16:9' | '9:16' | '1:1' | '21:9' | '4:3' | '3:4' }
+      : {}),
+    firstFrameImagePath: input.imageUrl,
+    ...(input.endImageUrl !== undefined ? { lastFrameImagePath: input.endImageUrl } : {}),
+    extras,
+  };
+  const handle = await provider.generate(req);
+  const result: SeedanceHandlerResult = {
+    jobId: handle.jobId,
+    provider: handle.provider,
+    model: handle.model,
+    mode: handle.mode,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+  if (handle.providerNativeId !== undefined) {
+    result.providerNativeId = handle.providerNativeId;
+  }
+  return result;
+}
+
+// ---- 3. handleSeedanceMultishot ----
+
+export async function handleSeedanceMultishot(
+  rawInput: unknown,
+): Promise<SeedanceHandlerResult> {
+  const input: SeedanceMultishotInputT = SeedanceMultishotInput.parse(rawInput);
+  const provider = seedanceProvider();
+  const modelId = seedanceModelIdFor(input.modelTier);
+  // FIX (Codex P2 round 5, PR#12): use max(endSec) - min(startSec) for the
+  // total elapsed duration instead of summing spans. Catches non-contiguous
+  // shots + first shot starting > 0. Without this, cost estimation undershoots
+  // and provider receives absolute timestamps inconsistent with reported
+  // duration.
+  const firstStart = Math.min(...input.shots.map((s) => s.startSec));
+  if (firstStart !== 0) {
+    throw new Error(
+      `Seedance multishot: first shot must start at 0 (got ${firstStart}s). Shots must be contiguous and start from zero.`,
+    );
+  }
+  const sortedShots = [...input.shots].sort((a, b) => a.startSec - b.startSec);
+  for (let i = 1; i < sortedShots.length; i++) {
+    if (sortedShots[i]!.startSec !== sortedShots[i - 1]!.endSec) {
+      throw new Error(
+        `Seedance multishot: shots must be contiguous. Shot ${i} starts at ${sortedShots[i]!.startSec}s but previous shot ends at ${sortedShots[i - 1]!.endSec}s.`,
+      );
+    }
+  }
+  const durationSec = Math.max(...input.shots.map((s) => s.endSec));
+  // FIX (Codex P2 round 6, PR#12): preserve chronological order in the
+  // serialized prompt. Without this, `[5-10, 0-5]` passed contiguity (after
+  // sorting) but the timestamp prompt emitted "Shot 1 starts at 5s, Shot 2
+  // starts at 0s" — misdirecting Seedance instead of normalizing input.
+  const extras: BytedanceSeedanceExtras = {
+    providerKind: 'bytedance',
+    multiShotTimestamps: sortedShots.map((s) => ({
+      start: s.startSec,
+      end: s.endSec,
+      prompt: s.shotPrompt,
+    })),
+    ...(typeof input.seed === 'number' ? { seed: input.seed } : {}),
+    // FIX (Codex P2 round 2, PR#12): propagate audio + user options for multishot too.
+    ...(typeof input.generateAudio === 'boolean' ? { generateAudio: input.generateAudio } : {}),
+    ...(input.endUserId ? { endUserId: input.endUserId } : {}),
+  };
+  const req = {
+    modelId,
+    mode: 'multi-shot' as const,
+    prompt: input.prompt,
+    durationSec,
+    resolution: castSeedanceResolution(input.resolution),
+    ...(input.aspectRatio !== 'auto'
+      ? { aspectRatio: input.aspectRatio as '16:9' | '9:16' | '1:1' | '21:9' | '4:3' | '3:4' }
+      : {}),
+    extras,
+  };
+  const handle = await provider.generate(req);
+  const result: SeedanceHandlerResult = {
+    jobId: handle.jobId,
+    provider: handle.provider,
+    model: handle.model,
+    mode: handle.mode,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+  if (handle.providerNativeId !== undefined) {
+    result.providerNativeId = handle.providerNativeId;
+  }
+  return result;
+}
+
+// ---- 4. handleSeedanceReferenceFusion ----
+
+export async function handleSeedanceReferenceFusion(
+  rawInput: unknown,
+): Promise<SeedanceHandlerResult> {
+  const input: SeedanceReferenceFusionInputT = SeedanceReferenceFusionInput.parse(rawInput);
+  const provider = seedanceProvider();
+  const modelId = seedanceModelIdFor(input.modelTier);
+  const duration = seedanceDurationOrDefault(input.durationSec);
+  const extras: BytedanceSeedanceExtras = {
+    providerKind: 'bytedance',
+    functionMode: 'omni_reference',
+    ...(input.imageUrls.length > 0 ? { referenceImageUrls: input.imageUrls } : {}),
+    ...(input.videoUrls.length > 0 ? { referenceVideoUrls: input.videoUrls } : {}),
+    ...(input.audioUrls.length > 0 ? { referenceAudioUrls: input.audioUrls } : {}),
+    ...(typeof input.seed === 'number' ? { seed: input.seed } : {}),
+    // FIX (Codex P2 round 2, PR#12): propagate audio + user options for reference_fusion too.
+    ...(typeof input.generateAudio === 'boolean' ? { generateAudio: input.generateAudio } : {}),
+    ...(input.endUserId ? { endUserId: input.endUserId } : {}),
+    ...(duration.isAuto ? { durationAutoMode: true } : {}),
+  };
+  const req = {
+    modelId,
+    mode: 'with-refs' as const,
+    prompt: input.prompt,
+    durationSec: duration.value,
+    resolution: castSeedanceResolution(input.resolution),
+    ...(input.aspectRatio !== 'auto'
+      ? { aspectRatio: input.aspectRatio as '16:9' | '9:16' | '1:1' | '21:9' | '4:3' | '3:4' }
+      : {}),
+    extras,
+  };
+  const handle = await provider.generate(req);
+  const result: SeedanceHandlerResult = {
+    jobId: handle.jobId,
+    provider: handle.provider,
+    model: handle.model,
+    mode: handle.mode,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+  if (handle.providerNativeId !== undefined) {
+    result.providerNativeId = handle.providerNativeId;
+  }
+  return result;
 }
 
 export interface HandlersDeps {
@@ -2300,5 +2618,48 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       { title: 'Kling Download', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingDownload(input))),
     );
+  }
+
+  // ---- Seedance 2.0 (ByteDance) — P16 Task 7 (4 tools: t2v / i2v / multishot / reference-fusion) ----
+  // Task 8.5: all 4 tools are conditionally registered based on MEDIA_FORGE_SEEDANCE_ENABLED flag.
+  // When the flag is false, none of these tools appear in the MCP tool surface and the router
+  // excludes 'bytedance' via getAdaptedProviders(). Default: enabled.
+
+  if (isSeedanceEnabled()) {
+    {
+      const t = getTool('media_seedance_text_to_video');
+      reg(
+        t.name,
+        { title: 'Seedance 2.0 Text-to-Video', description: t.description, inputSchema: t.inputSchema as never },
+        wrap(t.name, async (input) => asResult(await handleSeedanceTextToVideo(input))),
+      );
+    }
+
+    {
+      const t = getTool('media_seedance_image_to_video');
+      reg(
+        t.name,
+        { title: 'Seedance 2.0 Image-to-Video', description: t.description, inputSchema: t.inputSchema as never },
+        wrap(t.name, async (input) => asResult(await handleSeedanceImageToVideo(input))),
+      );
+    }
+
+    {
+      const t = getTool('media_seedance_multishot');
+      reg(
+        t.name,
+        { title: 'Seedance 2.0 Multi-Shot', description: t.description, inputSchema: t.inputSchema as never },
+        wrap(t.name, async (input) => asResult(await handleSeedanceMultishot(input))),
+      );
+    }
+
+    {
+      const t = getTool('media_seedance_reference_fusion');
+      reg(
+        t.name,
+        { title: 'Seedance 2.0 Reference Fusion', description: t.description, inputSchema: t.inputSchema as never },
+        wrap(t.name, async (input) => asResult(await handleSeedanceReferenceFusion(input))),
+      );
+    }
   }
 }

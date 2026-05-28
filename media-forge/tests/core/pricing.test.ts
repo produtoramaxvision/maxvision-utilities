@@ -67,4 +67,38 @@ describe('normalizeCostUSD', () => {
     };
     expect(Number.isFinite(normalizeCostUSD(broken, { durationSec: 4 }))).toBe(true);
   });
+
+  it('per-second + resolutionMultipliers: scales by output resolution (Codex P2 round 16, PR#12)', () => {
+    const seedanceLikeSpec: VideoModelSpec = {
+      id: 'seedance-2.0-standard-test',
+      provider: 'bytedance',
+      modes: ['t2v'],
+      maxDurationSec: 15,
+      resolutions: ['480p', '720p', '1080p'],
+      fps: [24],
+      audioNative: true,
+      pricing: {
+        unit: 'per-second',
+        rate: 0.3024,
+        ...pricingMeta,
+        resolutionMultipliers: { '480p': 0.4448, '720p': 1.0, '1080p': 2.25 },
+      },
+      ipRiskLevel: 'high',
+    };
+
+    // 720p baseline — no multiplier change.
+    expect(
+      normalizeCostUSD(seedanceLikeSpec, { durationSec: 5, resolution: '720p' }),
+    ).toBeCloseTo(0.3024 * 5, 4);
+    // 1080p — 2.25× the 720p rate.
+    expect(
+      normalizeCostUSD(seedanceLikeSpec, { durationSec: 5, resolution: '1080p' }),
+    ).toBeCloseTo(0.3024 * 2.25 * 5, 4);
+    // 480p — 0.4448× the 720p rate.
+    expect(
+      normalizeCostUSD(seedanceLikeSpec, { durationSec: 5, resolution: '480p' }),
+    ).toBeCloseTo(0.3024 * 0.4448 * 5, 4);
+    // resolution omitted — falls back to 1.0 (caller hadn't specified, e.g. legacy callers).
+    expect(normalizeCostUSD(seedanceLikeSpec, { durationSec: 5 })).toBeCloseTo(0.3024 * 5, 4);
+  });
 });

@@ -59,12 +59,9 @@ export type VideoDurationSeconds = (typeof VIDEO_DURATION_SECONDS)[number];
 // P14 appends `higgsfield`, P15 appends `kling`, P16 appends `bytedance`. The type
 // must NEVER promise providers without backing adapters — otherwise downstream code
 // type-checks against names that throw at runtime.
-export const PROVIDERS = ['google', 'higgsfield', 'kling'] as const;
-export type Provider = (typeof PROVIDERS)[number] | 'bytedance';
-// ^ Future-provider names are kept in the type union for forward-compatible
-// signatures (e.g. preferProvider in VideoRouteInput), but they are NOT in the
-// runtime PROVIDERS array. Guards must check `PROVIDERS.includes(name)` before
-// accepting an unknown provider value.
+export const PROVIDERS = ['google', 'higgsfield', 'kling', 'bytedance'] as const;
+export type Provider = (typeof PROVIDERS)[number];
+// ^ Provider type derives from the runtime array. bytedance is now a shipped adapter (P16).
 
 export const VIDEO_MODES = [
   't2v',
@@ -83,7 +80,7 @@ export type VideoMode = (typeof VIDEO_MODES)[number];
 export const IP_RISK_LEVELS = ['low', 'medium', 'high'] as const;
 export type IpRiskLevel = (typeof IP_RISK_LEVELS)[number];
 
-export const PRICING_UNITS = ['usd-per-second', 'usd-per-video', 'credits-per-video'] as const;
+export const PRICING_UNITS = ['usd-per-second', 'usd-per-video', 'credits-per-video', 'per-second'] as const;
 export type PricingUnit = (typeof PRICING_UNITS)[number];
 
 export const PRICING_SOURCES = ['fixed-public-rate', 'volatile-by-tier', 'user-override'] as const;
@@ -94,7 +91,7 @@ export interface VideoModelSpec {
   readonly provider: Provider;
   readonly modes: ReadonlyArray<VideoMode>;
   readonly maxDurationSec: number;
-  readonly resolutions: ReadonlyArray<'720p' | '1080p' | '2k' | '4k'>;
+  readonly resolutions: ReadonlyArray<'480p' | '720p' | '1080p' | '2k' | '4k'>;
   readonly fps: ReadonlyArray<number>;
   readonly audioNative: boolean;
   readonly pricing: {
@@ -103,6 +100,16 @@ export interface VideoModelSpec {
     readonly source: PricingSource;
     readonly updatedAt: string; // ISO date — flag stale in cost report
     readonly notes?: string;    // e.g. "fal.ai tier; official Kuaishou differs"
+    /**
+     * FIX (Codex P2 round 15, PR#12): optional per-resolution multipliers applied
+     * to `rate × durationSec` when the provider's pricing scales with frame area
+     * (e.g. fal.ai Seedance token-formula billing). Missing key falls back to 1.0
+     * (the rate's baseline resolution). Providers that bill at a flat rate
+     * regardless of resolution omit this field entirely.
+     */
+    readonly resolutionMultipliers?: Partial<
+      Record<'480p' | '720p' | '1080p' | '2k' | '4k', number>
+    >;
   };
   readonly ipRiskLevel: IpRiskLevel;
   /**
@@ -116,6 +123,9 @@ export interface VideoModelSpec {
     readonly maxDurationSec?: number;
     readonly minDurationPerShotSec?: number;
     readonly maxDurationPerShotSec?: number;
+    readonly maxImageRefs?: number;
+    readonly maxVideoRefs?: number;
+    readonly maxAudioRefs?: number;
   };
 }
 
@@ -384,6 +394,55 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
       maxDurationPerShotSec: 10,
     },
     ipRiskLevel: 'medium',
+  },
+  'seedance-2.0-fast': {
+    id: 'seedance-2.0-fast',
+    provider: 'bytedance',
+    modes: ['t2v', 'i2v', 'with-refs', 'multi-shot', 'targeted-edit'],
+    maxDurationSec: 15,
+    resolutions: ['480p', '720p'],
+    fps: [24],
+    audioNative: true,
+    pricing: {
+      unit: 'per-second',
+      rate: 0.2419,
+      source: 'fixed-public-rate',
+      updatedAt: '2026-05-28',
+      notes: 'fal.ai Seedance 2.0 Fast tier ($0.2419/sec at 720p baseline; native audio included). Token formula tokens=h*w*dur*24/1024 @ $0.014/1k → resolution-aware multipliers below.',
+      // Token-formula derivation: tokens scale with pixel area; relative to 720p
+      // (1280×720) baseline: 480p (854×480) = 0.4448x.
+      resolutionMultipliers: {
+        '480p': 0.4448,
+        '720p': 1.0,
+      },
+    },
+    limits: { maxImageRefs: 9, maxVideoRefs: 3, maxAudioRefs: 3 },
+    ipRiskLevel: 'high',
+  },
+  'seedance-2.0-standard': {
+    id: 'seedance-2.0-standard',
+    provider: 'bytedance',
+    modes: ['t2v', 'i2v', 'with-refs', 'multi-shot', 'targeted-edit'],
+    maxDurationSec: 15,
+    resolutions: ['480p', '720p', '1080p'],
+    fps: [24],
+    audioNative: true,
+    pricing: {
+      unit: 'per-second',
+      rate: 0.3024,
+      source: 'fixed-public-rate',
+      updatedAt: '2026-05-28',
+      notes: 'fal.ai Seedance 2.0 Standard tier ($0.3024/sec at 720p baseline; native audio included). Token formula tokens=h*w*dur*24/1024 @ $0.014/1k → 1080p ≈ $0.6804/sec, 480p ≈ $0.1345/sec. BytePlus ARK direct may differ — fallback normalizes at recordActualCostUSD.',
+      // Token-formula derivation: tokens scale with pixel area; relative to 720p
+      // (1280×720) baseline: 480p (854×480) = 0.4448x, 1080p (1920×1080) = 2.25x.
+      resolutionMultipliers: {
+        '480p': 0.4448,
+        '720p': 1.0,
+        '1080p': 2.25,
+      },
+    },
+    limits: { maxImageRefs: 9, maxVideoRefs: 3, maxAudioRefs: 3 },
+    ipRiskLevel: 'high',
   },
 };
 

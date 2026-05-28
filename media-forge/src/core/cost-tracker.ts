@@ -32,6 +32,20 @@ export interface RecordActualInput {
   readonly finalStatus?: JobState; // ADD — default 'completed' preserves backward compat
 }
 
+export interface JobRecord {
+  readonly jobId: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly mode: string;
+  readonly status: string;
+  readonly estUsd: number;
+  readonly actualUsd: number | null;
+  readonly durationMs: number | null;
+  readonly createdAt: string;
+  readonly completedAt: string | null;
+  readonly nativeTaskId: string | null;
+}
+
 export interface ProviderRollup {
   readonly jobs: number;
   readonly estUsd: number;
@@ -82,6 +96,49 @@ export function recordActualCost(input: RecordActualInput): void {
      SET actual_usd = ?, duration_ms = ?, status = ?, completed_at = ?
      WHERE id = ? AND actual_usd IS NULL`,
   ).run(input.actualUsd, input.durationMs ?? null, status, completedAt, input.jobId);
+}
+
+export function getJobRecord(opts: {
+  readonly dbPath: string;
+  readonly jobId: string;
+}): JobRecord | null {
+  const db = ensureDb(opts.dbPath);
+  const row = db
+    .prepare(
+      `SELECT id, provider, model, mode, status, est_usd, actual_usd, duration_ms,
+              created_at, completed_at, native_task_id
+         FROM video_jobs
+        WHERE id = ?`,
+    )
+    .get(opts.jobId) as
+    | {
+        id: string;
+        provider: string;
+        model: string;
+        mode: string;
+        status: string;
+        est_usd: number;
+        actual_usd: number | null;
+        duration_ms: number | null;
+        created_at: string;
+        completed_at: string | null;
+        native_task_id: string | null;
+      }
+    | undefined;
+  if (!row) return null;
+  return {
+    jobId: row.id,
+    provider: row.provider,
+    model: row.model,
+    mode: row.mode,
+    status: row.status,
+    estUsd: row.est_usd,
+    actualUsd: row.actual_usd,
+    durationMs: row.duration_ms,
+    createdAt: row.created_at,
+    completedAt: row.completed_at,
+    nativeTaskId: row.native_task_id,
+  };
 }
 
 export function queryReport(opts: { dbPath: string; periodDays: number }): CostReport {

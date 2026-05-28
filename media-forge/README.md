@@ -221,3 +221,55 @@ Same shape as the Kling flag. Off by default; opt-in only for dev. fal.ai cannot
 - [Contributing](CONTRIBUTING.md) — add new agents, prompt templates, or MCP tools
 - [Dev Loop](docs/devloop.md) — hot-reload workflow for development
 - [Final Coverage Checklist](docs/final-coverage-checklist.md) — P15 production validation gate
+
+---
+
+## Legal Note on Seedance 2.0
+
+media-forge v0.5.0+ integrates ByteDance **Seedance 2.0** as one of four
+first-class video providers (alongside Google Veo 3.1, Higgsfield, and Kling
+3.0). Seedance 2.0 is the subject of active cease-and-desist / IP litigation
+from **Disney + Paramount** over training-data sourcing as of 2026-05-27.
+This litigation is ongoing; the legal status of generated assets may vary
+by jurisdiction and intended use.
+
+**No runtime IP gating.** media-forge ships zero brand-detection, prompt-
+filtering, or output-watermarking enforcement around Seedance 2.0. The
+operator (person or organization running media-forge) assumes **full
+responsibility for compliance with applicable IP law** in their jurisdiction
+and for the intended use of generated assets. This is a deliberate design
+decision recorded against operator-control principles — neither this plugin
+nor its maintainers warrant the legal status of Seedance 2.0 outputs.
+
+**Emergency removal.** If your jurisdiction issues an injunction, you can
+disable all Seedance tools and provider routing with a single env-var flip:
+
+```bash
+export MEDIA_FORGE_SEEDANCE_ENABLED=false
+```
+
+When this flag is set to `false` (or `0`, `no`, `off` — case-insensitive):
+
+- All 4 Seedance MCP tools (`media_seedance_text_to_video`,
+  `media_seedance_image_to_video`, `media_seedance_multishot`,
+  `media_seedance_reference_fusion`) are skipped from tool registration
+  (`MCP_TOOLS` drops from 49 to 45).
+- `bytedance` is removed from `ADAPTED_PROVIDERS`, so the video-router
+  cannot select a Seedance model even if its cost or capability heuristic
+  would otherwise prefer one.
+- All four other providers (Veo 3.1, Higgsfield, Kling 3.0) continue
+  unaffected.
+
+Default value is `true` (Seedance enabled). The flag is checked at MCP server
+startup and is not hot-reloaded — restart the server after flipping it.
+
+**Operator-side mitigations to consider (not enforced by media-forge):**
+
+- Brand-keyword pre-filter on prompts before invoking any Seedance tool
+- Manual review queue for high-risk content categories
+- C2PA / output watermarking via post-processing pipeline (out of scope here)
+- Per-jurisdiction routing logic at the operator's orchestration layer
+
+This Legal Note exists so future operators can locate the emergency-removal
+mechanism without source-diving and so the IP context is preserved alongside
+the integration's documentation.

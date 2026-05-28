@@ -111,6 +111,36 @@ Optional:
 NEVER echo the secret value back. Show only the last 4 chars in confirmation
 output (e.g. `****ab12`) per project security policy.
 
+## Step N+3: Seedance 2.0 credentials (P16+)
+
+Seedance 2.0 is ByteDance's video model. media-forge accesses it via two paths:
+
+**Primary (recommended):** `@fal-ai/client` — USD billing, no China-region KYC, simplest auth.
+
+Ask the user:
+
+> "Do you have a fal.ai API key? Generate one at https://fal.ai/dashboard/keys. Paste it now to enable Seedance 2.0 (Fast and Standard tiers). Leave blank to skip — Seedance generation will throw `FalAuthConfigError` until set."
+
+Write `FAL_KEY` to project `.env`. Display only last 4 chars on confirm (`****<last4>`). NEVER echo the full key.
+
+**Fallback (optional):** Direct BytePlus ModelArk REST — activates automatically when fal.ai returns 5xx errors.
+
+Ask the user:
+
+> "Do you also want to configure the BytePlus ModelArk fallback? Generate a key at https://console.byteplus.com/auth/api-key. Leave blank to skip — generation will fail over to an error when fal.ai is unavailable and this fallback is unset."
+
+Write `BYTEPLUS_ARK_API_KEY` to project `.env` (same masking rules).
+
+**Feature flag (optional, defaults to enabled):**
+
+`MEDIA_FORGE_SEEDANCE_ENABLED=true` — set to `false` for emergency removal without code changes. Pre-shipped by P16 Task 8.5; the flag is already declared in `.mcp.json` and `.env.example`.
+
+**IP risk advisory (informational — no runtime gate):**
+
+> Seedance 2.0 carries high IP risk (Disney/Paramount C&Ds, MPA criticism). The operator assumes full responsibility for compliance with applicable IP law in their jurisdiction. See README "Legal Note on Seedance 2.0" for full context.
+
+Display this notice during setup. Do NOT make it gating.
+
 ## Note: Higgsfield official MCP connector (optional, user-side)
 
 Higgsfield publishes an official OAuth-based MCP connector at `https://mcp.higgsfield.ai/mcp`. This is a **separate product** from the media-forge plugin server and its Higgsfield provider integration:

@@ -3,7 +3,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb, runMigrations, closeDb } from '../../src/core/db.js';
-import { recordJob, recordActualCost, queryReport } from '../../src/core/cost-tracker.js';
+import {
+  recordJob,
+  recordActualCost,
+  queryReport,
+  getJobRecord,
+} from '../../src/core/cost-tracker.js';
 import type { JobState } from '../../src/video/providers/base.js';
 
 describe('cost-tracker', () => {
@@ -161,5 +166,27 @@ describe('cost-tracker', () => {
       .get('job-idempotent') as { actual_usd: number; duration_ms: number };
     expect(row.actual_usd).toBe(0.48);
     expect(row.duration_ms).toBe(10000);
+  });
+
+  it('getJobRecord returns full row including model for downstream per-tier cost lookup', () => {
+    recordJob({
+      dbPath,
+      jobId: 'gj-fast',
+      provider: 'bytedance',
+      model: 'seedance-2.0-fast',
+      mode: 't2v',
+      paramsHash: 'hf',
+      estUsd: 0.97,
+    });
+    const row = getJobRecord({ dbPath, jobId: 'gj-fast' });
+    expect(row?.model).toBe('seedance-2.0-fast');
+    expect(row?.provider).toBe('bytedance');
+    expect(row?.status).toBe('pending');
+    expect(row?.actualUsd).toBeNull();
+  });
+
+  it('getJobRecord returns null for unknown jobId', () => {
+    const row = getJobRecord({ dbPath, jobId: 'nope' });
+    expect(row).toBeNull();
   });
 });
