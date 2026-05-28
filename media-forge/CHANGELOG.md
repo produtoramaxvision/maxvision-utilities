@@ -6,6 +6,99 @@ All notable changes to `media-forge` are documented here. The format follows
 
 ## [Unreleased]
 
+## 0.5.0-p16 — 2026-05-27
+
+### P16 — Seedance 2.0 FULL Integration
+
+Adds ByteDance Seedance 2.0 as the fourth first-class video provider in
+media-forge. Primary access via `@fal-ai/client` (USD billing, no China-region
+KYC). Optional fallback via direct BytePlus ARK REST. Native audio generation
+included on all tiers at no extra cost.
+
+**Added**
+- `BytedanceSeedanceProvider` adapter in `src/video/providers/bytedance-seedance.ts`
+  with fal.ai primary path (`fal.queue.submit/status/result`) and BytePlus ARK
+  REST fallback path. Lazy singleton pattern (`getBytedanceSeedanceProvider`).
+- `BytePlus ARK` direct REST client (`src/video/providers/byteplus-ark.ts`)
+  with `submitArkTask`, `pollArkTask`, `downloadArkAsset` for fal.ai-bypass
+  workflows.
+- 2 Seedance 2.0 model specs (no Pro tier — fal.ai v2 ships Standard + Fast
+  only): `seedance-2.0-standard` ($0.3024/sec, 480p/720p/1080p) and
+  `seedance-2.0-fast` ($0.2419/sec, 480p/720p). Both `audioNative: true`,
+  `ipRiskLevel: 'high'`.
+- `BytedanceSeedanceExtras` arm in `ProviderExtras` union covering tier mode,
+  reference URLs, multi-shot timestamps, frame-anchor edit semantic.
+- 4 MCP tools (MCP_TOOLS 45 → 49):
+  - `media_seedance_text_to_video` — base T2V with full param surface
+  - `media_seedance_image_to_video` — I2V with optional `endImageUrl` for
+    start→end frame-anchored transitions (absorbs the original
+    "targeted edit" semantic from plan body since fal.ai v2 ships no native
+    edit endpoint)
+  - `media_seedance_multishot` — T2V wrapper that structures `shots[]` into
+    multi-cut prompts with timestamp segmentation (sum ≤ 15s, max 4 shots)
+  - `media_seedance_reference_fusion` — R2V with `@Image1/@Video1/@Audio1`
+    mention syntax (≤9 images + ≤3 videos + ≤3 audios)
+- `seedance-prompting` skill: tier selection, multi-shot syntax, @-mention
+  reference grammar, frame-anchored edit pattern, director-level camera vocab,
+  failure modes.
+- `seedance-director` subagent for tier/mode orchestration.
+- `video-router` heuristic extended with Seedance routing predicates: cost-
+  bottom-tier drafts (Fast), multi-shot timestamp cuts, mixed-asset reference
+  fusion, audio+video joint generation, frame-anchored start→end (i2v with
+  `endImageUrl`).
+- `cost-tracker` helper `getJobRecord(jobId)` for per-tier rate lookup in
+  webhook + poll convergence paths.
+- `feature-flags` module with `isSeedanceEnabled(env?)` helper.
+- Setup wizard step for `FAL_KEY` (required) + `BYTEPLUS_ARK_API_KEY`
+  (optional fallback) + `MEDIA_FORGE_SEEDANCE_ENABLED` (default true).
+
+**Changed**
+- `PROVIDERS` runtime array now `['google', 'higgsfield', 'kling', 'bytedance']`.
+- `ADAPTED_PROVIDERS` set dynamically computed from `isSeedanceEnabled()` —
+  removes `bytedance` from routing when flag disabled (45 tools, not 49).
+- `pricing.unit` literal union extended with `'per-second'` (fal.ai native
+  billing unit; `'usd-per-second'` retained as legacy alias via switch
+  fall-through in `normalizeCostUSD`).
+- `VideoModelSpec.resolutions` literal union extended with `'480p'` (Seedance
+  Fast supports 480p downscale).
+- `VideoModelSpec.limits` interface extended with `maxImageRefs`,
+  `maxVideoRefs`, `maxAudioRefs` for reference-to-video bound enforcement.
+
+**Feature flag (emergency removal)**
+- `MEDIA_FORGE_SEEDANCE_ENABLED=false` skips all 4 Seedance tool registrations
+  and removes `bytedance` from `ADAPTED_PROVIDERS`. Single-flip emergency
+  removal if Disney/Paramount injunction lands. Default `true`. Accepts
+  `false|0|no|off` (case-insensitive, whitespace-trimmed) as disabled.
+
+**Endpoint corrections vs plan body (per Amendment A0, intel-driven)**
+- Plan body assumed `fal-ai/bytedance/seedance/v2/{tier}/{mode}` slugs and
+  3-tier Pro/Standard/Fast pricing. Live `context7` query against
+  `/websites/fal_ai_models` corrected to `fal-ai/bytedance/seedance-2.0/[fast/]{mode}`
+  (no `/v2/` infix, no Pro tier exists in v2), per-second pricing, and
+  6 endpoints (2 tiers × 3 modes). All hardcoded plan paths replaced
+  in-place before execution. Intel file:
+  `.maxvision/intel/2026-05-27-seedance-fal-slugs.md`.
+
+**Legal Note — Seedance 2.0 IP context**
+- ByteDance Seedance 2.0 is the subject of active C&D / IP litigation from
+  Disney + Paramount over training-data sourcing. media-forge ships zero
+  runtime IP gating (operator responsibility — strict D2 user decision).
+  Operators using Seedance 2.0 assume full responsibility for compliance with
+  applicable IP law in their jurisdiction. See README "Legal Note on
+  Seedance 2.0" for context and emergency-removal mechanism
+  (`MEDIA_FORGE_SEEDANCE_ENABLED=false`).
+
+**Tests**
+- Full suite: 1142 → 1281 passing (+139 net). 8 skipped (live E2E gated).
+- New regression test: `tests/integration/p16-seedance-regression.test.ts`.
+- New live test (gated): `tests/integration/seedance-live.test.ts` requires
+  `MEDIA_FORGE_RUN_LIVE_TESTS=true` + `FAL_KEY=...`.
+
+**Runtime deps**
+- Added `@fal-ai/client@^1.7.0` (1.10.1 actual). Pure-JS deps
+  (`@msgpack/msgpack`, `eventsource-parser`, `robot3`). No native bindings,
+  no `node-gyp`. Verified pre-install via Task 1.5 pacote-manifest probe.
+
 ## 0.4.0-p15 — 2026-05-27
 
 ### P15 — Kling 3.0 FULL Integration

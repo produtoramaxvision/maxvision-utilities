@@ -138,8 +138,83 @@ export interface KlingExtras {
   readonly motionReferenceVideoUrl?: string;
 }
 
-// Expand the union — post-P15 has three arms.
-export type ProviderExtras = GoogleVeoExtras | HiggsfieldExtras | KlingExtras;
+/**
+ * Seedance 2.0 (ByteDance) extras. Covers the full provider surface:
+ *   - functionMode: 'omni_reference' enables up to 12-reference fusion via @-mention
+ *     syntax in prompt (`@image_file_1`, `@video_file_1`, `@audio_file_1`).
+ *   - referenceImageUrls / referenceVideoUrls / referenceAudioUrls: signed URLs the
+ *     adapter uploads BEFORE submit; max 9 images + 3 videos + 3 audios per spec.
+ *   - multiShotTimestamps: hard-cut timestamps for multi-shot mode; serialized into
+ *     prompt as `[00:00-00:05] Shot 1: ... [00:05-00:10] Shot 2: ...`.
+ *   - targetedEditShotIndex: 1-based shot ordinal to regenerate inside a prior
+ *     multi-shot output (cost-saver vs full regen). Implemented as i2v with
+ *     end_image_url frame-anchor transition (no native targeted-edit endpoint on fal.ai).
+ *   - lipSyncEnabled: when true + referenceAudioUrls present, the model auto-locks
+ *     phoneme-level lip-sync against the audio track.
+ *   - cameraFixed: pass-through to fal.ai `camera_fixed` input — disables camera
+ *     motion when scene must hold static.
+ *   - seed: optional deterministic seed for reproducibility.
+ *
+ * Tiers (Fast / Standard) are encoded in modelId ('seedance-2.0-fast' | 'seedance-2.0-standard')
+ * per A0.1 — NOT a field on extras. No Pro tier exists in Seedance 2.0.
+ *
+ * Endpoint selection (t2v / i2v / r2v) is derived at dispatch time from VideoGenerationRequest.mode
+ * per A0.4 — NOT a field on extras.
+ *
+ * P16 ships ONLY this extras shape. No other provider may add fields to it; this is
+ * the discriminated arm for `providerKind === 'bytedance'`. Per P13 type contract.
+ */
+export interface BytedanceSeedanceExtras {
+  readonly providerKind: 'bytedance';
+  /** Enables omni-reference fusion with @-mention syntax in prompt (up to 12 references). */
+  readonly functionMode?: 'omni_reference';
+  /** Reference image URLs — @Image1, @Image2, … in prompt; max 9 per fal.ai r2v spec. */
+  readonly referenceImageUrls?: ReadonlyArray<string>;
+  /** Reference video URLs — @Video1, … in prompt; max 3 per fal.ai r2v spec. */
+  readonly referenceVideoUrls?: ReadonlyArray<string>;
+  /** Reference audio URLs — @Audio1, … in prompt; max 3 per fal.ai r2v spec. */
+  readonly referenceAudioUrls?: ReadonlyArray<string>;
+  /**
+   * Hard-cut timestamps for multi-shot mode. Serialized into prompt by the provider as
+   * `[00:00-00:05] Shot 1: <prompt> [00:05-00:10] Shot 2: <prompt>`.
+   * Validation: shot.end > shot.start; sum(durations) <= 15s. Dispatched via t2v endpoint.
+   */
+  readonly multiShotTimestamps?: ReadonlyArray<{
+    readonly start: number;
+    readonly end: number;
+    readonly prompt: string;
+  }>;
+  /**
+   * 1-based shot ordinal to regenerate inside a prior multi-shot output. Implemented
+   * as i2v with end_image_url frame-anchor transition (no native targeted-edit endpoint).
+   */
+  readonly targetedEditShotIndex?: number;
+  /** When true + referenceAudioUrls present, locks phoneme-level lip-sync to audio track. */
+  readonly lipSyncEnabled?: boolean;
+  /** Disables camera motion — pass-through to fal.ai `camera_fixed` input. */
+  readonly cameraFixed?: boolean;
+  /** Optional deterministic seed for reproducible generation. */
+  readonly seed?: number;
+  /** Honor explicit caller choice for native audio. Default true (fal.ai default). */
+  readonly generateAudio?: boolean;
+  /** Optional end-user id passed to fal.ai (compliance/billing attribution). */
+  readonly endUserId?: string;
+  /**
+   * FIX (Codex P2 round 13, PR#12): when the caller omits `durationSec` on a
+   * Seedance MCP tool, the schema's optional-no-default contract is supposed
+   * to fall through to fal.ai's `duration: "auto"` default. Setting this flag
+   * tells `buildFalInput` to omit `duration` from the fal payload so the
+   * upstream contract is honored (fal picks the duration, typically 4-6s).
+   * The cost preview (`estimateCostUSD`) still uses the handler-supplied
+   * fallback (5s) because we cannot predict what fal will choose;
+   * `recordActualCost` on poll completion uses the same fallback for now
+   * (follow-up: probe actual duration from completed asset metadata).
+   */
+  readonly durationAutoMode?: boolean;
+}
+
+// Expand the union — post-P16 has four arms.
+export type ProviderExtras = GoogleVeoExtras | HiggsfieldExtras | KlingExtras | BytedanceSeedanceExtras;
 
 export interface VideoGenerationRequest {
   readonly modelId: string;

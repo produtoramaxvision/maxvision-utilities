@@ -136,4 +136,41 @@ describe('MCP server tool registration', () => {
       ]),
     );
   });
+
+  it('registers all 4 new P16 Seedance tools', () => {
+    const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
+    const names = listRegisteredToolNames(server);
+
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'media_seedance_text_to_video',
+        'media_seedance_image_to_video',
+        'media_seedance_multishot',
+        'media_seedance_reference_fusion',
+      ]),
+    );
+  });
+
+  it('registers exactly 49 tools (P13 30 + P14 7 + P15 8 + P16 4)', () => {
+    const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
+    const names = listRegisteredToolNames(server);
+    expect(names).toHaveLength(54);
+  });
+
+  it('registers exactly 45 tools when MEDIA_FORGE_SEEDANCE_ENABLED=false', () => {
+    const prev = process.env['MEDIA_FORGE_SEEDANCE_ENABLED'];
+    process.env['MEDIA_FORGE_SEEDANCE_ENABLED'] = 'false';
+    try {
+      const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
+      const names = listRegisteredToolNames(server);
+      expect(names).toHaveLength(50);
+      expect(names).not.toContain('media_seedance_text_to_video');
+      expect(names).not.toContain('media_seedance_image_to_video');
+      expect(names).not.toContain('media_seedance_multishot');
+      expect(names).not.toContain('media_seedance_reference_fusion');
+    } finally {
+      if (prev === undefined) delete process.env['MEDIA_FORGE_SEEDANCE_ENABLED'];
+      else process.env['MEDIA_FORGE_SEEDANCE_ENABLED'] = prev;
+    }
+  });
 });

@@ -110,4 +110,18 @@ describe('P15 — video-router prefers Kling for specific cases', () => {
     });
     expect(result.provider).toBe('google');
   });
+
+  it('accepts 480p resolution and routes Seedance-eligible candidates (Codex P2 round 6)', async () => {
+    // Regression: VideoRouteInput.resolution was ['720p','1080p','2k','4k'], so
+    // every 480p request 400'd before the router could consider any model.
+    // Seedance specs advertise 480p; with this fix the router now sees them.
+    const result = await handleVideoRoute({
+      mode: 't2v',
+      prompt: 'budget render at 480p',
+      durationSec: 5,
+      resolution: '480p',
+      preferProvider: 'bytedance',
+    });
+    expect(result.provider).toBe('bytedance');
+  });
 });
