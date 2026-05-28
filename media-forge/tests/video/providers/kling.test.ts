@@ -539,4 +539,56 @@ describe('KlingProvider', () => {
     const body = JSON.parse(init.body as string);
     expect(body.duration).toBe('8');
   });
+
+  it('generate routes elementIds-extras on a base mode through motion body (Codex P2 round 16, PR#11)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ code: 0, data: { task_id: 'k-elem-base' } }),
+    });
+    const p = new KlingProvider({ dbPath, env, fetchImpl });
+    await p.generate({
+      modelId: 'kling-v3-pro',
+      mode: 'i2v', // base mode — pickEndpoint still routes to motion via elementIds
+      prompt: 'compose with refs',
+      durationSec: 5,
+      resolution: '1080p',
+      firstFrameImagePath: 'https://cdn/base.png',
+      extras: {
+        providerKind: 'kling',
+        elementIds: ['el-a', 'el-b'],
+      },
+    });
+    const [, init] = fetchImpl.mock.calls[0];
+    const body = JSON.parse(init.body as string);
+    expect(body.element_list).toEqual([{ element_id: 'el-a' }, { element_id: 'el-b' }]);
+    expect(body.duration).toBe('5');
+  });
+
+  it('generate routes lipSync-extras on a base mode through lip-sync body (Codex P2 round 16, PR#11)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ code: 0, data: { task_id: 'k-ls-base' } }),
+    });
+    const p = new KlingProvider({ dbPath, env, fetchImpl });
+    await p.generate({
+      modelId: 'kling-v3-pro',
+      mode: 'i2v', // base mode — pickEndpoint still routes to lip-sync via extras.lipSync
+      prompt: 'sync',
+      durationSec: 5,
+      resolution: '1080p',
+      extras: {
+        providerKind: 'kling',
+        motionReferenceVideoUrl: 'https://example/source.mp4',
+        lipSync: { mode: 'text', text: 'hello world', emotion: 'happy' },
+      },
+    });
+    const [, init] = fetchImpl.mock.calls[0];
+    const body = JSON.parse(init.body as string);
+    expect(body.input.video_id).toBe('https://example/source.mp4');
+    expect(body.input.mode).toBe('text');
+    expect(body.input.text).toBe('hello world');
+    expect(body.input.emotion).toBe('happy');
+  });
 });

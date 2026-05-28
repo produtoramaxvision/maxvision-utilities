@@ -431,7 +431,17 @@ function buildRequestBody(args: BuildBodyArgs): Record<string, unknown> {
   // FIX (Codex P1, PR#11): serialize motionBrushRegions when present.
   // Each region has polygon (point pairs) + motion_vector — Kling expects
   // motion_brushes[].{polygon, motion_vector} per /v1/motion/generate spec.
-  if (req.mode === 'motion-brush' || req.mode === 'elements' || extras?.motionBrushRegions) {
+  // FIX (Codex P2 round 16, PR#11): also trigger this body branch when the
+  // caller passes `extras.elementIds` on a base mode (e.g. i2v/t2v). pickEndpoint
+  // already routes those to the motion endpoint based on the same signal; without
+  // mirroring it here the body fell through to the default t2v shape, producing
+  // a 4xx upstream because element_list never made it onto the wire.
+  if (
+    req.mode === 'motion-brush' ||
+    req.mode === 'elements' ||
+    extras?.motionBrushRegions ||
+    (extras?.elementIds && extras.elementIds.length > 0)
+  ) {
     // FIX (Codex P2 round 11, PR#11): forward `duration` for motion-brush +
     // elements. Schema requires durationSec; cost tracker bills per-second; the
     // submit body was omitting it, so a 10s request would actually return
@@ -467,7 +477,11 @@ function buildRequestBody(args: BuildBodyArgs): Record<string, unknown> {
   // t2v which is the wrong shape for /v1/videos/advanced-lip-sync.
   // Per Kling A8 intel: video_id (source clip) + lip_sync mode + content
   // (text or audio). Emotion optional. Throws if KlingLipSyncSpec missing.
-  if (req.mode === 'lip-sync') {
+  // FIX (Codex P2 round 16, PR#11): also trigger when `extras.lipSync` is
+  // present on a base mode. pickEndpoint routes those to /v1/videos/advanced-lip-sync
+  // based on the same signal; without mirroring it here the body fell through to the
+  // default t2v shape and the lip-sync spec was silently dropped from the request.
+  if (req.mode === 'lip-sync' || extras?.lipSync) {
     if (!extras?.lipSync) {
       throw new Error('lip-sync mode requires extras.lipSync (KlingLipSyncSpec)');
     }
