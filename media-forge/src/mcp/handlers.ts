@@ -1012,11 +1012,17 @@ export async function handleKlingVideoExtend(
     jobId: handle.jobId,
     provider: handle.provider,
     modelId: handle.model,
+    // FIX (Codex P2 round 13, PR#11): this handler submits a SINGLE hop per
+    // call (durationSec: KLING_EXTEND_HOP_SEC above) and asks the caller to
+    // re-invoke for the rest via `hopsRemaining`. The estimate must match
+    // what actually goes through recordJob — multiplying by input.hops over-
+    // reports the cost on call 1 and under-reports on later calls, breaking
+    // any client that sums estimates across the chain.
     estimatedCostUSD: provider.estimateCostUSD({
       modelId: input.modelId,
       mode: 'extend',
       prompt: input.prompt,
-      durationSec: KLING_EXTEND_HOP_SEC * input.hops,
+      durationSec: KLING_EXTEND_HOP_SEC,
       resolution: '1080p',
     }),
     hopsRemaining: input.hops - 1,
@@ -1050,6 +1056,18 @@ export async function handleKlingPoll(
   });
   provider.hydrateFromDb(input.jobId);
   const status = await provider.pollStatus(input.jobId);
+  // FIX (Codex P2 round 13, PR#11): when callbacks are suppressed (the default
+  // for the MCP Kling tools — HMAC mismatch blocks the webhook path) and the
+  // task polls as `failed`, the row stays `pending` forever because no other
+  // path persists the terminal state. Mirror kling-webhook-handler.ts:
+  // UPDATE video_jobs SET status='failed' WHERE status != 'completed'.
+  if (status.state === 'failed') {
+    const db = openDb(defaultDbPath());
+    runMigrations(db);
+    db.prepare(
+      "UPDATE video_jobs SET status = 'failed', actual_usd = COALESCE(actual_usd, 0), completed_at = ? WHERE id = ? AND status != 'completed'",
+    ).run(new Date().toISOString(), input.jobId);
+  }
   return {
     jobId: status.jobId,
     state: status.state,

@@ -87,4 +87,24 @@ describe('media_kling_video_extend handler', () => {
       }),
     ).rejects.toThrow();
   });
+
+  it('estimatedCostUSD reflects only the single hop submitted, regardless of hops (Codex P2 round 13, PR#11)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ code: 0, data: { task_id: 'kling-ext-cost' } }),
+    });
+    const r1 = await handleKlingVideoExtend(
+      { videoUrl: 'https://example/v.mp4', prompt: 'x', hops: 1 },
+      { fetchImpl: fetchImpl as never },
+    );
+    const r3 = await handleKlingVideoExtend(
+      { videoUrl: 'https://example/v.mp4', prompt: 'x', hops: 3 },
+      { fetchImpl: fetchImpl as never },
+    );
+    // Each call submits one ~4.5s hop. The estimate must NOT scale with input.hops
+    // (would over-report on call 1 and break per-call ledger reconciliation).
+    expect(r1.estimatedCostUSD).toBe(r3.estimatedCostUSD);
+    expect(r1.estimatedCostUSD).toBeGreaterThan(0);
+  });
 });
