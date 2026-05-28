@@ -184,6 +184,33 @@ Retry budget: max 3 attempts. On third failure or repeated same root cause, the 
 
 ---
 
+## Webhook callbacks (Kling + Higgsfield + Seedance)
+
+The plugin's webhook router (`startWebhookRouter`) verifies every callback with an HMAC SHA-256 over `timestamp + "." + body`, anchored by `MEDIA_FORGE_WEBHOOK_SECRET`. Providers that don't sign requests (Kling, fal.ai-hosted Seedance) cannot satisfy this contract — they would always receive `401` and the callback URL we advertise to them becomes useless.
+
+To prevent silently-orphaned jobs, callback emission is **off by default** for those providers. Each opt-in flag is independent.
+
+### Kling — `MEDIA_FORGE_KLING_WEBHOOK_INSECURE`
+
+| Setting | Default | Behaviour |
+|---|---|---|
+| unset / `false` | ✅ default | `callback_url` is NOT sent in Kling submit bodies. Use `media_kling_poll` + `media_kling_download` to drive completion manually. The router's `/webhooks/kling/{jobId}` endpoint stays HMAC-protected and would 401 any unsigned hit. |
+| `true` | opt-in | Kling submit bodies advertise `${MEDIA_FORGE_WEBHOOK_PUBLIC_URL}/webhooks/kling/{jobId}`. **Operator owns the auth path** — typically used with a stub diagnostic handler in dev only. The HMAC guard still rejects unsigned production callbacks. |
+
+`extras.callbackUrl` (caller-provided per-request) is honored unconditionally regardless of the flag — the caller owns its own auth path.
+
+**Recommended path:** leave the flag unset and rely on `media_kling_poll` / `media_kling_download` for completion. Both tools hydrate the job mapping from `video_jobs.native_task_id` via `KlingProvider.hydrateFromDb()`, so a fresh handler invocation can complete a job submitted by a prior process.
+
+### Higgsfield — `MEDIA_FORGE_HF_WEBHOOK_ENABLE`
+
+P14 ships polling-only. Setting this flag advertises a Higgsfield callback URL; a minimal logging-stub handler is registered when `MEDIA_FORGE_WEBHOOK_SECRET` is set so the URL does not 404, but full cost reconciliation is deferred to P14.1.
+
+### Seedance — `MEDIA_FORGE_SEEDANCE_WEBHOOK_INSECURE`
+
+Same shape as the Kling flag. Off by default; opt-in only for dev. fal.ai cannot sign the HMAC.
+
+---
+
 ## Documentation
 
 - [Specification](docs/specification.md) — model lock policy, capability matrix, tool registry, agent and skill registry

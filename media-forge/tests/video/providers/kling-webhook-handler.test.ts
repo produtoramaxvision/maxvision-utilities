@@ -231,6 +231,97 @@ describe('createKlingWebhookHandler', () => {
     expect(readFileSync(join(outputsDir, 'internal-ttl-1.mp4')).toString()).toBe('FRESH');
   });
 
+  // -------------------------------------------------------------------------
+  // CodeRabbit round 9 PR#11 — TTL refresh coverage across non-t2v modes.
+  // refreshPollPathFor() previously had ALL modes collapsing to text2video,
+  // so jobs other than t2v hit the wrong endpoint on TTL refresh and got 404
+  // forever. Round 5 fixed that. This block locks the per-mode coverage so
+  // future regressions to that table fail fast.
+  // -------------------------------------------------------------------------
+  const TTL_MODE_MATRIX = [
+    { mode: 'i2v', pollPath: '/v1/videos/image2video/' },
+    { mode: 'lip-sync', pollPath: '/v1/videos/advanced-lip-sync/' },
+    { mode: 'extend', pollPath: '/v1/videos/video-extend/' },
+    { mode: 'multi-shot', pollPath: '/v1/videos/omni-video/' },
+    { mode: 'motion-brush', pollPath: '/v1/motion/' },
+    { mode: 'elements', pollPath: '/v1/motion/' },
+  ] as const;
+
+  for (const { mode, pollPath } of TTL_MODE_MATRIX) {
+    it(`TTL refresh path for mode=${mode} hits ${pollPath}<task_id>`, async () => {
+      recordJob({
+        dbPath,
+        jobId: `internal-ttl-${mode}`,
+        provider: 'kling',
+        model: 'kling-v3-standard',
+        mode,
+        paramsHash: `h-${mode}`,
+        estUsd: 0.63,
+        nativeTaskId: `kling-native-${mode}`,
+      });
+      const calls: string[] = [];
+      const fetchImpl = vi.fn().mockImplementation(async (url: string) => {
+        calls.push(url);
+        // Step 1: original CDN download → 403 expired
+        if (calls.length === 1) {
+          return {
+            ok: false,
+            status: 403,
+            statusText: 'Forbidden',
+            json: async () => ({ message: 'URL expired' }),
+          };
+        }
+        // Step 2: re-poll for fresh URL → must hit `pollPath`
+        if (url.includes(pollPath)) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              code: 0,
+              data: {
+                task_status: 'succeed',
+                task_result: {
+                  videos: [{ url: `https://cdn/fresh-${mode}.mp4`, duration: '5' }],
+                },
+              },
+            }),
+          };
+        }
+        // Step 3: fresh download → bytes
+        return {
+          ok: true,
+          status: 200,
+          headers: new Map([['content-type', 'video/mp4']]),
+          arrayBuffer: async () => new TextEncoder().encode(`FRESH-${mode}`).buffer,
+        };
+      });
+      const handler = createKlingWebhookHandler({
+        dbPath,
+        outputsDir,
+        fetchImpl: fetchImpl as never,
+        env: { KLING_ACCESS_KEY: 'ak', KLING_SECRET_KEY: 'sk' },
+      });
+      await handler({
+        provider: 'kling',
+        jobId: `internal-ttl-${mode}`,
+        payload: {
+          task_id: `kling-native-${mode}`,
+          task_status: 'succeed',
+          task_result: { videos: [{ id: 'v1', url: 'https://cdn/expired.mp4', duration: '5' }] },
+        },
+        headers: {},
+      });
+      // The refresh poll url must contain the per-mode path + the native task id
+      const refreshCall = calls.find((u) => u.includes(pollPath));
+      expect(refreshCall, `mode=${mode} did not hit ${pollPath} on refresh`).toBeDefined();
+      expect(refreshCall).toContain(`kling-native-${mode}`);
+      // Asset was written from the FRESH-${mode} re-poll response.
+      const filename = join(outputsDir, `internal-ttl-${mode}.mp4`);
+      expect(existsSync(filename)).toBe(true);
+      expect(readFileSync(filename).toString()).toBe(`FRESH-${mode}`);
+    });
+  }
+
   it('falls back to estimated cost when payload omits per-video duration (Codex P2 round 6)', async () => {
     // Regression: Kling success payloads sometimes omit `duration`. Without this fallback,
     // totalDurationSec=0 skipped recordActualCost() and the row stayed 'pending' forever
