@@ -57,7 +57,7 @@ export function buildServer(opts: BuildServerOpts = {}): McpServer {
   // registerAllTools — otherwise media_video_route + media_video_cost_estimate
   // silently report compiled-in public rates and the override env var is a no-op.
   loadPricingOverridesFromEnv(process.env);
-  const server = new McpServer({ name: 'media-forge', version: '0.1.0' });
+  const server = new McpServer({ name: 'media-forge', version: '0.1.1' });
   registerAllTools(server, { client, config });
   return server;
 }

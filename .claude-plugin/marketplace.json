@@ -6,8 +6,8 @@
     "url": "https://github.com/produtoramaxvision"
   },
   "metadata": {
-    "description": "MaxVision's curated Claude Code marketplace â€” production-grade skills for n8n workflows, Google Tag Manager API, and more.",
-    "version": "0.1.0"
+    "description": "MaxVision's curated Claude Code marketplace — production-grade skills for n8n workflows, Google Tag Manager API, and more.",
+    "version": "0.1.1"
   },
   "plugins": [
     {
@@ -27,7 +27,7 @@
     },
     {
       "name": "gtm-skills",
-      "description": "Google Tag Manager API expert skill â€” create, update, delete, and publish tags, triggers, and variables programmatically",
+      "description": "Google Tag Manager API expert skill — create, update, delete, and publish tags, triggers, and variables programmatically",
       "source": "./gtm-skills",
       "strict": true,
       "skills": [

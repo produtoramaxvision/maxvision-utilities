@@ -14,7 +14,7 @@ export function buildProgram(): Command {
   const program = new Command();
   program
     .name('media-forge')
-    .version('0.1.0')
+    .version('0.1.1')
     .description('Production-grade image + video generation via top-tier Google AI models');
 
   registerDoctorCommand(program);

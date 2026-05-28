@@ -3,7 +3,7 @@ import { MEDIA_FORGE_VERSION } from '../../src/index.js';
 
 describe('smoke', () => {
   it('exports MEDIA_FORGE_VERSION constant', () => {
-    expect(MEDIA_FORGE_VERSION).toBe('0.1.0');
+    expect(MEDIA_FORGE_VERSION).toBe('0.1.1');
   });
 
   it('MEDIA_FORGE_VERSION is a string literal', () => {

@@ -3,7 +3,7 @@
  *
  * Covers:
  * 1. buildServer() returns an McpServer instance
- * 2. Server advertises name 'media-forge', version '0.1.0'
+ * 2. Server advertises name 'media-forge', version '0.1.1'
  * 3. startStdioServer() calls server.connect (via McpServer.prototype spy)
  * 4. buildServer() does NOT write to stdout
  */
@@ -82,7 +82,7 @@ describe('buildServer()', () => {
     expect(typeof server.connect).toBe('function');
   });
 
-  it('server advertises name=media-forge and version=0.1.0', () => {
+  it('server advertises name=media-forge and version=0.1.1', () => {
     const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
     // McpServer wraps a lower-level Server at .server._serverInfo
     const inner = (
@@ -91,7 +91,7 @@ describe('buildServer()', () => {
       }
     ).server;
     expect(inner._serverInfo.name).toBe('media-forge');
-    expect(inner._serverInfo.version).toBe('0.1.0');
+    expect(inner._serverInfo.version).toBe('0.1.1');
   });
 });
 
