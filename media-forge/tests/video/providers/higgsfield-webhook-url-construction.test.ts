@@ -69,7 +69,7 @@ describe('HiggsfieldProvider — webhook URL is OFF by default (D-2)', () => {
     expect(captured[0]!.url).not.toContain('hf_webhook=');
   });
 
-  it('DOES append hf_webhook when BOTH flag and base URL are set (P14.1 dry-run)', async () => {
+  it('SUPPRESSES hf_webhook even when flag+base URL set (Codex P2 PR#13 — HMAC mismatch breaks the path)', async () => {
     process.env['MEDIA_FORGE_HF_WEBHOOK_ENABLE'] = 'true';
     const provider = new HiggsfieldProvider({
       dbPath,
@@ -82,7 +82,11 @@ describe('HiggsfieldProvider — webhook URL is OFF by default (D-2)', () => {
       durationSec: 4,
       resolution: '720p',
     });
-    expect(captured[0]!.url).toContain('hf_webhook=https%3A%2F%2Fapp.example.com%2Fwebhooks%2Fhiggsfield%2F');
+    // Higgsfield does not sign callbacks with our HMAC, so the router default
+    // validator rejects every callback 401. Until a Higgsfield-specific auth
+    // validator is registered, the URL injection is suppressed and we rely on
+    // polling. A one-shot warning is emitted to stderr.
+    expect(captured[0]!.url).not.toContain('hf_webhook=');
   });
 });
 

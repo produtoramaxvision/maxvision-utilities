@@ -290,6 +290,17 @@ export class KlingProvider implements VideoProvider {
     // If it looks like a URL, fetch it directly. Otherwise, look up jobId -> URL via pollStatus.
     let assetUrl: string;
     if (jobIdOrUrl.startsWith('http://') || jobIdOrUrl.startsWith('https://')) {
+      // FIX (Codex P1, PR#13): SSRF defense for raw-URL Kling downloads. Without
+      // this, MCP caller can pass `http://169.254.169.254/...` (AWS IMDS),
+      // `http://localhost/...`, or any RFC1918 target and we'd fetch + persist
+      // the response to disk. Reuses the Higgsfield asset-URL allowlist
+      // (https-only + reject loopback/link-local/RFC1918/ULA/IPv4-mapped-v6).
+      if (!isSafeKlingAssetUrl(jobIdOrUrl)) {
+        throw new Error(
+          `Kling download: refusing unsafe target '${jobIdOrUrl}' ` +
+            `(must be https + non-internal host). SSRF defense.`,
+        );
+      }
       assetUrl = jobIdOrUrl;
     } else {
       const status = await this.pollStatus(jobIdOrUrl);
@@ -595,4 +606,43 @@ function hashParams(req: VideoGenerationRequest): string {
     h = ((h << 5) - h + json.charCodeAt(i)) | 0;
   }
   return Math.abs(h).toString(16);
+}
+
+/**
+ * SSRF allowlist for Kling asset URLs passed directly to `media_kling_download`.
+ *
+ * Mirrors `isSafeHiggsfieldAssetUrl` — Kling delivers via CDN (Tencent COS,
+ * CloudFront) so we cannot anchor on klingai.com. Defense-in-depth:
+ *
+ *   - require https (blocks http://internal/...)
+ *   - reject loopback/link-local/RFC1918/ULA/IPv4-mapped-v6 hostname literals
+ *
+ * No DNS resolution (sync API constraint) — a malicious hostname that resolves
+ * to a private IP at fetch time is still possible. Operators should run the
+ * MCP server in a sandbox with egress restricted to known CDN ranges.
+ *
+ * Codex P1 PR#13.
+ */
+export function isSafeKlingAssetUrl(raw: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'https:') return false;
+  let host = u.hostname.toLowerCase();
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
+  if (!host) return false;
+  if (host === '0.0.0.0' || host === 'localhost') return false;
+  if (host.startsWith('127.')) return false;
+  if (host.startsWith('10.')) return false;
+  if (host.startsWith('192.168.')) return false;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
+  if (host.startsWith('169.254.')) return false;
+  if (host === '::1' || host === '0:0:0:0:0:0:0:1') return false;
+  if (/^f[cd][0-9a-f]{2}:/i.test(host)) return false;
+  if (/^fe[89ab][0-9a-f]?:/i.test(host)) return false;
+  if (/(^|:)ffff:[0-9a-f.:]+/i.test(host)) return false;
+  return true;
 }

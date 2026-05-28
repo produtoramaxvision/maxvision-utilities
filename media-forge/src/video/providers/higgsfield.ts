@@ -32,6 +32,9 @@ export interface HiggsfieldProviderOptions {
 
 const BASE_URL = 'https://platform.higgsfield.ai';
 
+// One-shot warning latch for the broken HF_WEBHOOK_ENABLE path (Codex P2 PR#13).
+let _warnedHfWebhookBroken = false;
+
 interface PlatformGenerateResponse {
   readonly request_id: string;
   readonly status_url: string;
@@ -417,12 +420,27 @@ export class HiggsfieldProvider implements VideoProvider {
     // D-2: P14 ships polling-only. Webhook URL injection requires BOTH:
     //   - publicWebhookBaseUrl explicitly configured AND
     //   - MEDIA_FORGE_HF_WEBHOOK_ENABLE=true (opt-in flag, off in P14)
-    // When the flag flips on in P14.1, the URL injection path is already wired.
+    //
+    // FIX (Codex P2, PR#13): Higgsfield does NOT sign callbacks with our HMAC
+    // (no documented signing mechanism). The router's default validator
+    // requires x-webhook-timestamp + x-webhook-signature, which Higgsfield
+    // never sends, so every callback 401s before createHiggsfieldWebhookHandler
+    // can run — enabling this flag silently breaks the webhook path while
+    // polling continues to work. Until a Higgsfield-specific auth validator
+    // is registered (or Higgsfield publishes a signing scheme), suppress the
+    // URL injection with a loud one-shot warning and fall through to polling.
     const enabled = process.env['MEDIA_FORGE_HF_WEBHOOK_ENABLE'] === 'true';
     if (!enabled || !this.publicWebhookBaseUrl) return base;
-    const webhook = `${this.publicWebhookBaseUrl.replace(/\/$/, '')}/webhooks/higgsfield/${encodeURIComponent(jobId)}`;
-    const sep = base.includes('?') ? '&' : '?';
-    return `${base}${sep}hf_webhook=${encodeURIComponent(webhook)}`;
+    if (!_warnedHfWebhookBroken) {
+      _warnedHfWebhookBroken = true;
+      process.stderr.write(
+        '[higgsfield] MEDIA_FORGE_HF_WEBHOOK_ENABLE=true ignored — webhook path ' +
+          'is broken (no Higgsfield-specific auth validator; default HMAC rejects ' +
+          "every callback with 401). Falling back to polling. Disable the flag or " +
+          'register a custom validator in server.ts to silence this warning.\n',
+      );
+    }
+    return base;
   }
 
   private buildRequestBody(req: VideoGenerationRequest): Record<string, unknown> {

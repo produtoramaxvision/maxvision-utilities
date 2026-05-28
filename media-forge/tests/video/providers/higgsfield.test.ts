@@ -118,9 +118,12 @@ describe('HiggsfieldProvider', () => {
     ).toThrow(/usdPerCredit/i);
   });
 
-  it('generate POSTs the Soul endpoint with HF auth headers + webhook URL', async () => {
-    // D-2: webhook injection is off by default in P14. Enable it for this specific test
-    // so the original assertion (hf_webhook= in URL) remains meaningful.
+  it('generate POSTs the Soul endpoint with HF auth headers (webhook URL suppressed per Codex P2 PR#13)', async () => {
+    // D-2: webhook injection is off by default in P14.
+    // FIX (Codex P2, PR#13): even when MEDIA_FORGE_HF_WEBHOOK_ENABLE=true, the
+    // URL injection is now suppressed because Higgsfield doesn't sign
+    // callbacks with our HMAC — router default validator would 401 every
+    // callback. Path falls back to polling.
     process.env['MEDIA_FORGE_HF_WEBHOOK_ENABLE'] = 'true';
     const captured: { url: string; init: RequestInit }[] = [];
     global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -152,7 +155,8 @@ describe('HiggsfieldProvider', () => {
     expect(captured).toHaveLength(1);
     const { url, init } = captured[0]!;
     expect(url).toContain('https://platform.higgsfield.ai/higgsfield-ai/soul/standard');
-    expect(url).toContain('hf_webhook=https%3A%2F%2Fapp.example.com%2Fwebhooks%2Fhiggsfield%2F');
+    // Codex P2 PR#13 — hf_webhook now suppressed regardless of flag state.
+    expect(url).not.toContain('hf_webhook=');
     const headers = (init.headers ?? {}) as Record<string, string>;
     // SDK-format headers, per shipped buildHiggsfieldHeaders (Task 1 may switch to Authorization).
     expect(headers['hf-api-key'] ?? headers['Authorization']).toBeDefined();
