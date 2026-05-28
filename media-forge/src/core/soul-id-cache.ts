@@ -91,10 +91,15 @@ export interface SoulIdFingerprintInput {
 }
 
 /** Stable sha256 of normalized character name + sorted asset paths.
- *  Same inputs => same fingerprint, regardless of array ordering or case. */
+ *  Same inputs => same fingerprint, regardless of array ordering or case.
+ *
+ *  FIX (CodeRabbit round 9, PR#10): path normalization now lowercases too,
+ *  matching the JSDoc + the lowercased-name treatment. Previously `trim()`
+ *  alone left `/Tmp/A.png` and `/tmp/a.png` producing different fingerprints
+ *  for the same asset set. */
 export function computeSoulIdFingerprint(input: SoulIdFingerprintInput): string {
   const normalizedName = input.characterName.trim().toLowerCase();
-  const sortedPaths = [...input.assetPaths].map((p) => p.trim()).sort();
+  const sortedPaths = [...input.assetPaths].map((p) => p.trim().toLowerCase()).sort();
   const seed = JSON.stringify({ name: normalizedName, paths: sortedPaths });
   return createHash('sha256').update(seed).digest('hex');
 }
@@ -185,9 +190,12 @@ export function claimTrainingPending(input: {
   const now = new Date().toISOString();
 
   // Check existing row by fingerprint first (handles renames of same image set).
+  // FIX (CodeRabbit round 9, PR#10): scope by provider — fingerprints are
+  // not globally unique, and a row from a different provider must not return
+  // ALREADY_* for the current claim attempt.
   const existing = db
-    .prepare(`SELECT * FROM soul_ids WHERE fingerprint = ? LIMIT 1`)
-    .get(fp) as SoulIdRow | undefined;
+    .prepare(`SELECT * FROM soul_ids WHERE fingerprint = ? AND provider = ? LIMIT 1`)
+    .get(fp, input.provider) as SoulIdRow | undefined;
   if (existing) {
     const record = rowToRecord(existing);
     return existing.training_state === 'COMMITTED'
@@ -227,7 +235,10 @@ export function claimTrainingPending(input: {
   }
 }
 
-/** Promote a PENDING row to COMMITTED with the real Soul ID returned by the platform. */
+/** Promote a PENDING row to COMMITTED with the real Soul ID returned by the platform.
+ *
+ *  FIX (CodeRabbit round 9, PR#10): guard on `training_state = 'PENDING'` so
+ *  a bad call path can't silently overwrite an already-COMMITTED row's id. */
 export function commitTrained(input: {
   readonly dbPath: string;
   readonly provisionalId: string;
@@ -235,7 +246,8 @@ export function commitTrained(input: {
 }): void {
   const db = ensureDb(input.dbPath);
   db.prepare(
-    `UPDATE soul_ids SET id = ?, training_state = 'COMMITTED' WHERE id = ?`,
+    `UPDATE soul_ids SET id = ?, training_state = 'COMMITTED'
+     WHERE id = ? AND training_state = 'PENDING'`,
   ).run(input.realSoulId, input.provisionalId);
 }
 

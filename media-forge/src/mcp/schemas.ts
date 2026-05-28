@@ -364,6 +364,60 @@ export const HiggsfieldViralityPredictorInput = z.object({
 });
 export type HiggsfieldViralityPredictorInputT = z.infer<typeof HiggsfieldViralityPredictorInput>;
 
+// HiggsfieldGenerateInput — generic Higgsfield submit (Soul / Soul2 / aesthetic
+// presets) when no specialized tool (dop / cinema_studio / speak / marketing /
+// recast) applies. Codex P2 round 7 PR#10 closed the gap where the director
+// doc routed Soul t2v through media_video_route (a decision-only tool) with
+// no actual submit path.
+// ---------------------------------------------------------------------------
+// _HiggsfieldGenerateBase — raw ZodObject for tools/list (DEBT-008: tools/list
+// requires a plain ZodObject; the refined cross-field check lives on the
+// exported `HiggsfieldGenerateInput` for runtime validation).
+const _HiggsfieldGenerateBase = z.object({
+  modelId: z.enum([
+    'higgsfield-soul-standard',
+    'higgsfield-soul-pro',
+    'higgsfield-soul2',
+  ]),
+  mode: z.enum(['t2v', 'i2v']).default('t2v'),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive().default(5),
+  resolution: z.enum(['720p', '1080p', '2k', '4k']).default('1080p'),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']).optional(),
+  firstFrameImagePath: z.string().min(1).optional(),
+  referenceImagePaths: z.array(z.string().min(1)).max(8).optional(),
+  soulId: z.string().min(1).optional(),
+});
+// FIX (Codex P2 round 13, PR#10): require `firstFrameImagePath` whenever
+// `mode === 'i2v'`. Without this gate, callers can submit i2v jobs that get
+// rejected upstream (or run as text-only) after we already burned credits and
+// recorded the job. The specialized i2v tools (dop, cinema_studio) require
+// the image at the schema level — the generic generate tool now does too.
+export const HiggsfieldGenerateInput = _HiggsfieldGenerateBase.superRefine((v, ctx) => {
+  if (v.mode === 'i2v' && !v.firstFrameImagePath) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['firstFrameImagePath'],
+      message: "firstFrameImagePath is required when mode='i2v'",
+    });
+  }
+});
+export type HiggsfieldGenerateInputT = z.infer<typeof HiggsfieldGenerateInput>;
+
+// HiggsfieldPollInput / HiggsfieldDownloadInput — async lifecycle for the 7
+// Higgsfield generation tools (Codex P2 round 5 PR#10).
+// ---------------------------------------------------------------------------
+export const HiggsfieldPollInput = z.object({
+  jobId: z.string().min(1),
+});
+export type HiggsfieldPollInputT = z.infer<typeof HiggsfieldPollInput>;
+
+export const HiggsfieldDownloadInput = z.object({
+  // Accepts either an internal `hf-…` jobId OR an explicit CDN URL.
+  jobIdOrUrl: z.string().min(1),
+});
+export type HiggsfieldDownloadInputT = z.infer<typeof HiggsfieldDownloadInput>;
+
 // HiggsfieldMarketingStudioInput — Marketing Studio: 9 UGC templates from product URL (P14 Task 12)
 // ---------------------------------------------------------------------------
 
@@ -578,8 +632,12 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 47 tools total (was 45; +2 from Codex P1 round 6 PR#11)
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route + 7 higgsfield + 11 kling = 47
+// MCP_TOOLS registry — 50 tools total (PR#11 = PR#10 base + 11 Kling - 1 router consolidated)
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route
+// + 7 higgsfield (soul_id, dop, cinema_studio, speak, marketing_studio, recast, virality_predictor)
+// + 1 higgsfield_generate (Codex round 7 PR#10)
+// + 2 higgsfield lifecycle (poll, download — Codex round 5 PR#10)
+// + 11 kling (motion_brush, element_create/list/delete, elements, lip_sync, omni_multishot, video_extend, poll, download, +1 from R6) = 50
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -814,6 +872,33 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description: 'Higgsfield Virality Predictor — score an asset (viral / audience-fit / hook-strength).',
     inputSchema: HiggsfieldViralityPredictorInput,
     validationSchema: HiggsfieldViralityPredictorInput,
+  },
+
+  // ---- Higgsfield Generate (Codex P2 round 7 PR#10 — generic Soul/Soul2 t2v|i2v submit) ----
+  {
+    name: 'media_higgsfield_generate',
+    description:
+      'Generic Higgsfield submit for Soul / Soul 2.0 / aesthetic presets when none of the specialized tools (dop, cinema_studio, speak, marketing_studio, recast) applies. Required: modelId, prompt. Optional: mode (t2v/i2v), firstFrameImagePath (REQUIRED when mode=i2v), referenceImagePaths, soulId.',
+    // DEBT-008: tools/list wants a plain ZodObject; runtime validation uses
+    // the refined schema (cross-field check: i2v requires firstFrameImagePath).
+    inputSchema: _HiggsfieldGenerateBase,
+    validationSchema: HiggsfieldGenerateInput,
+  },
+
+  // ---- Higgsfield Poll + Download (Codex P2 round 5 PR#10 — async lifecycle for the 7 generation tools) ----
+  {
+    name: 'media_higgsfield_poll',
+    description:
+      'Poll a Higgsfield async job by internal jobId — returns state + assetUrls when completed. Use after any media_higgsfield_* generation tool.',
+    inputSchema: HiggsfieldPollInput,
+    validationSchema: HiggsfieldPollInput,
+  },
+  {
+    name: 'media_higgsfield_download',
+    description:
+      'Download a completed Higgsfield asset by internal jobId OR explicit CDN URL — returns byte length + content type.',
+    inputSchema: HiggsfieldDownloadInput,
+    validationSchema: HiggsfieldDownloadInput,
   },
 
   // ---- Kling Motion Brush (1 — P15 Task 6: paint regions of still image with motion vectors) ----

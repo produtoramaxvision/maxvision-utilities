@@ -30,9 +30,7 @@ describe('P14 regression — Veo still wired AND Higgsfield is live', () => {
     delete process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
   });
 
-  it('Veo regression: plain t2v still routes to google when preferProvider is forced', async () => {
-    // P15 Option A removed google-default tiebreaker; Kling wins on cost for plain t2v.
-    // preferProvider: 'google' preserves the P14 intent: Veo is still wired and callable.
+  it('Veo regression: plain t2v with preferProvider=google still routes to google (P15 Option A: pure cost sort, explicit override required)', async () => {
     const r = await handleVideoRoute({
       mode: 't2v',
       prompt: 'a quiet lake at sunrise',
@@ -65,22 +63,17 @@ describe('P14 regression — Veo still wired AND Higgsfield is live', () => {
     expect((list as { records: unknown[] }).records.length).toBe(1);
   });
 
-  it('MCP_TOOLS count is 47 (P13 30 + P14 7 + P15 Task 6 1 + P15 Tasks 6.5-6.7 3 + P15 Task 7 1 + P15 Task 8 1 + P15 Task 9 1 + P15 Task 10 1 + Codex round 6 PR#11 lifecycle 2)', () => {
-    expect(MCP_TOOLS.length).toBe(47);
+  it('MCP_TOOLS count is 50 (P13 30 + P14 10 Higgsfield + P15 11 Kling - reconciled merge)', () => {
+    expect(MCP_TOOLS.length).toBe(50);
   });
 
-  it('lip-sync route picks Kling in P15 (explicit-tier override; Higgsfield still reachable via preferProvider)', async () => {
-    // P14: Higgsfield was sole lip-sync provider. P15: kling-v3-pro joins with explicit-tier
-    // override — pickExplicitTier routes lip-sync to kling-v3-pro before cost sort.
-    // Higgsfield lip-sync remains reachable via preferProvider: 'higgsfield'.
-    // PR#10 Codex P2 fix: router now filters by maxDurationSec — kling-v3-pro caps at 10s.
-    // Use 10s so kling-v3-pro stays in the candidate pool and explicit-tier override wins.
+  it('lip-sync route picks Higgsfield', async () => {
     const r = await handleVideoRoute({
       mode: 'lip-sync',
       prompt: 'x',
-      durationSec: 10,
-      resolution: '1080p',
+      durationSec: 15,
+      resolution: '720p',
     });
-    expect(r.provider).toBe('kling');
+    expect(r.provider).toBe('higgsfield');
   });
 });

@@ -119,10 +119,10 @@ describe('registerAllTools()', () => {
     tools = getCapturedTools(server);
   });
 
-  // Test 1: exactly 35 tools registered (26 base + media_video_webhook_status + media_video_cost_estimate + media_video_cost_report + media_video_route added P13 + media_higgsfield_soul_id + media_higgsfield_dop + media_higgsfield_cinema_studio + media_higgsfield_speak + media_higgsfield_marketing_studio added P14)
-  it('calls registerTool exactly 47 times', () => {
+  // Test 1: 50 tools registered (P13 base + 7 Higgsfield generators + 3 Higgsfield generate/poll/download + 11 Kling)
+  it('calls registerTool exactly 50 times', () => {
     const mock = server as unknown as { registerTool: ReturnType<typeof vi.fn> };
-    expect(mock.registerTool).toHaveBeenCalledTimes(47);
+    expect(mock.registerTool).toHaveBeenCalledTimes(50);
   });
 
   // Test 2: set equality with listMCPToolNames()

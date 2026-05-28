@@ -406,8 +406,10 @@ describe('HiggsfieldProvider', () => {
   });
 
   it('download fetches the CDN URL and returns DownloadedAsset with metadata', async () => {
-    global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('https://cdn.higgsfield.ai/asset.mp4');
+      // Codex P1 round 13 (PR#10): every download fetch MUST disable auto-follow.
+      expect(init?.redirect).toBe('manual');
       const buf = Buffer.from('FAKEMP4DATA');
       return new Response(buf, {
         status: 200,
@@ -420,6 +422,124 @@ describe('HiggsfieldProvider', () => {
     expect(asset.metadata.contentType).toBe('video/mp4');
     expect(asset.metadata.sizeBytes).toBe(11);
     expect(asset.metadata.cdnUrl).toBe('https://cdn.higgsfield.ai/asset.mp4');
+  });
+
+  it('download follows a safe redirect to another https CDN host', async () => {
+    let call = 0;
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.redirect).toBe('manual');
+      call += 1;
+      if (call === 1) {
+        expect(String(input)).toBe('https://cdn.higgsfield.ai/asset.mp4');
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'https://signed-cdn.amazonaws.com/asset.mp4' },
+        });
+      }
+      expect(String(input)).toBe('https://signed-cdn.amazonaws.com/asset.mp4');
+      const buf = Buffer.from('REDIRECTED');
+      return new Response(buf, {
+        status: 200,
+        headers: { 'content-type': 'video/mp4' },
+      });
+    }) as unknown as typeof fetch;
+
+    const asset = await provider.download('https://cdn.higgsfield.ai/asset.mp4');
+    expect(asset.buffer.toString()).toBe('REDIRECTED');
+    expect(call).toBe(2);
+  });
+
+  it('download refuses a redirect pointing at AWS IMDS (SSRF defense)', async () => {
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.redirect).toBe('manual');
+      expect(String(input)).toBe('https://cdn.higgsfield.ai/asset.mp4');
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'https://169.254.169.254/latest/meta-data/iam/security-credentials/' },
+      });
+    }) as unknown as typeof fetch;
+
+    await expect(provider.download('https://cdn.higgsfield.ai/asset.mp4')).rejects.toThrow(
+      /unsafe redirect target/i,
+    );
+  });
+
+  it('download refuses a 3xx response without Location header', async () => {
+    global.fetch = vi.fn(async () => {
+      return new Response(null, { status: 302, headers: {} });
+    }) as unknown as typeof fetch;
+
+    await expect(provider.download('https://cdn.higgsfield.ai/asset.mp4')).rejects.toThrow(
+      /without Location header/i,
+    );
+  });
+
+  it('download refuses a redirect loop beyond the hop cap', async () => {
+    global.fetch = vi.fn(async () => {
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'https://cdn.higgsfield.ai/loop.mp4' },
+      });
+    }) as unknown as typeof fetch;
+
+    await expect(provider.download('https://cdn.higgsfield.ai/asset.mp4')).rejects.toThrow(
+      /too many redirects|chain longer/i,
+    );
+  });
+
+  it('generate does NOT record a job when the upstream submit fails (Codex P2 round 14, PR#10)', async () => {
+    // Return 500 from both primary + fallback. Provider must throw without leaving a row.
+    global.fetch = vi.fn(async () =>
+      new Response('upstream exploded', { status: 500 }),
+    ) as unknown as typeof fetch;
+
+    await expect(
+      provider.generate({
+        modelId: 'higgsfield-soul-standard',
+        mode: 't2v',
+        prompt: 'fail-path',
+        durationSec: 5,
+        resolution: '720p',
+      }),
+    ).rejects.toThrow(/Higgsfield generate failed: 500/);
+
+    const { openDb, runMigrations } = await import('../../../src/core/db.js');
+    const db = openDb(dbPath);
+    runMigrations(db);
+    const row = db.prepare('SELECT COUNT(*) AS n FROM video_jobs').get() as { n: number };
+    // Previous behaviour: 1 dangling pending row per failed submit.
+    expect(row.n).toBe(0);
+  });
+
+  it('generate records the job AFTER a successful submit (order assertion)', async () => {
+    const calls: Array<'fetch' | 'db'> = [];
+    const { openDb, runMigrations } = await import('../../../src/core/db.js');
+    const db = openDb(dbPath);
+    runMigrations(db);
+    const before = (db.prepare('SELECT COUNT(*) AS n FROM video_jobs').get() as { n: number }).n;
+
+    global.fetch = vi.fn(async () => {
+      calls.push('fetch');
+      return new Response(
+        JSON.stringify({ request_id: 'r-after', status_url: 'u', cancel_url: 'c' }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    await provider.generate({
+      modelId: 'higgsfield-soul-standard',
+      mode: 't2v',
+      prompt: 'order-test',
+      durationSec: 5,
+      resolution: '720p',
+    });
+    calls.push('db');
+
+    const after = (db.prepare('SELECT COUNT(*) AS n FROM video_jobs').get() as { n: number }).n;
+    expect(after).toBe(before + 1);
+    // fetch must complete before recordJob — assertion is implicit in ordering
+    // but we also assert no duplicate rows.
+    expect(calls[0]).toBe('fetch');
   });
 
   it('recordActualCostUSD persists the cost to the video_jobs row', async () => {

@@ -22,18 +22,14 @@ describe('handleVideoRoute — P14 Higgsfield preference', () => {
     delete process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
   });
 
-  it('routes lip-sync to kling in P15 (explicit-tier override; Higgsfield still reachable via preferProvider)', async () => {
-    // P14: Higgsfield was sole lip-sync provider. P15: kling-v3-pro joins with explicit-tier
-    // override via pickExplicitTier — kling wins before cost sort.
-    // Higgsfield lip-sync remains reachable via preferProvider: 'higgsfield'.
-    // PR#10 Codex P2 fix: router now filters by maxDurationSec — kling-v3-pro caps at 10s.
+  it('routes lip-sync to higgsfield (only provider that supports it)', async () => {
     const r = await handleVideoRoute({
       mode: 'lip-sync',
       prompt: 'newsreader',
-      durationSec: 10,
-      resolution: '1080p',
+      durationSec: 15,
+      resolution: '720p',
     });
-    expect(r.provider).toBe('kling');
+    expect(r.provider).toBe('higgsfield');
   });
 
   it('routes targeted-edit to higgsfield Recast', async () => {
@@ -47,10 +43,7 @@ describe('handleVideoRoute — P14 Higgsfield preference', () => {
     expect(r.modelId).toBe('higgsfield-recast');
   });
 
-  it('routes to Veo when preferProvider forces google (P15 Option A: pure cost sort, no google default)', async () => {
-    // P15 Option A removed the google-default tiebreaker. Without preferProvider, Higgsfield
-    // Soul Standard ($0.975 for 8s at $0.039/credit) beats Veo ($4.00) on cost. Use
-    // preferProvider: 'google' to verify Veo is still callable — regression preserved.
+  it('keeps Veo for plain t2v with preferProvider=google (P15 Option A: pure cost sort; Kling V3 Standard at $0.126/s wins without override)', async () => {
     const r = await handleVideoRoute({
       mode: 't2v',
       prompt: 'a quiet lake at sunrise',

@@ -89,6 +89,7 @@ import { HiggsfieldSpeakInput, type HiggsfieldSpeakInputT } from './schemas.js';
 import { HiggsfieldMarketingStudioInput, type HiggsfieldMarketingStudioInputT } from './schemas.js';
 import { HiggsfieldRecastInput, type HiggsfieldRecastInputT } from './schemas.js';
 import { HiggsfieldViralityPredictorInput, type HiggsfieldViralityPredictorInputT } from './schemas.js';
+import { HiggsfieldGenerateInput, type HiggsfieldGenerateInputT } from './schemas.js';
 import {
   buildHiggsfieldHeaders,
   buildFallbackHeaders,
@@ -193,6 +194,88 @@ function higgsfieldProvider(): HiggsfieldProvider {
  *  current dbPath / env. Tests with their own tmp dbPath MUST call this in beforeEach. */
 export function _resetHiggsfieldProviderForTests(): void {
   _hfProvider = undefined;
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldPoll / handleHiggsfieldDownload — async job lifecycle for the
+// 7 Higgsfield generation tools (Codex P2 round 5 PR#10).
+// ---------------------------------------------------------------------------
+
+export async function handleHiggsfieldPoll(rawInput: unknown): Promise<{
+  jobId: string;
+  state: string;
+  progress?: number;
+  assetUrls?: ReadonlyArray<string>;
+  errorMessage?: string;
+}> {
+  const input = rawInput as { jobId?: unknown };
+  if (typeof input?.jobId !== 'string' || input.jobId.length === 0) {
+    throw new Error('media_higgsfield_poll requires { jobId: string }');
+  }
+  const provider = higgsfieldProvider();
+  const status = await provider.pollStatus(input.jobId);
+  return {
+    jobId: status.jobId,
+    state: status.state,
+    ...(status.progress !== undefined ? { progress: status.progress } : {}),
+    ...(status.assetUrls ? { assetUrls: status.assetUrls } : {}),
+    ...(status.errorMessage ? { errorMessage: status.errorMessage } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleHiggsfieldGenerate — generic Soul / Soul2 / aesthetic submit
+// (Codex P2 round 7 PR#10): closes the doc-vs-implementation gap where the
+// director routed Soul t2v through media_video_route (a decision-only tool)
+// with no actual submit path.
+// ---------------------------------------------------------------------------
+export async function handleHiggsfieldGenerate(rawInput: unknown): Promise<{
+  provider: string;
+  jobId: string;
+  providerNativeId?: string;
+  estimatedCostUSD: number;
+}> {
+  const input: HiggsfieldGenerateInputT = HiggsfieldGenerateInput.parse(rawInput);
+  const provider = higgsfieldProvider();
+  const req = {
+    modelId: input.modelId,
+    mode: input.mode,
+    prompt: input.prompt,
+    durationSec: input.durationSec,
+    resolution: input.resolution,
+    ...(input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}),
+    ...(input.firstFrameImagePath ? { firstFrameImagePath: input.firstFrameImagePath } : {}),
+    ...(input.referenceImagePaths ? { referenceImagePaths: input.referenceImagePaths } : {}),
+    extras: {
+      providerKind: 'higgsfield' as const,
+      ...(input.soulId ? { soulId: input.soulId } : {}),
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    provider: handle.provider,
+    jobId: handle.jobId,
+    providerNativeId: handle.providerNativeId,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+export async function handleHiggsfieldDownload(rawInput: unknown): Promise<{
+  bytes: number;
+  contentType: string;
+  cdnUrl?: string;
+}> {
+  const input = rawInput as { jobIdOrUrl?: unknown };
+  if (typeof input?.jobIdOrUrl !== 'string' || input.jobIdOrUrl.length === 0) {
+    throw new Error('media_higgsfield_download requires { jobIdOrUrl: string }');
+  }
+  const provider = higgsfieldProvider();
+  const asset = await provider.download(input.jobIdOrUrl);
+  return {
+    bytes: asset.buffer.length,
+    contentType: asset.metadata.contentType,
+    ...(asset.metadata.cdnUrl ? { cdnUrl: asset.metadata.cdnUrl } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -302,8 +385,10 @@ export async function handleHiggsfieldSpeak(rawInput: unknown): Promise<{
           'Re-run Task 1.5 probe + update Task 6 per .maxvision/intel/2026-05-27-higgsfield-speak-audio-decision.md.',
       );
     }
-    const { readFileSync } = await import('node:fs');
-    const buf = readFileSync(input.audioPath);
+    // FIX (CodeRabbit round 9, PR#10): use async fs.readFile — readFileSync
+    // stalls the event loop for multi-MB audio uploads, blocking every other
+    // concurrent MCP request. `fs` (promises API) is already imported above.
+    const buf = await fs.readFile(input.audioPath);
     audioReference = await (provider as unknown as { uploadAudio: (b: Buffer) => Promise<string> }).uploadAudio(buf);
   } else if (mode !== 'URL') {
     throw new Error(
@@ -570,6 +655,17 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
   const picked = explicit ?? sorted[0]!;
 
   const estimatedCostUSD = normalizeCostUSDSafe(picked, input);
+  // FIX (Codex P2 round 5, PR#10): when ALL viable candidates ended up
+  // unpriced (Infinity), surface the misconfiguration instead of returning a
+  // routing decision whose cost is NaN-equivalent. Triggers when all matches
+  // are credit-priced AND MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT is unset.
+  if (!Number.isFinite(estimatedCostUSD)) {
+    throw new Error(
+      `no priceable provider for mode='${input.mode}' durationSec=${input.durationSec} resolution=${input.resolution}. ` +
+        `All candidates are credit-priced and MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT is unset/invalid. ` +
+        `Set the env var to a positive number (USD per Higgsfield credit) before routing.`,
+    );
+  }
   const rationale = buildRationale(picked, input, sorted.length, explicit !== undefined);
 
   return {
@@ -2071,6 +2167,34 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Higgsfield Virality Predictor', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldViralityPredictor(input))),
+    );
+  }
+
+  // ---- Higgsfield Generate (Codex P2 round 7 PR#10 — generic Soul/Soul2 submit) ----
+  {
+    const t = getTool('media_higgsfield_generate');
+    reg(
+      t.name,
+      { title: 'Higgsfield Generate', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldGenerate(input))),
+    );
+  }
+
+  // ---- Higgsfield Poll + Download (Codex P2 round 5 PR#10 — async lifecycle) ----
+  {
+    const t = getTool('media_higgsfield_poll');
+    reg(
+      t.name,
+      { title: 'Higgsfield Poll', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldPoll(input))),
+    );
+  }
+  {
+    const t = getTool('media_higgsfield_download');
+    reg(
+      t.name,
+      { title: 'Higgsfield Download', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldDownload(input))),
     );
   }
 

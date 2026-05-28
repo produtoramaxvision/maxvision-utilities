@@ -19,6 +19,7 @@ import {
   type WebhookRouter,
 } from '../video/providers/webhook-router.js';
 import { createKlingWebhookHandler } from '../video/providers/kling-webhook-handler.js';
+import { createHiggsfieldWebhookHandler } from '../video/providers/higgsfield-webhook-handler.js';
 import { join } from 'node:path';
 
 export interface BuildServerOpts {
@@ -106,10 +107,15 @@ export async function startStdioServer(): Promise<void> {
     const projectDir = process.env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
     const dbPath = join(projectDir, 'cost.db');
     const outputsDir = join(projectDir, 'outputs', 'kling');
+
+    // FIX (Codex P2 round 6, PR#10): register the Higgsfield handler so opt-in
+    // webhook URL emission (MEDIA_FORGE_HF_WEBHOOK_ENABLE=true) does not 404.
+    registerWebhookHandler(router, 'higgsfield', createHiggsfieldWebhookHandler({ dbPath }));
+
     // FIX (Codex P2, PR#11): pass env so the handler's expired-CDN refresh path
-     // (re-poll with native_task_id on 403/404) can rebuild Kling JWT auth.
-     // Without env, that fallback throws — only unit tests with constructed
-     // env saw the working path.
+    // (re-poll with native_task_id on 403/404) can rebuild Kling JWT auth.
+    // Without env, that fallback throws — only unit tests with constructed
+    // env saw the working path.
     registerWebhookHandler(
       router,
       'kling',

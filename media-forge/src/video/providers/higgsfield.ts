@@ -14,6 +14,7 @@ import { recordJob, recordActualCost } from '../../core/cost-tracker.js';
 import {
   recordRequestMapping,
   findRequestIdByJobId,
+  findStatusUrlByJobId,
 } from '../../core/provider-request-map.js';
 import {
   buildHiggsfieldHeaders,
@@ -87,18 +88,24 @@ export class HiggsfieldProvider implements VideoProvider {
     if (spec.provider !== 'higgsfield') {
       throw new Error(`model ${req.modelId} is not a higgsfield provider model`);
     }
+    // FIX (Codex P2 round 11, PR#10): direct provider.generate calls (now
+    // reachable via media_higgsfield_generate + the specialised tools) must
+    // enforce per-model capability bounds locally. Otherwise an over-spec
+    // request burns credits, gets a vague upstream 4xx, and leaves the cost
+    // row pending. Validate maxDurationSec + resolution before submit.
+    if (req.durationSec > spec.maxDurationSec) {
+      throw new Error(
+        `model ${req.modelId} caps durationSec at ${spec.maxDurationSec} (got ${req.durationSec})`,
+      );
+    }
+    if (req.resolution && !spec.resolutions.includes(req.resolution)) {
+      throw new Error(
+        `model ${req.modelId} supports resolutions [${spec.resolutions.join(', ')}], got '${req.resolution}'`,
+      );
+    }
 
     const jobId = `hf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const estUsd = this.estimateCostUSD(req);
-    recordJob({
-      dbPath: this.dbPath,
-      jobId,
-      provider: 'higgsfield',
-      model: req.modelId,
-      mode: req.mode,
-      paramsHash: this.hashParams(req),
-      estUsd,
-    });
 
     const endpoint = this.endpointForModel(req.modelId);
     const url = this.buildUrlWithWebhook(endpoint, jobId);
@@ -137,11 +144,32 @@ export class HiggsfieldProvider implements VideoProvider {
     }
     const parsed = (await res.json()) as PlatformGenerateResponse;
 
+    // FIX (Codex P2 round 14, PR#10): record the job ONLY after the upstream
+    // submit succeeds. The previous order (recordJob → POST) left a permanent
+    // 'pending' row on every failed submit (401/403 after both auth attempts,
+    // 4xx validation, network errors), polluting cost reports and forcing
+    // manual cleanup. Per-second cost rows are cheap; we lose nothing by
+    // deferring the write until we hold a real provider request_id.
+    recordJob({
+      dbPath: this.dbPath,
+      jobId,
+      provider: 'higgsfield',
+      model: req.modelId,
+      mode: req.mode,
+      paramsHash: this.hashParams(req),
+      estUsd,
+    });
+
     recordRequestMapping({
       dbPath: this.dbPath,
       jobId,
       provider: 'higgsfield',
       providerRequestId: parsed.request_id,
+      // FIX (Codex P2 round 7, PR#10): persist the server-supplied status_url
+      // so pollStatus uses Higgsfield's authoritative URL (signed CDN URLs,
+      // alternative paths, query tokens) instead of reconstructing the wrong
+      // endpoint.
+      ...(parsed.status_url ? { statusUrl: parsed.status_url } : {}),
     });
 
     return {
@@ -161,7 +189,29 @@ export class HiggsfieldProvider implements VideoProvider {
       // Return pending — caller can choose to abort or retry generate.
       return { jobId, state: 'pending' };
     }
-    const url = `${BASE_URL}/requests/${encodeURIComponent(requestId)}/status`;
+    // FIX (Codex P2 round 7, PR#10): prefer the server-supplied status_url
+    // when present. Higgsfield may return signed CDN URLs or alternative
+    // paths that don't match `${BASE_URL}/requests/{id}/status`; reconstructing
+    // would 404. Fall back to canonical reconstruction only when status_url
+    // was not captured (pre-round-7 rows, or providers that omit the field).
+    //
+    // FIX (Codex local round 8, PR#10): SSRF defense — status_url comes from
+    // the provider response and could be tampered with (MITM, corrupted DB
+    // row). Reject anything that is not https + hosted under higgsfield.ai
+    // before issuing the GET.
+    const persistedStatusUrl = findStatusUrlByJobId({ dbPath: this.dbPath, jobId });
+    const safePersistedUrl =
+      persistedStatusUrl && isSafeHiggsfieldStatusUrl(persistedStatusUrl)
+        ? persistedStatusUrl
+        : undefined;
+    if (persistedStatusUrl && !safePersistedUrl) {
+      process.stderr.write(
+        `[higgsfield-auth] rejected persisted status_url for job ${jobId} ` +
+          `(scheme/host not allowlisted) — falling back to canonical reconstruction.\n`,
+      );
+    }
+    const url =
+      safePersistedUrl ?? `${BASE_URL}/requests/${encodeURIComponent(requestId)}/status`;
     // FIX (Codex P1, PR#10): mirror generate()'s primary→fallback auth handshake.
     // If the platform required fallback headers for submit, polling must use the
     // same scheme — otherwise jobs submitted via fallback become un-pollable.
@@ -218,8 +268,56 @@ export class HiggsfieldProvider implements VideoProvider {
       }
       cdnUrl = status.assetUrls[0]!;
     }
+    // FIX (Codex P2 round 11, PR#10): SSRF defense — the MCP caller can pass
+    // any http/https URL here, and the server process fetches it. In
+    // environments where the MCP server has access to internal services,
+    // a caller could supply a loopback/private/link-local host (or http://)
+    // to pivot to internal endpoints. Require https + reject obvious
+    // internal-IP patterns before the fetch.
+    if (!isSafeHiggsfieldAssetUrl(cdnUrl)) {
+      throw new Error(
+        `Higgsfield download: refusing unsafe URL '${cdnUrl}' ` +
+          `(must be https + non-internal host). SSRF defense.`,
+      );
+    }
 
-    const res = await this.doFetch(cdnUrl, { method: 'GET' });
+    // FIX (Codex P1 round 13, PR#10): re-validate after each redirect. Default
+    // `fetch` follows redirects automatically, so a CDN-allowlisted host can
+    // 302 to an internal target (loopback / 169.254.169.254 / RFC1918 / IPv6
+    // ULA) and bypass the pre-fetch guard above. Use `redirect: 'manual'` and
+    // run every `Location` through `isSafeHiggsfieldAssetUrl` before following.
+    let currentUrl = cdnUrl;
+    let res: Response;
+    const maxRedirects = 3;
+    for (let hop = 0; ; hop++) {
+      res = await this.doFetch(currentUrl, { method: 'GET', redirect: 'manual' });
+      if (res.status < 300 || res.status >= 400) break;
+      if (hop >= maxRedirects) {
+        throw new Error(
+          `Higgsfield download: refusing chain longer than ${maxRedirects} redirects (SSRF defense).`,
+        );
+      }
+      const location = res.headers.get('location');
+      if (!location) {
+        throw new Error(
+          `Higgsfield download: ${res.status} redirect without Location header (SSRF defense).`,
+        );
+      }
+      let nextUrl: string;
+      try {
+        nextUrl = new URL(location, currentUrl).toString();
+      } catch {
+        throw new Error(
+          `Higgsfield download: refusing malformed redirect target '${location}' (SSRF defense).`,
+        );
+      }
+      if (!isSafeHiggsfieldAssetUrl(nextUrl)) {
+        throw new Error(
+          `Higgsfield download: refusing unsafe redirect target '${nextUrl}' (SSRF defense).`,
+        );
+      }
+      currentUrl = nextUrl;
+    }
     if (!res.ok) {
       throw new Error(`Higgsfield download failed: ${res.status}`);
     }
@@ -421,4 +519,96 @@ export class HiggsfieldProvider implements VideoProvider {
     }
     return Math.abs(h).toString(16);
   }
+}
+
+/**
+ * SSRF allowlist for status_url values sourced from Higgsfield's API.
+ *
+ * The provider returns a `status_url` field that we persist + use as a poll
+ * target. Even though the value normally comes from a trusted upstream, it
+ * crosses an untrusted boundary (network response + on-disk DB row) before
+ * we reach back out. An attacker who tampers with either could redirect the
+ * poll fetch to internal services. We restrict to https + an explicit
+ * domain allowlist anchored on higgsfield.ai (apex + any subdomain). Anything
+ * else triggers a fallback to canonical URL reconstruction.
+ *
+ * Codex local round 8 PR#10.
+ */
+export function isSafeHiggsfieldStatusUrl(raw: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'https:') return false;
+  // Allow apex + arbitrary subdomain. Reject look-alikes (higgsfield.ai.evil.com,
+  // myhiggsfield.ai, etc.) by requiring an exact match on the apex or a
+  // strict `.higgsfield.ai` suffix.
+  const host = u.hostname.toLowerCase();
+  return host === 'higgsfield.ai' || host.endsWith('.higgsfield.ai');
+}
+
+/**
+ * Looser allowlist for download URLs: Higgsfield delivers assets from CDN
+ * hosts that often live on third-party domains (S3 signed URLs, CloudFront
+ * distributions, etc.) — anchoring on higgsfield.ai would break legit
+ * downloads. Instead, defense-in-depth via:
+ *
+ *   - require https (blocks http://internal/...)
+ *   - reject obvious internal-IP literals (loopback, link-local AWS metadata,
+ *     RFC1918 private ranges, IPv6 loopback / link-local)
+ *   - reject hostnames that resolve to .local / .internal / .lan TLDs that
+ *     are commonly used for intranet services
+ *
+ * This does NOT do DNS resolution (sync API constraint), so a malicious
+ * hostname that resolves to a private IP at request time is still possible.
+ * Operators concerned about that should run the MCP server in a sandbox
+ * with egress restricted to known CDN ranges.
+ *
+ * Codex P2 round 11 PR#10.
+ */
+export function isSafeHiggsfieldAssetUrl(raw: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'https:') return false;
+  // URL.hostname returns IPv6 wrapped in `[…]` brackets — strip them before
+  // pattern matching so the `::1` / `fe80::` checks below actually fire.
+  let host = u.hostname.toLowerCase();
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
+  // Empty / whitespace host
+  if (!host) return false;
+  // IPv4 loopback + link-local + RFC1918 private literals
+  if (host === '0.0.0.0' || host === 'localhost') return false;
+  if (host.startsWith('127.')) return false;
+  if (host.startsWith('10.')) return false;
+  if (host.startsWith('192.168.')) return false;
+  // 172.16.0.0/12 → first octet 172, second octet 16-31
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
+  // Link-local 169.254.0.0/16 (covers AWS IMDS at 169.254.169.254)
+  if (host.startsWith('169.254.')) return false;
+  // IPv6 loopback + link-local + ULA (FIX Codex P1 round 12, PR#10):
+  // Previous `startsWith('fc00:'|'fd00:'|'fe80:')` only matched literal prefixes,
+  // missing the rest of each range. ULA (fc00::/7) covers fc00:-fdff:; link-local
+  // (fe80::/10) covers fe80:-febf:. Docker IPv6 networks default to fd**::/8 —
+  // `fd12::1`, `fdab::1`, `fce0::1` previously slipped through and reached
+  // internal services. Switch to regex covering the full prefix nibbles.
+  if (host === '::1' || host === '0:0:0:0:0:0:0:1') return false;
+  // fc00::/7 ULA — first byte f, second nibble c|d, any third+fourth nibble
+  if (/^f[cd][0-9a-f]{2}:/i.test(host)) return false;
+  // fe80::/10 link-local — first byte fe, second high nibble 8|9|a|b
+  if (/^fe[89ab][0-9a-f]?:/i.test(host)) return false;
+  // IPv4-mapped IPv6 (::ffff:a.b.c.d). Node normalizes ::ffff:127.0.0.1 →
+  // ::ffff:7f00:1, which bypasses the IPv4 loopback check above. Any v4-mapped
+  // IPv6 is suspicious for a CDN target (no legit CDN uses them); reject the
+  // whole class to close the bypass.
+  if (/(^|:)ffff:[0-9a-f.:]+/i.test(host)) return false;
+  // Intranet TLDs (RFC 6762 mDNS, RFC 2606 reserved, common conventions)
+  if (host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.lan')) return false;
+  if (host.endsWith('.localhost')) return false;
+  return true;
 }
