@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ZodTypeAny } from 'zod';
+import { VIDEO_MODELS } from '../core/models.js';
 
 // Image schemas (P3.1)
 export {
@@ -420,6 +421,30 @@ export type HiggsfieldDownloadInputT = z.infer<typeof HiggsfieldDownloadInput>;
 // HiggsfieldMarketingStudioInput — Marketing Studio: 9 UGC templates from product URL (P14 Task 12)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// KlingMotionBrushInput — Kling V3 Pro motion brush: paint regions with motion vectors (P15 Task 6)
+// ---------------------------------------------------------------------------
+
+export const KlingMotionBrushInput = z.object({
+  prompt: z.string().min(1),
+  imageUrl: z.string().url(),
+  regions: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        polygon: z.array(z.tuple([z.number(), z.number()])).min(3),
+        motionVector: z.tuple([z.number(), z.number()]),
+      }),
+    )
+    .min(1, 'at least 1 motion-brush region required'),
+  durationSec: z.number().positive().max(10),
+  modelId: z.enum(['kling-v3-pro']).default('kling-v3-pro'),
+  watermarkEnabled: z.boolean().default(false),
+  videoReferenceUrl: z.string().url().optional(),
+  characterOrientation: z.enum(['image', 'video']).default('image'),
+});
+export type KlingMotionBrushInputT = z.infer<typeof KlingMotionBrushInput>;
+
 export const HiggsfieldMarketingStudioInput = z.object({
   template: z.enum([
     'ugc', 'unboxing', 'tv-spot', 'hyper-motion', 'product-review',
@@ -434,6 +459,168 @@ export const HiggsfieldMarketingStudioInput = z.object({
 export type HiggsfieldMarketingStudioInputT = z.infer<typeof HiggsfieldMarketingStudioInput>;
 
 // ---------------------------------------------------------------------------
+// Kling Elements — CRUD lifecycle (P15 Tasks 6.5 / 6.6 / 6.7)
+// ---------------------------------------------------------------------------
+
+// KlingElementCreateInput — base shape for tools/list (ZodObject, DEBT-008 compliant)
+// validationSchema = KlingElementCreateInput (ZodEffects with .refine for mutual-exclusion)
+export const _KlingElementCreateBase = z.object({
+  imageUrl: z.string().url().optional(),
+  imageBase64: z.string().min(1).optional(),
+  displayName: z.string().min(1).max(100),
+  category: z.enum(['character', 'product', 'location']).optional(),
+});
+
+export const KlingElementCreateInput = _KlingElementCreateBase.refine(
+  (v) => Boolean(v.imageUrl) !== Boolean(v.imageBase64),
+  { message: 'exactly one of imageUrl or imageBase64 required' },
+);
+export type KlingElementCreateInputT = z.infer<typeof KlingElementCreateInput>;
+
+// KlingElementListInput — list from local cache (+ optional backend sync)
+export const KlingElementListInput = z.object({
+  syncWithBackend: z.boolean().default(false),
+  category: z.enum(['character', 'product', 'location']).optional(),
+  includeDeleted: z.boolean().default(false),
+});
+export type KlingElementListInputT = z.infer<typeof KlingElementListInput>;
+
+// KlingElementDeleteInput — soft-delete locally + optionally hard-delete on backend
+// confirm:true is required (literal guard — irreversible on backend)
+export const KlingElementDeleteInput = z.object({
+  elementId: z.string().min(1),
+  confirm: z.literal(true, { errorMap: () => ({ message: 'confirm:true required to delete (irreversible)' }) }),
+  alsoDeleteRemote: z.boolean().default(true),
+});
+export type KlingElementDeleteInputT = z.infer<typeof KlingElementDeleteInput>;
+
+// KlingLipSyncInput — Kling V3 Pro lip-sync: drive a source video with text or audio (P15 Task 8)
+// _KlingLipSyncBase — ZodObject base shape for tools/list (DEBT-008 compliant)
+// KlingLipSyncInput — ZodEffects with two chained refines for mutual-exclusion validation
+export const _KlingLipSyncBase = z.object({
+  videoUrl: z.string().url(),
+  text: z.string().min(1).optional(),
+  audioUrl: z.string().url().optional(),
+  emotion: z.enum(['happy', 'angry', 'sad', 'neutral']).optional(),
+  modelId: z.enum(['kling-v3-pro']).default('kling-v3-pro'),
+  watermarkEnabled: z.boolean().default(false),
+});
+
+export const KlingLipSyncInput = _KlingLipSyncBase
+  .refine((v) => !!v.text || !!v.audioUrl, {
+    message: 'either text or audioUrl required',
+  })
+  .refine((v) => !(v.text && v.audioUrl), {
+    message: 'exactly one of text or audioUrl required (not both)',
+  });
+
+export type KlingLipSyncInputT = z.infer<typeof KlingLipSyncInput>;
+
+// KlingElementsInput — compose up to 4 frame-locked element identities into one shot (P15 Task 7)
+// elementIds: min 1, max 4 per Kling hard limit
+export const KlingElementsInput = z.object({
+  prompt: z.string().min(1),
+  imageUrl: z.string().url(),
+  elementIds: z.array(z.string().min(1)).min(1).max(4, 'max 4 elements per Kling spec'),
+  durationSec: z.number().positive().max(10),
+  modelId: z.enum(['kling-v3-pro']).default('kling-v3-pro'),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1']).default('16:9'),
+  watermarkEnabled: z.boolean().default(false),
+});
+export type KlingElementsInputT = z.infer<typeof KlingElementsInput>;
+
+// KlingOmniMultiShotInput — Kling V3 Omni multi-shot orchestration (P15 Task 9)
+// _KlingOmniMultiShotBase — ZodObject base shape for tools/list (DEBT-008 compliant)
+// KlingOmniMultiShotInput — ZodEffects with two chained refines for runtime validation
+//
+// Single source of truth for caps: VIDEO_MODELS['kling-v3-omni'].limits
+// The non-null assertion is safe: kling-v3-omni is a known static entry in the VIDEO_MODELS
+// registry defined in src/core/models.ts with an explicit limits block.
+const _omniSpec = VIDEO_MODELS['kling-v3-omni']!;
+const OMNI_LIMITS = _omniSpec.limits ?? {
+  maxShots: 6,
+  maxDurationSec: 30,
+  minDurationPerShotSec: 1,
+  maxDurationPerShotSec: 10,
+};
+
+export const _KlingOmniMultiShotBase = z.object({
+  shots: z
+    .array(
+      z.object({
+        // 1-based per Kling Omni API spec. If Kling actually uses 0-based,
+        // update min to 0 and the contiguous refine accordingly.
+        index: z.number().int().min(1).max(OMNI_LIMITS.maxShots ?? 6),
+        prompt: z.string().min(1),
+        // FIX (Codex P2 round 11, PR#11): enforce minDurationPerShotSec from
+        // the registry. Was `gt(0)` which let sub-second shots (e.g. 0.5s)
+        // through schema even though kling-v3-omni.limits.minDurationPerShotSec
+        // is 1. The provider would then ship an invalid clip the model can't
+        // actually produce.
+        duration: z
+          .number()
+          .min(
+            OMNI_LIMITS.minDurationPerShotSec ?? 1,
+            `min ${OMNI_LIMITS.minDurationPerShotSec ?? 1}s per shot`,
+          )
+          .max(
+            OMNI_LIMITS.maxDurationPerShotSec ?? 10,
+            `max ${OMNI_LIMITS.maxDurationPerShotSec ?? 10}s per shot`,
+          ),
+      }),
+    )
+    .min(1, 'shots[] requires at least 1 entry')
+    .max(OMNI_LIMITS.maxShots ?? 6, `max ${OMNI_LIMITS.maxShots ?? 6} shots per Kling Omni spec`),
+  imageRefs: z.array(z.object({ imageUrl: z.string().url() })).min(1),
+  videoRefs: z.array(z.object({ videoUrl: z.string().url() })).optional(),
+  aspectRatio: z.enum(['16:9', '9:16', '1:1']).default('16:9'),
+  watermarkEnabled: z.boolean().default(false),
+});
+
+export const KlingOmniMultiShotInput = _KlingOmniMultiShotBase
+  .refine(
+    (v) => {
+      // Indices must be contiguous 1..N with no duplicates
+      const indices = v.shots.map((s) => s.index).sort((a, b) => a - b);
+      for (let i = 0; i < indices.length; i++) {
+        if (indices[i] !== i + 1) return false;
+      }
+      return true;
+    },
+    { message: 'shot indices must be contiguous 1..N starting at 1 with no duplicates' },
+  )
+  .refine(
+    (v) => v.shots.reduce((sum, s) => sum + s.duration, 0) <= (OMNI_LIMITS.maxDurationSec ?? 30),
+    {
+      message: `Omni multi-shot total duration must <= ${OMNI_LIMITS.maxDurationSec ?? 30}s (sum of all shot durations)`,
+    },
+  );
+
+export type KlingOmniMultiShotInputT = z.infer<typeof KlingOmniMultiShotInput>;
+
+// KlingVideoExtendInput — Kling V3 Pro video extension (P15 Task 10)
+// Plain ZodObject (no refines) — no Base/validation split needed.
+export const KlingVideoExtendInput = z.object({
+  videoUrl: z.string().url(),
+  prompt: z.string().min(1),
+  hops: z.number().int().min(1).max(4, 'max 4 hops per Kling video-extend (cost sanity cap)'),
+  modelId: z.enum(['kling-v3-pro']).default('kling-v3-pro'),
+  watermarkEnabled: z.boolean().default(false),
+});
+export type KlingVideoExtendInputT = z.infer<typeof KlingVideoExtendInput>;
+
+// ---------------------------------------------------------------------------
+// KlingPollInput / KlingDownloadInput — manual completion path
+// FIX (Codex P1 round 6 PR#11): default MCP Kling tools suppress callback_url
+// (HMAC mismatch). Without these, jobs stay 'pending' forever once submitted.
+// ---------------------------------------------------------------------------
+export const KlingPollInput = z.object({ jobId: z.string().min(1) });
+export type KlingPollInputT = z.infer<typeof KlingPollInput>;
+
+export const KlingDownloadInput = z.object({ jobIdOrUrl: z.string().min(1) });
+export type KlingDownloadInputT = z.infer<typeof KlingDownloadInput>;
+
+// ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
 export interface MCPTool {
@@ -445,11 +632,12 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 40 tools total (PR#10 head)
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost
-// + 1 route + 7 higgsfield (soul_id, dop, cinema_studio, speak, marketing_studio,
-// recast, virality_predictor) + 1 higgsfield_generate (Codex round 7)
-// + 2 higgsfield lifecycle (poll, download — Codex round 5) = 40
+// MCP_TOOLS registry — 50 tools total (PR#11 = PR#10 base + 11 Kling - 1 router consolidated)
+// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route
+// + 7 higgsfield (soul_id, dop, cinema_studio, speak, marketing_studio, recast, virality_predictor)
+// + 1 higgsfield_generate (Codex round 7 PR#10)
+// + 2 higgsfield lifecycle (poll, download — Codex round 5 PR#10)
+// + 11 kling (motion_brush, element_create/list/delete, elements, lip_sync, omni_multishot, video_extend, poll, download, +1 from R6) = 50
 // ---------------------------------------------------------------------------
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
@@ -711,6 +899,83 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
       'Download a completed Higgsfield asset by internal jobId OR explicit CDN URL — returns byte length + content type.',
     inputSchema: HiggsfieldDownloadInput,
     validationSchema: HiggsfieldDownloadInput,
+  },
+
+  // ---- Kling Motion Brush (1 — P15 Task 6: paint regions of still image with motion vectors) ----
+  {
+    name: 'media_kling_motion_brush',
+    description:
+      'Kling V3 Pro motion brush - paint regions of a still image with motion vectors. Returns a jobId; poll status or wait for webhook callback. Input: imageUrl, prompt, regions[].',
+    inputSchema: KlingMotionBrushInput,
+  },
+
+  // ---- Kling Elements CRUD (3 — P15 Tasks 6.5 / 6.6 / 6.7) ----
+  {
+    name: 'media_kling_element_create',
+    description:
+      'Create a Kling element_id from an uploaded image (URL or base64). Returns element_id for use in media_kling_elements composition. Cached locally in kling_elements SQLite table.',
+    inputSchema: _KlingElementCreateBase,
+    validationSchema: KlingElementCreateInput,
+  },
+  {
+    name: 'media_kling_element_list',
+    description:
+      'List registered Kling element_ids. Defaults to local cache; pass syncWithBackend:true to refresh against Kling API.',
+    inputSchema: KlingElementListInput,
+  },
+  {
+    name: 'media_kling_element_delete',
+    description:
+      'Delete a Kling element_id from local cache + (default) Kling backend. Requires confirm:true (irreversible on backend). Local row is soft-deleted (deleted_at set) for audit.',
+    inputSchema: KlingElementDeleteInput,
+  },
+
+  // ---- Kling Elements composition (1 — P15 Task 7: compose up to 4 frame-locked identities into one shot) ----
+  {
+    name: 'media_kling_elements',
+    description:
+      'Kling V3 Pro Elements - up to 4 frame-locked reference identities (characters, objects, locations) composed into one shot via base image + elementIds. Use for consistent multi-character scenes.',
+    inputSchema: KlingElementsInput,
+  },
+
+  // ---- Kling Lip-Sync (1 — P15 Task 8: drive source video with text or audio) ----
+  {
+    name: 'media_kling_lip_sync',
+    description:
+      'Kling V3 Pro Lip-Sync - drive a source video clip with either generated speech (text + emotion picker: happy/angry/sad/neutral) or supplied audio file URL. Exactly one of text or audioUrl required.',
+    inputSchema: _KlingLipSyncBase,
+    validationSchema: KlingLipSyncInput,
+  },
+
+  // ---- Kling Omni Multi-Shot (1 — P15 Task 9: single-API multi-cut orchestration) ----
+  {
+    name: 'media_kling_omni_multishot',
+    description:
+      'Kling V3 Omni multi-shot orchestration - single API call generates up to 6 contiguous cuts with per-shot prompt + duration, sharing visual identity via imageRefs. Use for music-video / narrative sequences. Total duration = sum of shot durations (max 30s).',
+    inputSchema: _KlingOmniMultiShotBase,
+    validationSchema: KlingOmniMultiShotInput,
+  },
+
+  // ---- Kling Video Extend (1 — P15 Task 10: add ~4.5s continuation per hop, up to 4 hops ~18s) ----
+  {
+    name: 'media_kling_video_extend',
+    description:
+      'Kling V3 Pro video extension - adds ~4.5s of continuation per hop to a source video. Chain up to 4 hops (~18s total extension). Returns first hop jobId + hopsRemaining; re-invoke after webhook fires to chain.',
+    inputSchema: KlingVideoExtendInput,
+  },
+
+  // ---- Kling lifecycle tools (2 — Codex P1 round 6 PR#11: manual completion path when callbacks suppressed) ----
+  {
+    name: 'media_kling_poll',
+    description:
+      'Poll a Kling job by internal jobId. Hydrates native_task_id + endpoint kind from cost-tracker DB, then calls the matching Kling REST poll endpoint. Use when callback URLs are suppressed (default MCP flow) and you need to drive a job to completion manually.',
+    inputSchema: KlingPollInput,
+  },
+  {
+    name: 'media_kling_download',
+    description:
+      'Download a Kling job asset by internal jobId or direct URL. When given a jobId, hydrates state from DB, polls to obtain a fresh URL, downloads the asset, and writes it under MEDIA_FORGE_OUTPUTS_DIR. Asset URLs are TTL-bounded; download immediately after the job reports completed.',
+    inputSchema: KlingDownloadInput,
   },
 ] as const) as readonly MCPTool[];
 

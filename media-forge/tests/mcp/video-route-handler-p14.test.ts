@@ -43,12 +43,13 @@ describe('handleVideoRoute — P14 Higgsfield preference', () => {
     expect(r.modelId).toBe('higgsfield-recast');
   });
 
-  it('keeps Veo for plain t2v when no Higgsfield-specific signals present', async () => {
+  it('keeps Veo for plain t2v with preferProvider=google (P15 Option A: pure cost sort; Kling V3 Standard at $0.126/s wins without override)', async () => {
     const r = await handleVideoRoute({
       mode: 't2v',
       prompt: 'a quiet lake at sunrise',
       durationSec: 8,
       resolution: '720p',
+      preferProvider: 'google',
     });
     expect(r.provider).toBe('google');
   });

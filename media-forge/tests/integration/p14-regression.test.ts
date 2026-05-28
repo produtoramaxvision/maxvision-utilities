@@ -30,12 +30,13 @@ describe('P14 regression — Veo still wired AND Higgsfield is live', () => {
     delete process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
   });
 
-  it('Veo regression: plain t2v still routes to google', async () => {
+  it('Veo regression: plain t2v with preferProvider=google still routes to google (P15 Option A: pure cost sort, explicit override required)', async () => {
     const r = await handleVideoRoute({
       mode: 't2v',
       prompt: 'a quiet lake at sunrise',
       durationSec: 4,
       resolution: '720p',
+      preferProvider: 'google',
     });
     expect(r.provider).toBe('google');
   });
@@ -62,8 +63,8 @@ describe('P14 regression — Veo still wired AND Higgsfield is live', () => {
     expect((list as { records: unknown[] }).records.length).toBe(1);
   });
 
-  it('MCP_TOOLS count is 37 (P13 30 + P14 7)', () => {
-    expect(MCP_TOOLS.length).toBe(40);
+  it('MCP_TOOLS count is 50 (P13 30 + P14 10 Higgsfield + P15 11 Kling - reconciled merge)', () => {
+    expect(MCP_TOOLS.length).toBe(50);
   });
 
   it('lip-sync route picks Higgsfield', async () => {

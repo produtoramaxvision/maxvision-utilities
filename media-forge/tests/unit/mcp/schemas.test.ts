@@ -67,14 +67,31 @@ const EXPECTED_TOOL_NAMES = [
   // higgsfield async lifecycle (2 — Codex P2 round 5 PR#10)
   'media_higgsfield_poll',
   'media_higgsfield_download',
+  // kling (1 — P15 Task 6)
+  'media_kling_motion_brush',
+  // kling elements CRUD (3 — P15 Tasks 6.5 / 6.6 / 6.7)
+  'media_kling_element_create',
+  'media_kling_element_list',
+  'media_kling_element_delete',
+  // kling elements composition (1 — P15 Task 7)
+  'media_kling_elements',
+  // kling lip-sync (1 — P15 Task 8)
+  'media_kling_lip_sync',
+  // kling omni multi-shot (1 — P15 Task 9)
+  'media_kling_omni_multishot',
+  // kling video extend (1 — P15 Task 10)
+  'media_kling_video_extend',
+  // kling lifecycle (2 — Codex P1 round 6 PR#11)
+  'media_kling_poll',
+  'media_kling_download',
 ] as const;
 
 // ---------------------------------------------------------------------------
 // Registry shape assertions
 // ---------------------------------------------------------------------------
 describe('MCP_TOOLS registry', () => {
-  it('contains exactly 40 tools', () => {
-    expect(MCP_TOOLS.length).toBe(40);
+  it('contains exactly 50 tools', () => {
+    expect(MCP_TOOLS.length).toBe(50);
   });
 
   it('is frozen (Object.isFrozen)', () => {
@@ -118,11 +135,11 @@ describe('MCP_TOOLS registry', () => {
 // listMCPToolNames()
 // ---------------------------------------------------------------------------
 describe('listMCPToolNames()', () => {
-  it('returns an array of length 40', () => {
-    expect(listMCPToolNames().length).toBe(40);
+  it('returns an array of length 50', () => {
+    expect(listMCPToolNames().length).toBe(50);
   });
 
-  it('contains all 40 expected tool names', () => {
+  it('contains all 50 expected tool names', () => {
     const names = listMCPToolNames();
     for (const expected of EXPECTED_TOOL_NAMES) {
       expect(names).toContain(expected);

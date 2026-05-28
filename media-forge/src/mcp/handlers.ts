@@ -4,6 +4,7 @@
 // NEVER throw from a handler — always return {isError: true} with message.
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { MediaForgeClient } from '../core/client.js';
 import type { MediaForgeConfig } from '../core/config.js';
@@ -89,18 +90,50 @@ import { HiggsfieldMarketingStudioInput, type HiggsfieldMarketingStudioInputT } 
 import { HiggsfieldRecastInput, type HiggsfieldRecastInputT } from './schemas.js';
 import { HiggsfieldViralityPredictorInput, type HiggsfieldViralityPredictorInputT } from './schemas.js';
 import { HiggsfieldGenerateInput, type HiggsfieldGenerateInputT } from './schemas.js';
-import { buildHiggsfieldHeaders } from '../video/providers/auth/higgsfield-headers.js';
+import {
+  buildHiggsfieldHeaders,
+  buildFallbackHeaders,
+} from '../video/providers/auth/higgsfield-headers.js';
 import { HiggsfieldProvider } from '../video/providers/higgsfield.js';
+import { KlingProvider } from '../video/providers/kling.js';
+import { KlingMotionBrushInput, type KlingMotionBrushInputT } from './schemas.js';
+import {
+  KlingElementCreateInput,
+  type KlingElementCreateInputT,
+  KlingElementListInput,
+  type KlingElementListInputT,
+  KlingElementDeleteInput,
+  type KlingElementDeleteInputT,
+  KlingElementsInput,
+  type KlingElementsInputT,
+  KlingLipSyncInput,
+  type KlingLipSyncInputT,
+  KlingOmniMultiShotInput,
+  type KlingOmniMultiShotInputT,
+  KlingVideoExtendInput,
+  type KlingVideoExtendInputT,
+  KlingPollInput,
+  type KlingPollInputT,
+  KlingDownloadInput,
+  type KlingDownloadInputT,
+} from './schemas.js';
+import {
+  createKlingElement,
+  listKlingElementsFromBackend,
+  deleteKlingElement,
+} from '../video/providers/kling-elements.js';
+import { openDb, runMigrations } from '../core/db.js';
+import { recordActualCost } from '../core/cost-tracker.js';
 
 // ---------------------------------------------------------------------------
 // ADAPTED_PROVIDERS — routing gate: only providers with a wired adapter here.
 // Prevents the router from selecting models that have no execution backend.
 //
 // P14: HiggsfieldProvider landed in Task 6 — 'higgsfield' enters ADAPTED_PROVIDERS.
-// P15: 'kling' will be appended when KlingProvider lands.
+// P15: KlingProvider landed in Task 4 — 'kling' enters ADAPTED_PROVIDERS.
 // P16: 'bytedance' will be appended when SeedanceProvider lands.
 // ---------------------------------------------------------------------------
-const ADAPTED_PROVIDERS = new Set<Provider>(['google', 'higgsfield']);
+const ADAPTED_PROVIDERS = new Set<Provider>(['google', 'higgsfield', 'kling']);
 
 // ---------------------------------------------------------------------------
 // Webhook router module-level handle (P13 scaffold for P14+ provider callbacks)
@@ -464,15 +497,31 @@ export async function handleHiggsfieldViralityPredictor(rawInput: unknown): Prom
   raw: Record<string, unknown>;
 }> {
   const input: HiggsfieldViralityPredictorInputT = HiggsfieldViralityPredictorInput.parse(rawInput);
-  const res = await fetch('https://platform.higgsfield.ai/higgsfield-ai/virality-predictor', {
-    method: 'POST',
-    headers: {
+  // FIX (Codex P2 round 12, PR#11): every other Higgsfield endpoint
+  // (HiggsfieldProvider.generate / pollStatus / etc.) does a primary→fallback
+  // auth handshake on 401/403 — virality_predictor was missed in the round 5
+  // hardening, so it fails outright in deployments accepting only the
+  // fallback scheme. Mirror the same retry-once pattern here.
+  const url = 'https://platform.higgsfield.ai/higgsfield-ai/virality-predictor';
+  const body = JSON.stringify({ asset_url: input.assetUrl, platform: input.platform });
+  const primaryHeaders = {
+    'content-type': 'application/json',
+    accept: 'application/json',
+    ...buildHiggsfieldHeaders(),
+  };
+  let res = await fetch(url, { method: 'POST', headers: primaryHeaders, body });
+  if (res.status === 401 || res.status === 403) {
+    process.stderr.write(
+      `[higgsfield-auth] virality_predictor primary auth rejected (status=${res.status}) — retrying once with fallback scheme.\n`,
+    );
+    process.env['MEDIA_FORGE_HF_AUTH_FALLBACK_USED'] = 'true';
+    const fallbackHeaders = {
       'content-type': 'application/json',
       accept: 'application/json',
-      ...buildHiggsfieldHeaders(),
-    },
-    body: JSON.stringify({ asset_url: input.assetUrl, platform: input.platform }),
-  });
+      ...buildFallbackHeaders(),
+    };
+    res = await fetch(url, { method: 'POST', headers: fallbackHeaders, body });
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`Higgsfield virality predictor failed: ${res.status} ${text.slice(0, 300)}`);
@@ -528,17 +577,19 @@ export async function handleVideoCostReport(rawInput: unknown): Promise<CostRepo
 // ---------------------------------------------------------------------------
 // handleVideoRoute — pick optimal provider+model for a video generation request
 // ---------------------------------------------------------------------------
-// Capability-before-cost routing heuristic. P14 adds Higgsfield to ADAPTED_PROVIDERS.
+// Capability-before-cost routing heuristic. P14 adds Higgsfield, P15 adds Kling.
 //
 // Ranking rules (in priority order):
 //   1. preferProvider filter — caller can force a specific provider.
-//   2. For shared modes (t2v, i2v, with-refs, interpolate, extend):
-//      google is preferred over higgsfield by default so P13 behaviour is
-//      preserved. Higgsfield wins only when it is the sole capable provider
-//      (lip-sync, targeted-edit) OR when preferProvider='higgsfield'.
-//   3. Within a provider tier, sort by USD-equivalent cost (cross-unit aware).
+//   2. P15 explicit tier overrides (pickExplicitTier) — certain modes/resolutions
+//      are hard-wired to a specific Kling model before cost sort:
+//        resolution=4k → kling-v3-master
+//        mode=multi-shot → kling-v3-omni
+//        mode=motion-brush | elements | lip-sync → kling-v3-pro
+//   3. Pure cost sort (cheapest USD-equivalent wins) — google-default tiebreaker
+//      removed in P15 (Option A). When preferProvider is 'google', caller must
+//      pass it explicitly.
 //
-// P15: 'kling' will integrate here when KlingProvider lands.
 // P16: 'bytedance' will integrate here when SeedanceProvider lands.
 
 export interface VideoRouteResult {
@@ -589,25 +640,19 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
     );
   }
 
-  // Sort candidates with capability-before-cost and google-default tiebreaker.
-  // When no preferProvider is set, google is ranked above higgsfield for shared
-  // modes to preserve P13 default behaviour. Higgsfield wins only when it is the
-  // sole capable provider (lip-sync, targeted-edit) or when preferProvider forces it.
-  // Within a provider tier, sort by USD-equivalent cost ascending.
-  //
-  // Future: when VideoRouteInput grows Higgsfield-specific extras (cinemaStudioParams,
-  // dopCameraVerbs, soulId, etc.), add a hasHiggsfieldSignal() predicate here that
-  // raises the Higgsfield tier above google for those shared modes.
+  // P15: attempt an explicit-tier override before falling back to cost sort.
+  // pickExplicitTier hard-wires certain modes/resolutions to a specific Kling model
+  // regardless of cost. Only applies when preferProvider is NOT set (caller override wins).
+  const explicit = input.preferProvider ? undefined : pickExplicitTier(input, preferred);
+
+  // Sort remaining candidates by USD-equivalent cost ascending.
+  // P15 (Option A): google-default tiebreaker removed — pure cost sort.
   const sorted = [...preferred].sort((a, b) => {
-    if (!input.preferProvider) {
-      if (a.provider === 'google' && b.provider !== 'google') return -1;
-      if (b.provider === 'google' && a.provider !== 'google') return 1;
-    }
     const aUsd = normalizeCostUSDSafe(a, input);
     const bUsd = normalizeCostUSDSafe(b, input);
     return aUsd - bUsd;
   });
-  const picked = sorted[0]!;
+  const picked = explicit ?? sorted[0]!;
 
   const estimatedCostUSD = normalizeCostUSDSafe(picked, input);
   // FIX (Codex P2 round 5, PR#10): when ALL viable candidates ended up
@@ -621,7 +666,7 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
         `Set the env var to a positive number (USD per Higgsfield credit) before routing.`,
     );
   }
-  const rationale = buildRationale(picked, input, sorted.length);
+  const rationale = buildRationale(picked, input, sorted.length, explicit !== undefined);
 
   return {
     provider: picked.provider,
@@ -652,13 +697,35 @@ function normalizeCostUSDSafe(spec: VideoModelSpec, input: VideoRouteInputT): nu
   }
 }
 
+// P15: explicit tier overrides — hard-wire specific modes/resolutions to a Kling model
+// before the cost-based sort. Only checked when preferProvider is not set.
+function pickExplicitTier(
+  input: VideoRouteInputT,
+  candidates: ReadonlyArray<VideoModelSpec>,
+): VideoModelSpec | undefined {
+  // 4K resolution → kling-v3-master (only registered 4K-native provider)
+  if (input.resolution === '4k') {
+    return candidates.find((c) => c.id === 'kling-v3-master');
+  }
+  // Multi-shot → kling-v3-omni (unique to Kling; Veo + Higgsfield do not support it)
+  if (input.mode === 'multi-shot') {
+    return candidates.find((c) => c.id === 'kling-v3-omni');
+  }
+  // Motion-brush, elements, and lip-sync are Kling V3 Pro-only modes in the current registry
+  if (input.mode === 'motion-brush' || input.mode === 'elements' || input.mode === 'lip-sync') {
+    return candidates.find((c) => c.id === 'kling-v3-pro');
+  }
+  return undefined;
+}
+
 function buildRationale(
   picked: VideoModelSpec,
   input: VideoRouteInputT,
   candidateCount: number,
+  isExplicitTier: boolean,
 ): string {
-  if (input.mode === 'lip-sync') {
-    return `Only higgsfield supports lip-sync in P14 → ${picked.id}.`;
+  if (isExplicitTier) {
+    return `P15 explicit tier: mode=${input.mode}/resolution=${input.resolution} routes to ${picked.id}.`;
   }
   if (input.mode === 'targeted-edit') {
     return `Only higgsfield Recast supports targeted-edit in P14 → ${picked.id}.`;
@@ -670,8 +737,9 @@ function buildRationale(
     return `${picked.id} is the only candidate for mode ${input.mode}.`;
   }
   return (
-    `google is the default for shared modes; higgsfield wins only via preferProvider ` +
-    `or capability-required mode. Selected ${picked.id} for mode ${input.mode}.`
+    `Cheapest USD-equivalent candidate for mode ${input.mode}: ${picked.id} at ` +
+    `$${normalizeCostUSDSafe(picked, input).toFixed(4)}/s. ` +
+    `Use preferProvider to override.`
   );
 }
 
@@ -710,6 +778,473 @@ export async function handleHiggsfieldSoulId(rawInput: unknown): Promise<
       markUsed({ dbPath, id: input.id });
       return { ok: true, id: input.id };
   }
+}
+
+// ---------------------------------------------------------------------------
+// handleKlingMotionBrush — Kling V3 Pro motion brush: paint regions with motion vectors (P15 Task 6)
+// Per-call KlingProvider construction is intentional: KlingProvider takes env in constructor
+// and per-call construction ensures tests using tmp envs get isolated instances.
+// ---------------------------------------------------------------------------
+
+export interface KlingHandlerExecOpts {
+  readonly fetchImpl?: typeof fetch;
+}
+
+export async function handleKlingMotionBrush(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number }> {
+  const input: KlingMotionBrushInputT = KlingMotionBrushInput.parse(rawInput);
+  const provider = new KlingProvider({
+    dbPath: defaultDbPath(),
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+  });
+  const req = {
+    modelId: input.modelId,
+    mode: 'motion-brush' as const,
+    prompt: input.prompt,
+    durationSec: input.durationSec,
+    resolution: '1080p' as const,
+    firstFrameImagePath: input.imageUrl,
+    extras: {
+      providerKind: 'kling' as const,
+      motionBrushRegions: input.regions,
+      watermarkEnabled: input.watermarkEnabled,
+      characterOrientation: input.characterOrientation,
+      motionReferenceVideoUrl: input.videoReferenceUrl,
+      klingMode: 'pro' as const,
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    jobId: handle.jobId,
+    provider: handle.provider,
+    modelId: handle.model,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleKlingElementCreate — create element from image URL or base64 (P15 Task 6.5)
+// Per-call construction (no singleton) — KlingProvider / kling-elements use env in call.
+// ---------------------------------------------------------------------------
+
+export async function handleKlingElementCreate(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{ elementId: string; displayName: string; category?: string; createdAt: string }> {
+  const input: KlingElementCreateInputT = KlingElementCreateInput.parse(rawInput);
+  const meta = await createKlingElement({
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+    imageUrl: input.imageUrl,
+    imageBase64: input.imageBase64,
+    displayName: input.displayName,
+    category: input.category,
+  });
+  const db = openDb(defaultDbPath());
+  runMigrations(db);
+  db.prepare(
+    `INSERT OR REPLACE INTO kling_elements (element_id, display_name, category, source_url, created_at, last_used_at)
+     VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`,
+  ).run(meta.elementId, meta.displayName, meta.category ?? null, input.imageUrl ?? null);
+  return meta;
+}
+
+// ---------------------------------------------------------------------------
+// handleKlingElementList — list elements from local cache (+ optional backend sync) (P15 Task 6.6)
+// ---------------------------------------------------------------------------
+
+export async function handleKlingElementList(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{
+  source: 'cache' | 'cache+backend';
+  elements: Array<{ elementId: string; displayName: string; category?: string; createdAt: string; lastUsedAt?: string }>;
+}> {
+  const input: KlingElementListInputT = KlingElementListInput.parse(rawInput);
+  const db = openDb(defaultDbPath());
+  runMigrations(db);
+
+  let where = input.includeDeleted ? '1=1' : 'deleted_at IS NULL';
+  const params: string[] = [];
+  if (input.category) {
+    where += ' AND category = ?';
+    params.push(input.category);
+  }
+  const localRows = db.prepare(`SELECT element_id, display_name, category, created_at, last_used_at FROM kling_elements WHERE ${where}`).all(...params) as Array<{
+    element_id: string;
+    display_name: string;
+    category?: string;
+    created_at: string;
+    last_used_at?: string;
+  }>;
+  type ElementRow = { elementId: string; displayName: string; category: string | undefined; createdAt: string; lastUsedAt: string | undefined };
+  let elements: ElementRow[] = localRows.map((r) => ({
+    elementId: r.element_id,
+    displayName: r.display_name,
+    category: r.category,
+    createdAt: r.created_at,
+    lastUsedAt: r.last_used_at,
+  }));
+
+  if (input.syncWithBackend) {
+    const remote = await listKlingElementsFromBackend({ env: process.env as never, fetchImpl: opts.fetchImpl });
+    const localById = new Map(elements.map((e) => [e.elementId, e]));
+    // Upsert ALL remote rows so the local cache stays complete regardless of
+    // caller's category filter — cache freshness is independent of the query.
+    const upsert = db.prepare(
+      `INSERT OR REPLACE INTO kling_elements (element_id, display_name, category, created_at, last_used_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+    for (const e of remote) {
+      upsert.run(e.elementId, e.displayName, e.category ?? null, e.createdAt, localById.get(e.elementId)?.lastUsedAt ?? null);
+    }
+    // FIX (Codex P2 round 12, PR#11): preserve `input.category` filter when
+    // returning the synced list. Round 9 added the local SQL WHERE clause for
+    // category, but the sync branch overwrote `elements` with the unfiltered
+    // remote map — so `{ category: 'character', syncWithBackend: true }`
+    // returned products/locations too. Filter the returned list only; the
+    // upsert above keeps the cache fresh either way.
+    const remoteMapped = remote.map((r) => ({
+      ...r,
+      category: r.category,
+      lastUsedAt: localById.get(r.elementId)?.lastUsedAt,
+    }));
+    elements = input.category
+      ? remoteMapped.filter((e) => e.category === input.category)
+      : remoteMapped;
+    return { source: 'cache+backend', elements };
+  }
+  return { source: 'cache', elements };
+}
+
+// ---------------------------------------------------------------------------
+// handleKlingElementDelete — soft-delete locally + (default) hard-delete on backend (P15 Task 6.7)
+// Requires confirm:true — irreversible on backend.
+// ---------------------------------------------------------------------------
+
+export async function handleKlingElementDelete(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{ elementId: string; localDeleted: boolean; remoteDeleted: boolean }> {
+  const input: KlingElementDeleteInputT = KlingElementDeleteInput.parse(rawInput);
+  let remoteDeleted = false;
+  if (input.alsoDeleteRemote) {
+    await deleteKlingElement({ env: process.env as never, fetchImpl: opts.fetchImpl, elementId: input.elementId });
+    remoteDeleted = true;
+  }
+  const db = openDb(defaultDbPath());
+  runMigrations(db);
+  const result = db.prepare(`UPDATE kling_elements SET deleted_at = datetime('now') WHERE element_id = ?`).run(input.elementId);
+  return { elementId: input.elementId, localDeleted: result.changes > 0, remoteDeleted };
+}
+
+// ---------------------------------------------------------------------------
+// handleKlingElements — compose up to 4 frame-locked element identities into one shot (P15 Task 7)
+// Per-call KlingProvider construction is intentional: KlingProvider takes env in constructor
+// and per-call construction ensures tests using tmp envs get isolated instances.
+// ---------------------------------------------------------------------------
+
+export async function handleKlingElements(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number }> {
+  const input: KlingElementsInputT = KlingElementsInput.parse(rawInput);
+  const provider = new KlingProvider({
+    dbPath: defaultDbPath(),
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+  });
+  const req = {
+    modelId: input.modelId,
+    mode: 'elements' as const,
+    prompt: input.prompt,
+    durationSec: input.durationSec,
+    resolution: '1080p' as const,
+    aspectRatio: input.aspectRatio,
+    firstFrameImagePath: input.imageUrl,
+    extras: {
+      providerKind: 'kling' as const,
+      elementIds: input.elementIds,
+      watermarkEnabled: input.watermarkEnabled,
+      klingMode: 'pro' as const,
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    jobId: handle.jobId,
+    provider: handle.provider,
+    modelId: handle.model,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleKlingLipSync — Kling V3 Pro lip-sync: text or audio driven (P15 Task 8)
+// Per-call KlingProvider construction ensures tests with tmp envs get isolated instances.
+// ---------------------------------------------------------------------------
+
+export async function handleKlingLipSync(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number }> {
+  const input: KlingLipSyncInputT = KlingLipSyncInput.parse(rawInput);
+  const provider = new KlingProvider({
+    dbPath: defaultDbPath(),
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+  });
+  const req = {
+    modelId: input.modelId,
+    mode: 'lip-sync' as const,
+    prompt: input.text ?? '(audio-driven lip-sync)',
+    durationSec: 5,
+    resolution: '1080p' as const,
+    extras: {
+      providerKind: 'kling' as const,
+      lipSync: {
+        mode: (input.text ? 'text' : 'audio') as 'text' | 'audio',
+        text: input.text,
+        audioUrl: input.audioUrl,
+        emotion: input.emotion,
+      },
+      motionReferenceVideoUrl: input.videoUrl,
+      watermarkEnabled: input.watermarkEnabled,
+      klingMode: 'pro' as const,
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    jobId: handle.jobId,
+    provider: handle.provider,
+    modelId: handle.model,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+// handleKlingOmniMultiShot — Kling V3 Omni multi-shot orchestration (P15 Task 9)
+// Single API call generates up to 6 contiguous cuts with per-shot prompt + duration.
+// Per-call KlingProvider construction ensures tests with tmp envs get isolated instances.
+// ---------------------------------------------------------------------------
+
+export async function handleKlingOmniMultiShot(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number }> {
+  const input: KlingOmniMultiShotInputT = KlingOmniMultiShotInput.parse(rawInput);
+  const totalDuration = input.shots.reduce((sum, s) => sum + s.duration, 0);
+  const provider = new KlingProvider({
+    dbPath: defaultDbPath(),
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+  });
+  const req = {
+    modelId: 'kling-v3-omni' as const,
+    mode: 'multi-shot' as const,
+    prompt: input.shots.map((s) => s.prompt).join(' | '),
+    durationSec: totalDuration,
+    resolution: '1080p' as const,
+    aspectRatio: input.aspectRatio,
+    extras: {
+      providerKind: 'kling' as const,
+      omniMultiShot: {
+        multiPrompt: input.shots,
+        imageList: input.imageRefs,
+        videoList: input.videoRefs,
+      },
+      watermarkEnabled: input.watermarkEnabled,
+      klingMode: 'pro' as const,
+    },
+  };
+  const handle = await provider.generate(req);
+  return {
+    jobId: handle.jobId,
+    provider: handle.provider,
+    modelId: handle.model,
+    estimatedCostUSD: provider.estimateCostUSD(req),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleKlingVideoExtend — Kling V3 Pro video extension: add ~4.5s per hop (P15 Task 10)
+// Per-call KlingProvider construction ensures tests with tmp envs get isolated instances.
+// ---------------------------------------------------------------------------
+
+/** Duration added per single extend hop, in seconds. */
+const KLING_EXTEND_HOP_SEC = 4.5;
+
+export async function handleKlingVideoExtend(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{
+  jobId: string;
+  provider: string;
+  modelId: string;
+  estimatedCostUSD: number;
+  hopsRemaining: number;
+}> {
+  const input: KlingVideoExtendInputT = KlingVideoExtendInput.parse(rawInput);
+  const provider = new KlingProvider({
+    dbPath: defaultDbPath(),
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+  });
+  const handle = await provider.generate({
+    modelId: input.modelId,
+    mode: 'extend',
+    prompt: input.prompt,
+    durationSec: KLING_EXTEND_HOP_SEC,
+    resolution: '1080p',
+    extras: {
+      providerKind: 'kling',
+      motionReferenceVideoUrl: input.videoUrl,
+      watermarkEnabled: input.watermarkEnabled,
+      klingMode: 'pro',
+    },
+  });
+  return {
+    jobId: handle.jobId,
+    provider: handle.provider,
+    modelId: handle.model,
+    // FIX (Codex P2 round 13, PR#11): this handler submits a SINGLE hop per
+    // call (durationSec: KLING_EXTEND_HOP_SEC above) and asks the caller to
+    // re-invoke for the rest via `hopsRemaining`. The estimate must match
+    // what actually goes through recordJob — multiplying by input.hops over-
+    // reports the cost on call 1 and under-reports on later calls, breaking
+    // any client that sums estimates across the chain.
+    estimatedCostUSD: provider.estimateCostUSD({
+      modelId: input.modelId,
+      mode: 'extend',
+      prompt: input.prompt,
+      durationSec: KLING_EXTEND_HOP_SEC,
+      resolution: '1080p',
+    }),
+    hopsRemaining: input.hops - 1,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleKlingPoll / handleKlingDownload — manual completion path
+// FIX (Codex P1 round 6, PR#11): default MCP Kling tools suppress callback_url
+// (HMAC mismatch) and the throwaway provider's per-process jobTypeMap dies
+// the moment the handler returns. These tools rehydrate the provider state
+// from the cost-tracker DB so an operator can drive a submitted job to
+// completion without depending on a registered webhook.
+// ---------------------------------------------------------------------------
+
+export async function handleKlingPoll(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{
+  jobId: string;
+  state: string;
+  assetUrls?: readonly string[];
+  errorMessage?: string;
+  progress?: number;
+}> {
+  const input: KlingPollInputT = KlingPollInput.parse(rawInput);
+  const provider = new KlingProvider({
+    dbPath: defaultDbPath(),
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+  });
+  provider.hydrateFromDb(input.jobId);
+  const status = await provider.pollStatus(input.jobId);
+  // FIX (Codex P2 round 13, PR#11): when callbacks are suppressed (the default
+  // for the MCP Kling tools — HMAC mismatch blocks the webhook path) and the
+  // task polls as `failed`, the row stays `pending` forever because no other
+  // path persists the terminal state. Mirror kling-webhook-handler.ts:
+  // UPDATE video_jobs SET status='failed' WHERE status != 'completed'.
+  if (status.state === 'failed') {
+    const db = openDb(defaultDbPath());
+    runMigrations(db);
+    db.prepare(
+      "UPDATE video_jobs SET status = 'failed', actual_usd = COALESCE(actual_usd, 0), completed_at = ? WHERE id = ? AND status != 'completed'",
+    ).run(new Date().toISOString(), input.jobId);
+  }
+  return {
+    jobId: status.jobId,
+    state: status.state,
+    ...(status.assetUrls ? { assetUrls: status.assetUrls } : {}),
+    ...(status.errorMessage ? { errorMessage: status.errorMessage } : {}),
+    ...(typeof status.progress === 'number' ? { progress: status.progress } : {}),
+  };
+}
+
+export async function handleKlingDownload(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{
+  jobIdOrUrl: string;
+  outputPath: string;
+  sizeBytes: number;
+  contentType: string;
+  actualUsd?: number;
+}> {
+  const input: KlingDownloadInputT = KlingDownloadInput.parse(rawInput);
+  const provider = new KlingProvider({
+    dbPath: defaultDbPath(),
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+  });
+  // Hydrate only when caller passed a jobId (not a raw URL).
+  const looksLikeUrl =
+    input.jobIdOrUrl.startsWith('http://') || input.jobIdOrUrl.startsWith('https://');
+  if (!looksLikeUrl) provider.hydrateFromDb(input.jobIdOrUrl);
+  const asset = await provider.download(input.jobIdOrUrl);
+
+  const projectDir =
+    process.env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
+  const outputsDir = process.env['MEDIA_FORGE_OUTPUTS_DIR'] ?? join(projectDir, 'outputs');
+  mkdirSync(outputsDir, { recursive: true });
+  const baseName = looksLikeUrl
+    ? `kling-download-${Date.now()}.mp4`
+    : `${input.jobIdOrUrl}.mp4`;
+  const outputPath = join(outputsDir, baseName);
+  writeFileSync(outputPath, asset.buffer);
+
+  // FIX (Codex P1 round 7, PR#11): manual completion path must flip the
+  // video_jobs row to terminal. Without this, jobs downloaded via
+  // media_kling_download stayed 'pending' forever (symmetric to the round 6
+  // webhook-handler bug). Use est_usd as the actualUsd fallback when no
+  // explicit duration is available locally.
+  //
+  // FIX (Codex local round 8, PR#11): emit stderr warnings whenever the
+  // cost ledger is touched without authoritative pricing data. Operators
+  // pulling the cost-report later need a way to spot rows that were closed
+  // with a fallback or skipped entirely; silent 0/skip masked dropped data.
+  let actualUsd: number | undefined;
+  if (looksLikeUrl) {
+    process.stderr.write(
+      `[kling-download] raw URL path — no jobId to reconcile; cost-tracker NOT updated for ${input.jobIdOrUrl}\n`,
+    );
+  } else {
+    const db = openDb(defaultDbPath());
+    runMigrations(db);
+    const row = db
+      .prepare('SELECT est_usd FROM video_jobs WHERE id = ?')
+      .get(input.jobIdOrUrl) as { est_usd?: number } | undefined;
+    if (typeof row?.est_usd === 'number' && Number.isFinite(row.est_usd)) {
+      actualUsd = row.est_usd;
+    } else {
+      actualUsd = 0;
+      process.stderr.write(
+        `[kling-download] job ${input.jobIdOrUrl} has no est_usd in video_jobs — ` +
+          `recording actualUsd=0 to flip terminal status. Cost ledger may underreport.\n`,
+      );
+    }
+    recordActualCost({ dbPath: defaultDbPath(), jobId: input.jobIdOrUrl, actualUsd });
+  }
+
+  return {
+    jobIdOrUrl: input.jobIdOrUrl,
+    outputPath,
+    sizeBytes: asset.metadata.sizeBytes ?? asset.buffer.length,
+    contentType: asset.metadata.contentType,
+    ...(typeof actualUsd === 'number' ? { actualUsd } : {}),
+  };
 }
 
 export interface HandlersDeps {
@@ -1660,6 +2195,110 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Higgsfield Download', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldDownload(input))),
+    );
+  }
+
+  // ---- Kling Motion Brush (1 — P15 Task 6: paint regions of still image with motion vectors) ----
+
+  {
+    const t = getTool('media_kling_motion_brush');
+    reg(
+      t.name,
+      { title: 'Kling Motion Brush', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingMotionBrush(input))),
+    );
+  }
+
+  // ---- Kling Elements CRUD (3 — P15 Tasks 6.5 / 6.6 / 6.7) ----
+
+  {
+    const t = getTool('media_kling_element_create');
+    reg(
+      t.name,
+      { title: 'Kling Element Create', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingElementCreate(input))),
+    );
+  }
+
+  {
+    const t = getTool('media_kling_element_list');
+    reg(
+      t.name,
+      { title: 'Kling Element List', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingElementList(input))),
+    );
+  }
+
+  {
+    const t = getTool('media_kling_element_delete');
+    reg(
+      t.name,
+      { title: 'Kling Element Delete', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingElementDelete(input))),
+    );
+  }
+
+  // ---- Kling Elements composition (1 — P15 Task 7: compose up to 4 frame-locked identities into one shot) ----
+
+  {
+    const t = getTool('media_kling_elements');
+    reg(
+      t.name,
+      { title: 'Kling Elements', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingElements(input))),
+    );
+  }
+
+  // ---- Kling Lip-Sync (1 — P15 Task 8: text or audio driven lip-sync) ----
+
+  {
+    const t = getTool('media_kling_lip_sync');
+    reg(
+      t.name,
+      { title: 'Kling Lip-Sync', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingLipSync(input))),
+    );
+  }
+
+  // ---- Kling Omni Multi-Shot (1 — P15 Task 9: single-API multi-cut orchestration) ----
+
+  {
+    const t = getTool('media_kling_omni_multishot');
+    reg(
+      t.name,
+      { title: 'Kling Omni Multi-Shot', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingOmniMultiShot(input))),
+    );
+  }
+
+  // ---- Kling Video Extend (1 — P15 Task 10: add ~4.5s continuation per hop, up to 4 hops ~18s) ----
+
+  {
+    const t = getTool('media_kling_video_extend');
+    reg(
+      t.name,
+      { title: 'Kling Video Extend', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingVideoExtend(input))),
+    );
+  }
+
+  // ---- Kling lifecycle (2 — Codex P1 round 6 PR#11: manual completion path) ----
+
+  {
+    const t = getTool('media_kling_poll');
+    reg(
+      t.name,
+      { title: 'Kling Poll', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingPoll(input))),
+    );
+  }
+
+  {
+    const t = getTool('media_kling_download');
+    reg(
+      t.name,
+      { title: 'Kling Download', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingDownload(input))),
     );
   }
 }

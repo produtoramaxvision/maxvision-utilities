@@ -77,7 +77,69 @@ export interface HiggsfieldExtras {
   readonly webhookUrl?: string;
 }
 
-export type ProviderExtras = GoogleVeoExtras | HiggsfieldExtras;
+/**
+ * Kling V3 provider-specific extras. Covers all Kling production modes added in P15:
+ * motion brush regions, elements multi-reference, lip-sync (text or audio + emotion),
+ * Omni multi-shot orchestration (up to 6 cuts with per-shot prompt + duration),
+ * watermark policy, character orientation for motion control, optional callback URL.
+ *
+ * All fields optional — only those relevant to the active mode are populated. Validators
+ * in `KlingProvider.generate()` cross-check mode → required-extras compatibility.
+ */
+export interface KlingMotionBrushRegion {
+  readonly id: string;
+  /** Polygon points in image-space pixel coordinates. */
+  readonly polygon: ReadonlyArray<readonly [number, number]>;
+  /** Motion vector [dx, dy] per second in image-space pixels. */
+  readonly motionVector: readonly [number, number];
+}
+
+export interface KlingLipSyncSpec {
+  readonly mode: 'text' | 'audio';
+  readonly text?: string;
+  readonly audioUrl?: string;
+  readonly emotion?: 'happy' | 'angry' | 'sad' | 'neutral';
+}
+
+export interface KlingOmniShot {
+  readonly index: number;
+  readonly prompt: string;
+  /** Per-shot duration in seconds. Sum across shots ≤ Omni maxDurationSec. */
+  readonly duration: number;
+}
+
+export interface KlingOmniSpec {
+  readonly multiPrompt: ReadonlyArray<KlingOmniShot>;
+  readonly imageList: ReadonlyArray<{ readonly imageUrl: string }>;
+  readonly videoList?: ReadonlyArray<{ readonly videoUrl: string }>;
+}
+
+export interface KlingExtras {
+  readonly providerKind: 'kling';
+  /** Motion brush — region paint with motion vectors (Kling V3 Pro only). */
+  readonly motionBrushRegions?: ReadonlyArray<KlingMotionBrushRegion>;
+  /** Elements — up to 4 frame-locked reference images by element id. */
+  readonly elementIds?: ReadonlyArray<string>;
+  /** Lip-sync — text or audio driven, with optional emotion picker. */
+  readonly lipSync?: KlingLipSyncSpec;
+  /** Omni multi-shot — up to 6 cuts with per-shot prompt + duration. */
+  readonly omniMultiShot?: KlingOmniSpec;
+  /** Watermark policy. Default false on paid keys (enforced by KlingProvider). */
+  readonly watermarkEnabled?: boolean;
+  /** Character orientation for motion control: follow image or video reference. */
+  readonly characterOrientation?: 'image' | 'video';
+  /** Optional explicit callback URL — overrides webhook-router default. */
+  readonly callbackUrl?: string;
+  /** Optional external task id passed back in webhook payload — auto-set to internal jobId. */
+  readonly externalTaskId?: string;
+  /** Mode selection within Kling: 'std' (Standard) or 'pro'. Defaults align with model id. */
+  readonly klingMode?: 'std' | 'pro';
+  /** Video reference URL for motion control mode (3-30s reference video). */
+  readonly motionReferenceVideoUrl?: string;
+}
+
+// Expand the union — post-P15 has three arms.
+export type ProviderExtras = GoogleVeoExtras | HiggsfieldExtras | KlingExtras;
 
 export interface VideoGenerationRequest {
   readonly modelId: string;

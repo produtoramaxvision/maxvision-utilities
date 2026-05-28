@@ -119,10 +119,10 @@ describe('registerAllTools()', () => {
     tools = getCapturedTools(server);
   });
 
-  // Test 1: 39 tools registered (P13 base + 7 Higgsfield generators + 2 Higgsfield lifecycle PR#10 round 5)
-  it('calls registerTool exactly 40 times', () => {
+  // Test 1: 50 tools registered (P13 base + 7 Higgsfield generators + 3 Higgsfield generate/poll/download + 11 Kling)
+  it('calls registerTool exactly 50 times', () => {
     const mock = server as unknown as { registerTool: ReturnType<typeof vi.fn> };
-    expect(mock.registerTool).toHaveBeenCalledTimes(40);
+    expect(mock.registerTool).toHaveBeenCalledTimes(50);
   });
 
   // Test 2: set equality with listMCPToolNames()

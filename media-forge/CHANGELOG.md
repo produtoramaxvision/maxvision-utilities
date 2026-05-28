@@ -6,6 +6,57 @@ All notable changes to `media-forge` are documented here. The format follows
 
 ## [Unreleased]
 
+## 0.4.0-p15 — 2026-05-27
+
+### P15 — Kling 3.0 FULL Integration
+
+Adds Kuaishou Kling 3.0 as the third first-class video provider in media-forge.
+All production Kling modes are wired: t2v + i2v (Standard + Pro), motion brush,
+elements multi-ref, lip-sync (text + emotion or audio), Omni multi-shot
+orchestration (up to 6 cuts in one call), video extension chain, and 4K Master
+hero shots. Routing heuristic prefers Kling for multi-shot, 4K, motion-brush,
+elements, lip-sync-emotion, and cost-sensitive volume work.
+
+**Added**
+- `KlingProvider` adapter in `src/video/providers/kling.ts`
+- Hand-rolled JWT HS256 auth helper (`src/video/providers/auth/kling-jwt.ts`)
+  with 25-minute per-access-key token cache. No new runtime deps.
+- 4 Kling model specs registered: `kling-v3-standard` ($0.126/s),
+  `kling-v3-pro` ($0.168/s), `kling-v3-master` (4K, ~$0.18/s placeholder),
+  `kling-v3-omni` (multi-shot, ~$0.168/s placeholder)
+- `KlingExtras` arm in `ProviderExtras` union (motion brush regions, elementIds,
+  lipSync spec, omniMultiShot spec, watermark policy, character orientation)
+- Kling webhook handler (`src/video/providers/kling-webhook-handler.ts`)
+  resolves Kling `task_id` → internal `jobId`, downloads assets, records actual cost
+- 8 new MCP tools (count 37→45): `media_kling_motion_brush`, `media_kling_element_create`,
+  `media_kling_element_list`, `media_kling_element_delete`, `media_kling_elements`,
+  `media_kling_lip_sync`, `media_kling_omni_multishot`, `media_kling_video_extend`
+- New skill `skills/kling-prompting/SKILL.md` — 5-part prompt spine + cookbook
+- New subagent `agents/kling-director.md` — orchestrates all Kling modes
+- Live integration test gated behind `MEDIA_FORGE_RUN_LIVE_TESTS=true`
+- Watermark guard — paid keys default `watermark_info.enabled=false`; explicit
+  opt-in logs a warning
+
+**Changed**
+- `video-router` heuristic now prefers Kling for: multi-shot mode, 4K resolution,
+  motion-brush, elements, lip-sync-with-emotion, and cost-sensitive t2v (Kling V3
+  Standard at $0.126/s beats Veo at $0.50/s)
+- `PROVIDERS` runtime array grows to `['google', 'higgsfield', 'kling']`
+- `commands/setup.md` + `skills/setup/SKILL.md` add Kling credential wizard step
+
+**Dependencies**
+- ZERO new runtime dependencies. JWT signing is hand-rolled via `node:crypto`.
+
+**Pricing flags**
+- Kling V3 Master (4K) rate is placeholder $0.18/s — verify on first live invocation
+- Kling V3 Omni multi-shot rate is placeholder $0.168/s — verify on first live invocation
+- Both flagged `pricing.source: 'volatile-by-tier'` in registry
+
+**Backward compatibility**
+- All P13 + P14 exports preserved
+- Existing routing decisions unchanged for cases where Kling is not the cost or
+  capability winner (e.g. Veo still wins on audio-native + preferProvider override)
+
 ## 0.3.0-p14 — 2026-05-27
 
 ### P14 — Higgsfield FULL Integration

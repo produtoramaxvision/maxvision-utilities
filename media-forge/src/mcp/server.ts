@@ -18,6 +18,7 @@ import {
   registerWebhookHandler,
   type WebhookRouter,
 } from '../video/providers/webhook-router.js';
+import { createKlingWebhookHandler } from '../video/providers/kling-webhook-handler.js';
 import { createHiggsfieldWebhookHandler } from '../video/providers/higgsfield-webhook-handler.js';
 import { join } from 'node:path';
 
@@ -101,14 +102,30 @@ export async function startStdioServer(): Promise<void> {
   const router = await maybeStartWebhookRouter();
   if (router) {
     setWebhookRouter(router);
+
+    // Register provider-specific webhook handlers
+    const projectDir = process.env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
+    const dbPath = join(projectDir, 'cost.db');
+    const outputsDir = join(projectDir, 'outputs', 'kling');
+
     // FIX (Codex P2 round 6, PR#10): register the Higgsfield handler so opt-in
     // webhook URL emission (MEDIA_FORGE_HF_WEBHOOK_ENABLE=true) does not 404.
-    // P14 keeps the body as a logging stub — full payload reconciliation is
-    // P14.1 once Higgsfield publishes a stable callback schema.
-    const projectDir =
-      process.env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
-    const dbPath = join(projectDir, 'cost.db');
     registerWebhookHandler(router, 'higgsfield', createHiggsfieldWebhookHandler({ dbPath }));
+
+    // FIX (Codex P2, PR#11): pass env so the handler's expired-CDN refresh path
+    // (re-poll with native_task_id on 403/404) can rebuild Kling JWT auth.
+    // Without env, that fallback throws — only unit tests with constructed
+    // env saw the working path.
+    registerWebhookHandler(
+      router,
+      'kling',
+      createKlingWebhookHandler({
+        dbPath,
+        outputsDir,
+        env: process.env as unknown as Parameters<typeof createKlingWebhookHandler>[0]['env'],
+      }),
+    );
+
     // Wire SIGTERM/SIGINT shutdown — close the router before exiting so the
     // OS port + handler map are released cleanly. Errors during close are
     // logged but do not block exit (the process is going down regardless).

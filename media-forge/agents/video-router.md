@@ -43,6 +43,21 @@ Routing decisions:
 If `result.provider === "google"` → dispatch to `veo-director`.
 If `result.provider === "higgsfield"` → dispatch to `higgsfield-director`.
 
+## P15 — Kling routing additions
+
+Kling is now the preferred provider for:
+
+1. **`mode: 'multi-shot'`** → `kling-v3-omni` (unique to Kling; Veo + Higgsfield do not support single-call multi-cut orchestration).
+2. **`resolution: '4k'`** → `kling-v3-master` (only registered 4K-native provider).
+3. **`mode: 'motion-brush'`** → `kling-v3-pro` (regional motion paint; not in Veo/Higgsfield).
+4. **`mode: 'elements'`** → `kling-v3-pro` (up to 4 frame-locked reference identities; Higgsfield Soul ID is similar but capped at 1-2 identities).
+5. **`mode: 'lip-sync'`** with emotion picker → `kling-v3-pro` (emotion control is a Kling-only feature in the current provider mix).
+6. **Cost-sensitive volume work** → `kling-v3-standard` ($0.126/s, cheapest with audio) outranks Veo ($0.50/s) on `normalizeCostUSD` sort.
+
+Honor `preferProvider` overrides — if the user explicitly requests `google` or `higgsfield`, do not override their choice with Kling.
+
+After routing, dispatch to `kling-director` (or its sub-mode tool).
+
 ## Hard rules
 
 - NEVER attempt to call provider APIs directly — always route through MCP tools.
