@@ -312,7 +312,44 @@ export class KlingProvider implements VideoProvider {
       }
       assetUrl = url;
     }
-    const res = await this.doFetch(assetUrl);
+    // FIX (Codex P1 #2, PR#13): re-validate after each redirect. Default fetch
+    // follows redirects automatically — even though the initial URL passed
+    // isSafeKlingAssetUrl, the CDN can 302/307 to `http://169.254.169.254/`,
+    // loopback, or RFC1918 and the response would still be persisted. Use
+    // redirect: 'manual' + run every Location through the same guard.
+    // Mirrors the Higgsfield manual-redirect pattern.
+    let currentUrl = assetUrl;
+    let res: Response;
+    const maxRedirects = 3;
+    for (let hop = 0; ; hop++) {
+      res = await this.doFetch(currentUrl, { method: 'GET', redirect: 'manual' });
+      if (res.status < 300 || res.status >= 400) break;
+      if (hop >= maxRedirects) {
+        throw new Error(
+          `Kling download: refusing chain longer than ${maxRedirects} redirects (SSRF defense).`,
+        );
+      }
+      const location = res.headers.get('location');
+      if (!location) {
+        throw new Error(
+          `Kling download: ${res.status} redirect without Location header (SSRF defense).`,
+        );
+      }
+      let nextUrl: string;
+      try {
+        nextUrl = new URL(location, currentUrl).toString();
+      } catch {
+        throw new Error(
+          `Kling download: refusing malformed redirect target '${location}' (SSRF defense).`,
+        );
+      }
+      if (!isSafeKlingAssetUrl(nextUrl)) {
+        throw new Error(
+          `Kling download: refusing unsafe redirect target '${nextUrl}' (SSRF defense).`,
+        );
+      }
+      currentUrl = nextUrl;
+    }
     if (!res.ok) {
       throw new Error(`Kling asset download failed: ${res.status} ${res.statusText}`);
     }
@@ -322,7 +359,7 @@ export class KlingProvider implements VideoProvider {
       metadata: {
         contentType: res.headers.get('content-type') ?? 'video/mp4',
         sizeBytes: buf.length,
-        cdnUrl: assetUrl,
+        cdnUrl: currentUrl,
       },
     };
   }

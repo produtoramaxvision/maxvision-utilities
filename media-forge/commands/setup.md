@@ -30,10 +30,10 @@ Onboarding wizard. Run this once after installing media-forge to configure your 
 
    2. **Plan + usdPerCredit**:
       > "Which Higgsfield plan are you on?"
-      >   - **Plus** — $39/month, 1000 credits → 0.039 USD/credit
-      >   - **Ultra** — $79/month, 2500 credits → 0.0316 USD/credit
-      >   - **Business** — $399/month, 15000 credits → 0.0266 USD/credit
-      >   - **Custom / enterprise** — paste your effective USD/credit rate manually
+      > - **Plus** — $39/month, 1000 credits → 0.039 USD/credit
+      > - **Ultra** — $79/month, 2500 credits → 0.0316 USD/credit
+      > - **Business** — $399/month, 15000 credits → 0.0266 USD/credit
+      > - **Custom / enterprise** — paste your effective USD/credit rate manually
 
       Write the chosen value to `MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT` in the project `.env`.
 
@@ -44,7 +44,7 @@ Onboarding wizard. Run this once after installing media-forge to configure your 
 
    4. **Confirm `MEDIA_FORGE_WEBHOOK_SECRET`** was generated in P13 setup; if not, prompt user to run `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` and paste.
 
-   #### Local-dev webhook URL via tunnel (optional, for P14.1 forward)
+   ### Local-dev webhook URL via tunnel (optional, for P14.1 forward)
 
    P14 ships polling-only (D-2) — webhook URL is unused. When P14.1 lights up the webhook receiver, you'll need a publicly reachable URL pointing at your local MCP server. Two zero-config options:
 

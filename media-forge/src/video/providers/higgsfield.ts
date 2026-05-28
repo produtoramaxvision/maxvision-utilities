@@ -415,7 +415,7 @@ export class HiggsfieldProvider implements VideoProvider {
     }
   }
 
-  private buildUrlWithWebhook(endpoint: string, jobId: string): string {
+  private buildUrlWithWebhook(endpoint: string, _jobId: string): string {
     const base = `${BASE_URL}${endpoint}`;
     // D-2: P14 ships polling-only. Webhook URL injection requires BOTH:
     //   - publicWebhookBaseUrl explicitly configured AND
