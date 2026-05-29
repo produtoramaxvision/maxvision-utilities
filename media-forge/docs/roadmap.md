@@ -106,7 +106,7 @@ The local PaddleOCR WASM backend is stubbed in `src/review/ocr-validator.ts`. v0
 
 ## Known Debts (as of v0.1.1)
 
-The following debts are tracked in `.maxvision/notes/2026-05-22-media-forge-pending-debts.md` (planning repo, not in the plugin tree). Each has been explicitly accepted, deferred, or resolved.
+All open follow-ups and pending items are tracked in a single file: `.maxvision/dev-ledger/FOLLOWUPS.md` (planning repo, not in the plugin tree). The resolved-debt audit trail is archived alongside it. The table below is a snapshot; `FOLLOWUPS.md` is the source of truth.
 
 | ID | Severity | Status | Summary |
 |---|---|---|---|
