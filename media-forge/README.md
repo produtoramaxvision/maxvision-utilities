@@ -225,7 +225,7 @@ Same shape as the Kling flag. Off by default; opt-in only for dev. fal.ai cannot
 
 ## Legal Note on Seedance 2.0
 
-media-forge v0.5.0+ integrates ByteDance **Seedance 2.0** as one of four
+media-forge v0.1.1+ integrates ByteDance **Seedance 2.0** as one of four
 first-class video providers (alongside Google Veo 3.1, Higgsfield, and Kling
 3.0). Seedance 2.0 is the subject of active cease-and-desist / IP litigation
 from **Disney + Paramount** over training-data sourcing as of 2026-05-27.
@@ -252,7 +252,7 @@ When this flag is set to `false` (or `0`, `no`, `off` — case-insensitive):
 - All 4 Seedance MCP tools (`media_seedance_text_to_video`,
   `media_seedance_image_to_video`, `media_seedance_multishot`,
   `media_seedance_reference_fusion`) are skipped from tool registration
-  (`MCP_TOOLS` drops from 49 to 45).
+  (`MCP_TOOLS` drops from 54 to 50).
 - `bytedance` is removed from `ADAPTED_PROVIDERS`, so the video-router
   cannot select a Seedance model even if its cost or capability heuristic
   would otherwise prefer one.
