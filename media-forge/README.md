@@ -2,7 +2,7 @@
 
 Production-grade Claude Code plugin for image and video generation using Google's top-tier generative AI models exclusively.
 
-![version](https://img.shields.io/badge/version-0.1.0-blue)
+![version](https://img.shields.io/badge/version-0.1.1-blue)
 ![node](https://img.shields.io/badge/node-%3E%3D20-green)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -10,7 +10,7 @@ Production-grade Claude Code plugin for image and video generation using Google'
 
 ## Top-Tier Model Lock (LOCKED — not configurable)
 
-media-forge exposes **only** the three highest-tier Google AI models available as of v0.1.0. No mid-tier or budget alternatives are offered.
+media-forge exposes **only** the three highest-tier Google AI models available as of v0.1.1. No mid-tier or budget alternatives are offered.
 
 | Model ID | Role | Default resolution |
 |---|---|---|
@@ -34,7 +34,7 @@ claude plugin install ./media-forge
 claude plugin install @produtoramaxvision/media-forge
 ```
 
-After installation, all 10 agents, 11 skills, and 10 slash commands become available inside your Claude Code session.
+After installation, all 14 agents, 14 skills, and 10 slash commands become available inside your Claude Code session.
 
 ### Install path B — MCP standalone (any MCP-compatible client)
 
@@ -215,18 +215,17 @@ Same shape as the Kling flag. Off by default; opt-in only for dev. fal.ai cannot
 
 - [Specification](docs/specification.md) — model lock policy, capability matrix, tool registry, agent and skill registry
 - [Architecture](docs/architecture.md) — system diagram, data flow, layer responsibilities, error hierarchy
-- [Roadmap](docs/roadmap.md) — v0.1.0 scope, v0.2.0 candidates, known debts
-- [Usage](docs/usage.md) — cookbook: all 22 MCP tools + CLI subcommands + 5 real-world recipes
+- [Roadmap](docs/roadmap.md) — v0.1.1 scope, v0.2.0 candidates, known debts
+- [Usage](docs/usage.md) — cookbook: core MCP tools + CLI subcommands + 5 real-world recipes (54-tool registry summary)
 - [Troubleshooting](docs/troubleshooting.md) — failure mode table and resolution steps
 - [Contributing](CONTRIBUTING.md) — add new agents, prompt templates, or MCP tools
 - [Dev Loop](docs/devloop.md) — hot-reload workflow for development
-- [Final Coverage Checklist](docs/final-coverage-checklist.md) — P15 production validation gate
 
 ---
 
 ## Legal Note on Seedance 2.0
 
-media-forge v0.5.0+ integrates ByteDance **Seedance 2.0** as one of four
+media-forge v0.1.1 integrates ByteDance **Seedance 2.0** as one of four
 first-class video providers (alongside Google Veo 3.1, Higgsfield, and Kling
 3.0). Seedance 2.0 is the subject of active cease-and-desist / IP litigation
 from **Disney + Paramount** over training-data sourcing as of 2026-05-27.
@@ -253,7 +252,7 @@ When this flag is set to `false` (or `0`, `no`, `off` — case-insensitive):
 - All 4 Seedance MCP tools (`media_seedance_text_to_video`,
   `media_seedance_image_to_video`, `media_seedance_multishot`,
   `media_seedance_reference_fusion`) are skipped from tool registration
-  (`MCP_TOOLS` drops from 49 to 45).
+  (`MCP_TOOLS` drops from 54 to 50).
 - `bytedance` is removed from `ADAPTED_PROVIDERS`, so the video-router
   cannot select a Seedance model even if its cost or capability heuristic
   would otherwise prefer one.

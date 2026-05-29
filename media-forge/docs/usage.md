@@ -1,6 +1,6 @@
 # media-forge — Usage Cookbook
 
-This document covers all 22 MCP tools, all CLI subcommands, and 5 real-world recipes. For each tool/command, the minimal invocation, key flags, expected output shape, and gotchas are listed.
+This document covers the 22 baseline image / video / utility MCP tools in detail, all CLI subcommands, and 5 real-world recipes with full invocation examples. The registry has grown to **54 tools** (50 with Seedance disabled); the 32 multi-provider + reference-library tools (refs, video routing, Higgsfield, Kling, Seedance) are summarized at the end of the MCP Tools section — for the full parameter reference of any tool use `media_help` or `docs/specification.md` §3.
 
 ---
 
@@ -453,6 +453,20 @@ No topic: returns the full tool list. With topic: returns description and parame
 ### Help tool (1)
 
 See `media_help` above.
+
+---
+
+### Multi-provider + reference tools (32) — summary
+
+Added in refs-integration + P13–P16. Full parameter reference via `media_help` / `docs/specification.md` §3. Quick map:
+
+- **Reference library (4):** `media_refs_search`, `media_refs_compose_moodboard`, `media_refs_presign`, `media_refs_index`.
+- **Video routing & cost (4):** `media_video_route`, `media_video_cost_estimate`, `media_video_cost_report`, `media_video_webhook_status`.
+- **Higgsfield (10):** `media_higgsfield_generate` / `_soul_id` / `_dop` / `_cinema_studio` / `_speak` / `_marketing_studio` / `_recast` / `_virality_predictor` / `_poll` / `_download`.
+- **Kling 3.0 (10):** `media_kling_motion_brush` / `_element_create` / `_element_list` / `_element_delete` / `_elements` / `_lip_sync` / `_omni_multishot` / `_video_extend` / `_poll` / `_download`.
+- **Seedance 2.0 (4, feature-flagged):** `media_seedance_text_to_video` / `_image_to_video` / `_multishot` / `_reference_fusion`.
+
+> Full per-tool recipes for these families are a documentation follow-up; the entries above + `media_help` cover invocation in the meantime.
 
 ---
 

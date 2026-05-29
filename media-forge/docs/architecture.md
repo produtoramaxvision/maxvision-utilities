@@ -1,6 +1,6 @@
 # media-forge — Architecture
 
-**Version:** 0.1.0
+**Version:** 0.1.1
 
 ---
 
@@ -18,8 +18,8 @@
                  ▼                      ▼                      ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  src/mcp/server.ts   ←→   src/mcp/handlers.ts   ←→   src/mcp/schemas.ts   │
-│  (MCP server,               (22 tool handlers,         (Zod schemas for     │
-│   stdio transport,           wrap() + asResult())      all 22 tools)        │
+│  (MCP server,               (54 tool handlers,         (Zod schemas for     │
+│   stdio transport,           wrap() + asResult())      all 54 tools)        │
 │   tools/list,                                                               │
 │   tools/call)                                                               │
 └────────────────────────────────┬────────────────────────────────────────────┘
@@ -140,6 +140,10 @@ Foundation layer. No business logic — only primitives used by all other layers
 - `cost.ts`: `estimateImageCost` and `estimateVideoCost` return `{ usd, breakdown }`. `appendCostLogEntry` writes to `.media-forge/cost-log.jsonl`.
 - `errors.ts`: error class hierarchy (see §6).
 - `sanitize.ts`: redacts 15 secret-key patterns (API keys, tokens, credentials) from any object before serialization to `payload.json` or trace files.
+- `db.ts` + `cost-tracker.ts`: SQLite-backed (Node built-in `node:sqlite`) video-job + cost ledger; schema in `migrations/sqlite/`.
+- `pricing.ts`: `normalizeCostUSD` cross-unit helper (`per-second`, `usd-per-credit`, …) + `loadPricingOverridesFromEnv`.
+- `provider-request-map.ts` + `soul-id-cache.ts`: provider `request_id` ↔ `jobId` reconciliation, and Higgsfield Soul ID lifecycle cache.
+- `feature-flags.ts`: runtime flags such as `isSeedanceEnabled()`.
 
 ### `src/image/`
 
@@ -162,6 +166,23 @@ Veo 3.1 Pro generation and lifecycle management:
 - `polling.ts`: 15-minute cap, configurable interval, abortable via `AbortSignal`.
 - `download.ts`: fetches video from resolved HTTPS/GCS URI; computes SHA-256; records 2-day TTL warning.
 
+### `src/video/providers/` — multi-provider abstraction (P13–P16)
+
+Unified `VideoProvider` interface so the router targets any backend:
+
+- `base.ts`: `VideoProvider` interface + `DownloadedAsset` + typed `ProviderExtras` discriminated union (Higgsfield/Kling/Seedance arms).
+- `google-veo.ts`: Veo adapter wrapping the `src/video/` entry points above.
+- `higgsfield.ts` (+ `higgsfield-webhook-handler.ts`, `auth/higgsfield-headers.ts`): full Higgsfield surface (Soul / Soul ID / DoP / Cinema Studio / Speak / Marketing Studio / Recast / Virality).
+- `kling.ts` (+ `kling-elements.ts`, `kling-webhook-handler.ts`, `auth/kling-jwt.ts`): Kling 3.0 modes; hand-rolled HS256 JWT auth (no new deps).
+- `bytedance-seedance.ts` (+ `byteplus-ark.ts`, `bytedance-webhook-handler.ts`, `auth/fal-key.ts`, `auth/fal-ed25519.ts`): Seedance 2.0 via fal.ai primary + BytePlus ARK fallback; feature-flagged.
+- `webhook-router.ts`: HMAC + replay-protection + origin-guard + body-cap + rate-limit; binds 127.0.0.1 by default; maps provider task IDs → internal `jobId`.
+
+### `src/refs/` — reference library (refs-integration)
+
+> Requires operator-provisioned infra: a MinIO bucket, a pgvector-enabled Postgres instance, and (optionally) an AWS Bedrock endpoint for the Marengo backend. These are not bundled — the refs tools are inert until configured.
+
+- `indexer.ts`, `marengo-embed.ts`, `audit-gallery.ts`, `index.ts`: MinIO-backed curated reference library; pgvector semantic search (Voyage Multimodal-3) with Marengo 3.0 (AWS Bedrock) alt backend; Nano Banana Pro moodboard fusion bridge.
+
 ### `src/review/`
 
 3-stage quality review pipeline:
@@ -177,8 +198,8 @@ Veo 3.1 Pro generation and lifecycle management:
 MCP server and tool registration:
 
 - `server.ts`: creates an `McpServer` with stdio transport; logs only to stderr; calls `registerAllTools`.
-- `handlers.ts`: registers all 22 tools via `looseRegister` (a typed escape hatch to avoid SDK generic coupling); every handler is wrapped in `wrap()` which catches all exceptions and returns `{isError: true}`.
-- `schemas.ts`: Zod schemas for all 22 tools; also re-exports image and video schemas for use by other layers.
+- `handlers.ts`: registers all 54 tools via `looseRegister` (a typed escape hatch to avoid SDK generic coupling); every handler is wrapped in `wrap()` which catches all exceptions and returns `{isError: true}`. Seedance tools are skipped when `MEDIA_FORGE_SEEDANCE_ENABLED` is disabled (→ 50 tools).
+- `schemas.ts`: the `MCP_TOOLS` registry (54 tools) + Zod schemas; also re-exports image and video schemas for use by other layers.
 
 ### `src/cli/`
 

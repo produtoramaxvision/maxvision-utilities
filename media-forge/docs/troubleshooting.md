@@ -66,19 +66,9 @@ The `prompt-engineer` agent applies these strategies automatically when the qual
 
 ---
 
-### MCP `tools/list` shows empty `{}` inputSchema (DEBT-008)
+### MCP `tools/list` empty `{}` inputSchema (DEBT-008 — RESOLVED in v0.1.0)
 
-**Symptom:** Claude Code / Cursor / other MCP clients show no parameter hints for some tools (approximately 10 of the 22). The tool still executes correctly.
-
-**Root cause:** The MCP SDK's `normalizeObjectSchema` helper returns `undefined` for `ZodEffects` objects (the type produced by `.superRefine()`). The SDK then falls back to an empty `{}` inputSchema for those tools. Runtime validation is unaffected — the full Zod schema runs inside the handler.
-
-**Affected tools:** `media_generate_image`, `media_edit_image`, `media_generate_video_t2v`, `media_generate_video_i2v`, `media_generate_video_interpolate`, `media_generate_video_with_refs`, `media_extend_video`, and others with cross-field validation.
-
-**Workaround (Option A — pre-strip approach):**
-Register the plain `_Base` ZodObject schema (without `superRefine`) at the MCP layer for introspection, and re-validate with the full schema inside the handler. This gives clients accurate field hints while preserving runtime cross-field validation. Implementation guide in `CONTRIBUTING.md §Adding a new MCP tool`.
-
-**Workaround (Option B — direct invocation):**
-Pass all parameters directly in your call — the handler validates them correctly at runtime even if the UI shows no hints. Use `media_help` with `topic: "<tool_name>"` for parameter reference.
+Previously, `ZodEffects`/`.superRefine()` tools emitted an empty `{}` inputSchema in `tools/list`, so clients showed no parameter hints. **Fixed:** the plain `_Base` ZodObject is registered for JSON Schema emission while the full `validationSchema` is re-parsed at the handler boundary — clients get accurate field hints and cross-field validation stays enforced. Upstream issue: `modelcontextprotocol/typescript-sdk#2145`. If you still see empty schemas, rebuild (`pnpm build`) and restart the MCP client.
 
 ---
 
@@ -106,7 +96,7 @@ Pass all parameters directly in your call — the handler validates them correct
 
 | Symptom | Root cause | Resolution |
 |---|---|---|
-| Plugin loads but all 10 agents show as "unavailable" | `dist/` not built — agents depend on the MCP server binary | Run `pnpm build` before installing. The `dist/mcp/server.js` must exist. |
+| Plugin loads but all 14 agents show as "unavailable" | `dist/` not built — agents depend on the MCP server binary | Run `pnpm build` before installing. The `dist/mcp/server.js` must exist. |
 | `tools/list` returns 0 tools | MCP server started but `registerAllTools` failed silently | Check stderr output (`MEDIA_FORGE_LOG_LEVEL=debug media-forge mcp:start`). Most common cause is missing `GOOGLE_API_KEY` — the server will start but config initialization throws inside the first handler call. |
 | Skills appear in autocomplete but don't run | Claude Code session doesn't have `GOOGLE_API_KEY` in its environment | Add the key to `.mcp.json` env block: `"env": {"GOOGLE_API_KEY": "${GOOGLE_API_KEY}"}` — Claude Code interpolates `${VAR}` at session start. |
 | Hook events not firing | Hooks require the plugin to be installed at the project level, not just `--plugin-dir` | For production use, install with `claude plugin install ./media-forge`. The `--plugin-dir` flag is for development only and may not trigger all hooks. |

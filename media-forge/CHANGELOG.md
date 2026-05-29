@@ -6,6 +6,24 @@ All notable changes to `media-forge` are documented here. The format follows
 
 ## [Unreleased]
 
+> Targets patch v0.1.2 (docs/metadata only; no code change). `0.1.1` is already tagged; these entries are a retroactive sync that ships in the next patch.
+
+### Docs / Metadata sync (no code change)
+
+Aligns marketplace + plugin metadata and roadmap with the actual post-P16 surface.
+Counts had drifted from the v0.1.0 figures.
+
+- `marketplace.json`: added the 3 missing skills to media-forge's `skills` array
+  (`higgsfield-prompting`, `kling-prompting`, `seedance-prompting`) — marketplace
+  installs were silently omitting them. Refreshed the plugin description
+  (10→14 subagents, 11→14 skills, 22→54 MCP tools, multi-provider video).
+- `media-forge/.claude-plugin/plugin.json`: description updated to 14 subagents +
+  multi-provider video; added `higgsfield`/`kling`/`seedance` keywords.
+- `docs/roadmap.md`: reframed "Current Release" v0.1.0 → v0.1.1 with the 4-provider
+  video surface + refs-integration; corrected counts; marked DEBT-008 RESOLVED;
+  added open follow-ups FU-P13 (dual cost ledger), FU-P15 (Kling placeholder
+  pricing), FU-P16 (Seedance IP context).
+
 ## 0.1.1 — 2026-05-28
 
 ### Official initial stable release
