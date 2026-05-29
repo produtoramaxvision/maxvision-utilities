@@ -47,7 +47,7 @@
 - Dry-run default for all generation commands
 
 **Test coverage:**
-- 1281 tests passing (8 skipped, live-API gated) across unit + integration + MCP + CLI + provider suites
+- 1394 tests passing (8 skipped, live-API gated) across unit + integration + MCP + CLI + provider suites
 - Per-phase regression tests (p13–p16) + live smoke tests gated behind `MEDIA_FORGE_RUN_LIVE_TESTS=true`
 - 5 golden PSNR comparison tests
 - Reviewer calibration eval (15 scenarios, ≥80% accuracy target)

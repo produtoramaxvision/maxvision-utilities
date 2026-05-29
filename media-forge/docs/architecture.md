@@ -179,6 +179,8 @@ Unified `VideoProvider` interface so the router targets any backend:
 
 ### `src/refs/` — reference library (refs-integration)
 
+> Requires operator-provisioned infra: a MinIO bucket, a pgvector-enabled Postgres instance, and (optionally) an AWS Bedrock endpoint for the Marengo backend. These are not bundled — the refs tools are inert until configured.
+
 - `indexer.ts`, `marengo-embed.ts`, `audit-gallery.ts`, `index.ts`: MinIO-backed curated reference library; pgvector semantic search (Voyage Multimodal-3) with Marengo 3.0 (AWS Bedrock) alt backend; Nano Banana Pro moodboard fusion bridge.
 
 ### `src/review/`

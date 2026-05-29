@@ -1,6 +1,6 @@
 # media-forge — Usage Cookbook
 
-This document covers the core 22 image / video / utility MCP tools, all CLI subcommands, and 5 real-world recipes with full invocation examples. The registry has grown to **54 tools** (50 with Seedance disabled); the 32 multi-provider + reference-library tools (refs, video routing, Higgsfield, Kling, Seedance) are summarized at the end of the MCP Tools section — for the full parameter reference of any tool use `media_help` or `docs/specification.md` §3.
+This document covers the 22 baseline image / video / utility MCP tools in detail, all CLI subcommands, and 5 real-world recipes with full invocation examples. The registry has grown to **54 tools** (50 with Seedance disabled); the 32 multi-provider + reference-library tools (refs, video routing, Higgsfield, Kling, Seedance) are summarized at the end of the MCP Tools section — for the full parameter reference of any tool use `media_help` or `docs/specification.md` §3.
 
 ---
 

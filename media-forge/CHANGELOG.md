@@ -6,6 +6,8 @@ All notable changes to `media-forge` are documented here. The format follows
 
 ## [Unreleased]
 
+> Targets patch v0.1.2 (docs/metadata only; no code change). `0.1.1` is already tagged; these entries are a retroactive sync that ships in the next patch.
+
 ### Docs / Metadata sync (no code change)
 
 Aligns marketplace + plugin metadata and roadmap with the actual post-P16 surface.
