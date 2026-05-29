@@ -1,7 +1,7 @@
 # media-forge — Specification
 
-**Version:** 0.1.0
-**Source:** Distilled from design spec (2026-05-21) + implementation reality (P0-P12 complete).
+**Version:** 0.1.1
+**Source:** Distilled from design spec (2026-05-21) + implementation reality (P0-P16 complete: baseline + refs-integration + multi-provider video).
 
 ---
 
@@ -76,9 +76,22 @@ VIDEO_MODEL_VEO_3_1_PRO      = "veo-3.1-generate-preview"
 
 ---
 
-## 3. MCP Tool Registry (22 tools)
+## 2.4 Video Providers (4)
 
-The MCP server exposes exactly 22 tools, registered in `src/mcp/handlers.ts` using schemas from `src/mcp/schemas.ts`.
+Beyond the locked Google models, video generation is routed across four providers behind a unified `VideoProvider` interface (`src/video/providers/base.ts`). The `video-router` agent + `media_video_route` tool pick by capability + cost + IP-risk; a SQLite cost tracker (`src/core/db.ts`) and webhook router (`webhook-router.ts`) back async jobs.
+
+| Provider | Models / modes | Notes |
+|---|---|---|
+| Google Veo 3.1 | t2v / i2v / interpolate / extend | Locked top-tier; audio-native |
+| Higgsfield | Soul / Soul ID / DoP / Cinema Studio / Speak / Marketing Studio / Recast / Virality | P14; credit-priced |
+| Kling 3.0 (Kuaishou) | t2v/i2v Standard+Pro, 4K Master, Omni multi-shot, motion brush, elements, lip-sync | P15; cost-competitive |
+| Seedance 2.0 (ByteDance, via fal.ai) | Standard / Fast, multi-shot, reference fusion, native audio | P16; feature-flagged (`MEDIA_FORGE_SEEDANCE_ENABLED`); IP-risk high |
+
+---
+
+## 3. MCP Tool Registry (54 tools)
+
+The MCP server exposes 54 tools (50 with `MEDIA_FORGE_SEEDANCE_ENABLED=false`), registered from the `MCP_TOOLS` array in `src/mcp/schemas.ts` and dispatched in `src/mcp/handlers.ts`.
 
 ### Image tools (6)
 
@@ -116,13 +129,72 @@ The MCP server exposes exactly 22 tools, registered in `src/mcp/handlers.ts` usi
 | `media_run_ocr` | Run OCR over an image using Cloud Vision (or paddleocr-wasm stub). |
 | `media_check_brand_compliance` | Check brand guideline compliance: palette ΔE2000, logo presence, font keywords. |
 
+### Reference-library tools (4) — refs-integration
+
+| Tool name | Description |
+|---|---|
+| `media_refs_search` | Semantic search over the curated MinIO reference library (pgvector + Voyage Multimodal-3). |
+| `media_refs_compose_moodboard` | Fuse selected references into a moodboard via Nano Banana Pro. |
+| `media_refs_presign` | Generate a presigned URL for a reference asset. |
+| `media_refs_index` | Index / re-index reference assets into the pgvector store. |
+
+### Video routing & cost tools (4) — P13 provider abstraction
+
+| Tool name | Description |
+|---|---|
+| `media_video_route` | Pick the optimal video provider by capability + cost + IP-risk. |
+| `media_video_cost_estimate` | Estimate video cost across providers before generation. |
+| `media_video_cost_report` | Report actual recorded video costs (SQLite cost tracker); supports `--by-provider`. |
+| `media_video_webhook_status` | Inspect the webhook router status for async provider jobs. |
+
+### Higgsfield tools (10) — P14
+
+| Tool name | Description |
+|---|---|
+| `media_higgsfield_generate` | Base Higgsfield generation (Soul / Soul 2.0). |
+| `media_higgsfield_soul_id` | Soul ID lifecycle (identity-locked character). |
+| `media_higgsfield_dop` | DoP camera control. |
+| `media_higgsfield_cinema_studio` | Cinema Studio lens grading. |
+| `media_higgsfield_speak` | Speak / Speak 2.0 lip-sync from photo. |
+| `media_higgsfield_marketing_studio` | Marketing Studio templates. |
+| `media_higgsfield_recast` | Recast character swap. |
+| `media_higgsfield_virality_predictor` | Virality score prediction. |
+| `media_higgsfield_poll` | Poll a Higgsfield request by id. |
+| `media_higgsfield_download` | Download a completed Higgsfield asset. |
+
+### Kling 3.0 tools (10) — P15
+
+| Tool name | Description |
+|---|---|
+| `media_kling_motion_brush` | Motion-brush region animation. |
+| `media_kling_element_create` | Create a reusable Kling element. |
+| `media_kling_element_list` | List Kling elements. |
+| `media_kling_element_delete` | Delete a Kling element. |
+| `media_kling_elements` | Multi-element (elements) generation. |
+| `media_kling_lip_sync` | Lip-sync (text+emotion or audio). |
+| `media_kling_omni_multishot` | Omni multi-shot orchestration (up to 6 cuts). |
+| `media_kling_video_extend` | Kling video extension. |
+| `media_kling_poll` | Poll a Kling task by id. |
+| `media_kling_download` | Download a completed Kling asset. |
+
+### Seedance 2.0 tools (4) — P16 (feature-flagged)
+
+| Tool name | Description |
+|---|---|
+| `media_seedance_text_to_video` | Base T2V (Standard/Fast tiers, native audio). |
+| `media_seedance_image_to_video` | I2V with optional `endImageUrl` for start→end frame-anchored transitions. |
+| `media_seedance_multishot` | Multi-shot T2V with timestamp segmentation (≤15s, ≤4 shots). |
+| `media_seedance_reference_fusion` | Reference-to-video with `@Image/@Video/@Audio` mention syntax. |
+
+> Seedance tools register only when `MEDIA_FORGE_SEEDANCE_ENABLED` is not disabled (default on). With it off, the registry is 50 tools.
+
 ### Help tool (1)
 
 | Tool name | Description |
 |---|---|
 | `media_help` | List all tools or show detailed help for a specific tool by name. |
 
-**Note on input schemas (DEBT-008):** Tools using `.superRefine()` for cross-field validation (approximately 10 of the 22) emit `inputSchema: {}` in `tools/list` responses. Runtime validation is unaffected. Client-side UI introspection (param hints, type completion) is degraded for those tools. See `docs/troubleshooting.md` for the workaround.
+**Note on input schemas (DEBT-008 — RESOLVED in v0.1.0):** ZodEffects/`.superRefine()` tools previously emitted `inputSchema: {}` in `tools/list`. Fixed: a `_Base` ZodObject is registered for JSON Schema emission and the full `validationSchema` is re-parsed at the handler boundary, so cross-field rules stay enforced and client introspection works. Upstream issue filed: `modelcontextprotocol/typescript-sdk#2145`.
 
 ---
 
@@ -170,7 +242,7 @@ All CLI subcommands are exposed via the `media-forge` binary (`bin/media-forge` 
 
 ---
 
-## 5. Agent Registry (10 agents)
+## 5. Agent Registry (14 agents)
 
 Agents are defined as `.md` files in `agents/`. The plugin loader builds the fully-qualified name `media-forge:<name>` at runtime. All agents use `memory: project`.
 
@@ -185,13 +257,17 @@ Agents are defined as `.md` files in `agents/`. The plugin loader builds the ful
 | `prompt-engineer.md` | `media-forge:prompt-engineer` | sonnet | high | User intent → `refined_spec.json`; SCALIST framework + safety rephrasing |
 | `scene-composer.md` | `media-forge:scene-composer` | sonnet | high | Multi-image composition up to 14 references; background removal + white-balance pre-clean |
 | `veo-director.md` | `media-forge:veo-director` | sonnet | medium | Veo extension chains, frame interpolation, temporal-drift color anchoring |
+| `video-router.md` | `media-forge:video-router` | sonnet | medium | Routes video jobs across providers by capability + cost + IP-risk |
+| `higgsfield-director.md` | `media-forge:higgsfield-director` | sonnet | high | Higgsfield multi-mode: Soul / Soul ID / DoP / Cinema Studio / Speak / Marketing Studio / Recast / Virality |
+| `kling-director.md` | `media-forge:kling-director` | sonnet | high | Kling 3.0 modes: t2v/i2v, 4K Master, Omni multi-shot, motion brush, elements, lip-sync |
+| `seedance-director.md` | `media-forge:seedance-director` | sonnet | high | Seedance 2.0 tier/mode orchestration: multi-shot, reference fusion, frame-anchor, audio |
 | `quality-reviewer.md` | `media-forge:quality-reviewer` | opus | xhigh | READ-ONLY 3-stage reviewer: OCR → brand → LLM judge. Returns Verdict JSON. |
 
 **10 additional domain agents** (illustration-artist, cartoon-animator, 3d-render-artist, social-content-creator, motion-graphics, comic-panel-artist, infographic-designer, architectural-viz, food-photography, fashion-photographer) are deferred to v0.2.0.
 
 ---
 
-## 6. Skill Registry (11 skills)
+## 6. Skill Registry (14 skills)
 
 Skills live in `skills/<name>/SKILL.md`. The plugin loader builds `media-forge:<name>` at runtime.
 
@@ -216,7 +292,15 @@ Skills live in `skills/<name>/SKILL.md`. The plugin loader builds `media-forge:<
 | `ocr-validate` | `media-forge:ocr-validate` | OCR text validation via Cloud Vision. Used by quality-reviewer. |
 | `brand-check` | `media-forge:brand-check` | Brand compliance check (color ΔE2000 + logo + font). Used by quality-reviewer and enterprise-corrector. |
 
-**Note:** `media-forge:campaign`, `media-forge:product-shoot`, `media-forge:ad-creative`, and `media-forge:cost-check` from the design spec were merged into the above 11 skills during P10 implementation.
+### Provider prompting skills (knowledge)
+
+| Skill | FQ name | Description |
+|---|---|---|
+| `higgsfield-prompting` | `media-forge:higgsfield-prompting` | MCSLA formula, DoP cheatsheet, Cinema lens dictionary, Marketing template decision tree. |
+| `kling-prompting` | `media-forge:kling-prompting` | Kling 5-part prompt spine + mode cookbook (motion brush, elements, omni, lip-sync). |
+| `seedance-prompting` | `media-forge:seedance-prompting` | Tier selection, multi-shot syntax, `@`-mention reference grammar, frame-anchored edit pattern. |
+
+**Note:** `media-forge:campaign`, `media-forge:product-shoot`, `media-forge:ad-creative`, and `media-forge:cost-check` from the design spec were merged during P10. The 3 provider prompting skills (Higgsfield/Kling/Seedance) were added in P14–P16, bringing the total to 14.
 
 ---
 

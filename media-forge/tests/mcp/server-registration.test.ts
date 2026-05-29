@@ -151,13 +151,13 @@ describe('MCP server tool registration', () => {
     );
   });
 
-  it('registers exactly 49 tools (P13 30 + P14 7 + P15 8 + P16 4)', () => {
+  it('registers exactly 54 tools (22 base + 4 refs + 4 routing/cost + 10 higgsfield + 10 kling + 4 seedance)', () => {
     const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
     const names = listRegisteredToolNames(server);
     expect(names).toHaveLength(54);
   });
 
-  it('registers exactly 45 tools when MEDIA_FORGE_SEEDANCE_ENABLED=false', () => {
+  it('registers exactly 50 tools when MEDIA_FORGE_SEEDANCE_ENABLED=false', () => {
     const prev = process.env['MEDIA_FORGE_SEEDANCE_ENABLED'];
     process.env['MEDIA_FORGE_SEEDANCE_ENABLED'] = 'false';
     try {
