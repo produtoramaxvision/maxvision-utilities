@@ -1,8 +1,8 @@
 // src/refs/keyframe-extractor.ts
 // Decode animated gif/webp into individual JPEG keyframes.
 // Sharp natively decodes both animated formats via `pages: -1`. We fall back to
-// ffmpeg-static only if sharp returns a single frame for an animated input
-// (rare, but possible with exotic encodings).
+// a resolved system/LGPL ffmpeg only if sharp returns a single frame for an
+// animated input (rare, but possible with exotic encodings).
 import sharp from 'sharp';
 import { execFile } from 'node:child_process';
 import { mkdtemp, readdir, readFile, writeFile, rm } from 'node:fs/promises';
@@ -44,7 +44,7 @@ export async function extractKeyframesFromBuffer(input: Buffer, opts: ExtractOpt
       const jpeg = await sharp(input, { page: idx }).jpeg({ quality: 88 }).toBuffer();
       frames.push(jpeg);
     } catch {
-      // Sharp page-indexing failed; fall back to ffmpeg-static for this file
+      // Sharp page-indexing failed; fall back to system ffmpeg for this file
       return extractKeyframesViaFfmpeg(input, opts);
     }
   }
