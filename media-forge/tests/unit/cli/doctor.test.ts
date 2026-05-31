@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { runDoctor } from '../../../src/cli/commands/doctor.js';
+import { __resetFfmpegCache } from '../../../src/core/ffmpeg.js';
 import {
   IMAGE_MODEL_NANO_BANANA_PRO,
   IMAGE_MODEL_IMAGEN_4_ULTRA,
@@ -318,5 +319,53 @@ describe('registerDoctorCommand — CLI integration', () => {
     });
     expect(result.ok).toBe(false);
     expect(() => process.exit(result.ok ? 0 : 1)).toThrow('process.exit(1)');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 12. ffmpeg check (advisory — must NOT affect result.ok)
+// ---------------------------------------------------------------------------
+describe('runDoctor — ffmpeg check', () => {
+  beforeEach(() => {
+    __resetFfmpegCache();
+  });
+
+  it('result always has checks.ffmpeg with an ok property', async () => {
+    const result = await runDoctor({
+      env: { GOOGLE_API_KEY: 'test-key' },
+      skipNetwork: true,
+      outputBaseDir: os.tmpdir(),
+    });
+    expect(result.checks.ffmpeg).toBeDefined();
+    expect(result.checks.ffmpeg).toHaveProperty('ok');
+  });
+
+  it('ffmpeg ok=true and path is a string when MEDIA_FORGE_FFMPEG_PATH points to an existing file', async () => {
+    __resetFfmpegCache();
+    const result = await runDoctor({
+      env: {
+        GOOGLE_API_KEY: 'test-key',
+        MEDIA_FORGE_FFMPEG_PATH: process.execPath,
+      },
+      skipNetwork: true,
+      outputBaseDir: os.tmpdir(),
+    });
+    expect(result.checks.ffmpeg.ok).toBe(true);
+    expect(typeof result.checks.ffmpeg.path).toBe('string');
+  });
+
+  it('ffmpeg missing does NOT flip result.ok to false', async () => {
+    // Use a path that guaranteed does not exist so ffmpeg resolves to null
+    const result = await runDoctor({
+      env: {
+        GOOGLE_API_KEY: 'test-key',
+        MEDIA_FORGE_FFMPEG_PATH: '/nonexistent/ffmpeg-does-not-exist-xyz',
+      },
+      skipNetwork: true,
+      outputBaseDir: os.tmpdir(),
+    });
+    // ffmpeg check may be ok=false (no real ffmpeg and fake path invalid)
+    // but the overall result.ok must remain true (all core checks pass)
+    expect(result.ok).toBe(true);
   });
 });
