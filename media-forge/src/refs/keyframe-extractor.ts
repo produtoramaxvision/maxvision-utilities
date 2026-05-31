@@ -9,7 +9,7 @@ import { mkdtemp, readdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import ffmpegPath from 'ffmpeg-static';
+import { resolveFfmpegPath } from '../core/ffmpeg.js';
 
 const execFileP = promisify(execFile);
 
@@ -52,7 +52,7 @@ export async function extractKeyframesFromBuffer(input: Buffer, opts: ExtractOpt
 }
 
 async function extractKeyframesViaFfmpeg(input: Buffer, opts: ExtractOpts): Promise<Buffer[]> {
-  if (!ffmpegPath) throw new Error('ffmpeg-static binary unavailable');
+  const ffmpegPath = resolveFfmpegPath();
   const dir = await mkdtemp(join(tmpdir(), 'mf-refs-'));
   try {
     const inFile = join(dir, 'in.bin');
