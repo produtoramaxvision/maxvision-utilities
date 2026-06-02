@@ -13,6 +13,9 @@ import { createHiggsfieldWebhookHandler } from '../video/providers/higgsfield-we
 import { createBytedanceWebhookHandler } from '../video/providers/bytedance-webhook-handler.js';
 import { isSeedanceEnabled } from '../core/feature-flags.js';
 import type { WebhookHonoApp } from './webhook-hono.js';
+import { GalleryStore } from '../gallery/gallery-store.js';
+import { startMarginCron } from '../gallery/margin-cron.js';
+import { createTelegramNotifier } from '../gallery/gallery-notifier.js';
 
 const { Pool } = pg;
 
@@ -26,6 +29,7 @@ export function startHttpServer(): void {
   // F-C: escolha do store: KeyStore (Postgres) se DATABASE_URL presente, FlatKeyStore caso contrario.
   // Graceful degradation: self-host sem Postgres usa MEDIA_FORGE_API_KEYS plana.
   let store: IKeyStore;
+  let galleryStore: GalleryStore | undefined;
   const databaseUrl = env['DATABASE_URL'];
   if (databaseUrl) {
     const pepper = env['MEDIA_FORGE_KEY_PEPPER'];
@@ -33,9 +37,19 @@ export function startHttpServer(): void {
       logger.error('MEDIA_FORGE_KEY_PEPPER must be set when DATABASE_URL is configured');
       process.exit(1);
     }
+    // F-I: reuse the same pool for GalleryStore — single connection pool per Postgres.
     const pool = new Pool({ connectionString: databaseUrl });
     store = new KeyStore(pool, pepper);
-    logger.info('media-forge: using Postgres KeyStore (F-C tenancy)');
+    galleryStore = new GalleryStore(pool);
+    logger.info('media-forge: using Postgres KeyStore (F-C tenancy) + GalleryStore (F-I)');
+
+    // F-I: margin alert cron — evaluates margin every GALLERY_ALERT_INTERVAL_MINUTES (default 60).
+    const thresholdPct = Number(env['GALLERY_ALERT_MARGIN_THRESHOLD_PCT'] ?? 30);
+    const intervalMs = Number(env['GALLERY_ALERT_INTERVAL_MINUTES'] ?? 60) * 60 * 1000;
+    const notifier = createTelegramNotifier(env);
+    const stopCron = startMarginCron({ store: galleryStore, notifier, thresholdPct, intervalMs });
+    process.once('SIGTERM', stopCron);
+    process.once('SIGINT', stopCron);
   } else {
     const flatKeys = env['MEDIA_FORGE_API_KEYS'] ?? '';
     if (!flatKeys) {
@@ -43,13 +57,16 @@ export function startHttpServer(): void {
       process.exit(1);
     }
     store = new FlatKeyStore(flatKeys);
+    logger.warn(
+      'DATABASE_URL unset — gallery disabled; list_my_generations returns gallery_not_configured',
+    );
     logger.info('media-forge: using flat KeyStore (F-A compat, no tenancy)');
   }
 
   // F-C: rate-limiter real (Redis) ou no-op (sem REDIS_URL)
   const limiter = createRateLimiter(env);
 
-  const app = buildHttpApp({ store, limiter });
+  const app = buildHttpApp({ store, limiter, galleryStore });
   const appRec = app as unknown as Record<string, unknown>;
 
   // Wire provider webhook handlers into the Hono webhook app if it was mounted.
