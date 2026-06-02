@@ -1,4 +1,6 @@
 // Auth mínima do transporte HTTP (F-A). F-C troca por keys hasheadas + tenant.
+export type Tier = 'free' | 'creator' | 'pro';
+
 export interface AuthContext {
   apiKey: string;
   // F-C adiciona: tenantId, tier, scopes
