@@ -123,8 +123,39 @@ services:
       timeout: 5s
       retries: 5
 
+  # F-I: pg_dump cron backup for mcp-postgres (gallery + tenants/keys).
+  # Image: prodrigestivill/postgres-backup-local (mirrors meuagente-postgres_app_backup pattern).
+  # CONFIRM before deploy: SCHEDULE, BACKUP_KEEP_DAYS/WEEKS/MONTHS against meuagente stack values.
+  # NOTE: POSTGRES_PASSWORD_FILE not supported; inline var used (value from Portainer secret/env).
+  mcp-postgres-backup:
+    image: ghcr.io/prodrigestivill/postgres-backup-local:16
+    networks:
+      - internal
+    environment:
+      POSTGRES_HOST: mcp-postgres
+      POSTGRES_DB: media_forge
+      POSTGRES_USER: media_forge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      SCHEDULE: "@daily"         # CONFIRM: mirror meuagente stack value (may be @hourly)
+      BACKUP_KEEP_DAYS: "7"      # CONFIRM: mirror meuagente stack value
+      BACKUP_KEEP_WEEKS: "4"     # CONFIRM: mirror meuagente stack value
+      BACKUP_KEEP_MONTHS: "6"    # CONFIRM: mirror meuagente stack value
+      HEALTHCHECK_PORT: "8080"
+    volumes:
+      - mcp-pg-backups:/backups
+    depends_on:
+      - mcp-postgres
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          memory: 128M
+
 volumes:
   mcp-pg-data:
+  mcp-pg-backups:
 
 networks:
   net:
