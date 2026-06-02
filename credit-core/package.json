@@ -1,0 +1,29 @@
+{
+  "name": "@maxvision/credit-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.5.0", "pnpm": ">=9.0.0" },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsup src/http.ts --format esm --dts",
+    "start": "node dist/http.js",
+    "db:migrate": "node scripts/migrate.mjs"
+  },
+  "dependencies": {
+    "hono": "^4.6.0",
+    "@hono/node-server": "^1.13.0",
+    "pg": "^8.13.0",
+    "ioredis": "^5.4.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.0",
+    "embedded-postgres": "16.13.0-beta.17",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
