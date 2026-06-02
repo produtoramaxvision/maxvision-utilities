@@ -1,24 +1,23 @@
+// Migrado de F-A: testa a logica plana via FlatKeyStore (que e o que F-A usava).
+// resolveAuth async e testado em auth-fc.test.ts (Task 5).
 import { describe, it, expect } from 'vitest';
-import { resolveAuth } from '../../../src/http/auth.js';
+import { FlatKeyStore } from '../../../src/http/key-store.js';
 
-describe('resolveAuth', () => {
-  const env = { MEDIA_FORGE_API_KEYS: 'key-aaa,key-bbb' } as NodeJS.ProcessEnv;
+describe('FlatKeyStore (lógica plana de F-A)', () => {
+  const store = new FlatKeyStore('key-aaa,key-bbb');
 
-  it('aceita Bearer com chave válida', () => {
-    const r = resolveAuth('Bearer key-aaa', env);
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.ctx.apiKey).toBe('key-aaa');
+  it('aceita key válida → tier pro + tenantId self', async () => {
+    const r = await store.resolve('key-aaa');
+    expect(r).not.toBeNull();
+    expect(r!.tier).toBe('pro');
+    expect(r!.tenantId).toBe('self');
   });
 
-  it('rejeita header ausente', () => {
-    expect(resolveAuth(undefined, env).ok).toBe(false);
+  it('rejeita key desconhecida', async () => {
+    expect(await store.resolve('nope')).toBeNull();
   });
 
-  it('rejeita chave desconhecida', () => {
-    expect(resolveAuth('Bearer nope', env).ok).toBe(false);
-  });
-
-  it('rejeita esquema não-Bearer', () => {
-    expect(resolveAuth('Basic key-aaa', env).ok).toBe(false);
+  it('rejeita string vazia', async () => {
+    expect(await store.resolve('')).toBeNull();
   });
 });

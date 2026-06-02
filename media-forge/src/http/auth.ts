@@ -1,25 +1,47 @@
-// Auth mínima do transporte HTTP (F-A). F-C troca por keys hasheadas + tenant.
+// media-forge/src/http/auth.ts
+// Autenticacao do transporte HTTP. F-C: AuthContext estendido + resolveAuth async.
+// F-A: resolveAuth sync foi substituido; FlatKeyStore (key-store.ts) preserva a logica plana.
+import type { IKeyStore } from './key-store.js';
+
 export type Tier = 'free' | 'creator' | 'pro';
 
 export interface AuthContext {
-  apiKey: string;
-  // F-C adiciona: tenantId, tier, scopes
+  apiKey: string;     // raw key apresentada (nunca persistida -- so usada no request)
+  tenantId: string;   // F-C: id do tenant no Postgres (ou 'self' no modo flat/self-host)
+  tier: Tier;         // F-C: tier do tenant
+  scopes: string[];   // F-C: escopos da key (ex: ['image','video']) -- F-E usa; F-C propaga
 }
+
 export type AuthResult = { ok: true; ctx: AuthContext } | { ok: false; reason: string };
 
-export function resolveAuth(
+/** Extrai Bearer token do header Authorization. */
+function extractBearer(authHeader: string | undefined): string | null {
+  if (!authHeader) return null;
+  const m = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
+  return m ? (m[1] ?? '').trim() : null;
+}
+
+/**
+ * Resolve a raw key via store (Postgres ou plana).
+ * Async -- o store pode fazer I/O (DB lookup).
+ */
+export async function resolveAuth(
   authHeader: string | undefined,
-  env: NodeJS.ProcessEnv = process.env,
-): AuthResult {
-  if (!authHeader) return { ok: false, reason: 'missing Authorization header' };
-  const m = /^Bearer\s+(.+)$/.exec(authHeader.trim());
-  if (!m) return { ok: false, reason: 'expected Bearer scheme' };
-  const key = (m[1] ?? '').trim();
-  const allowed = (env['MEDIA_FORGE_API_KEYS'] ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  if (allowed.length === 0) return { ok: false, reason: 'no API keys configured' };
-  if (!allowed.includes(key)) return { ok: false, reason: 'unknown API key' };
-  return { ok: true, ctx: { apiKey: key } };
+  store: IKeyStore,
+): Promise<AuthResult> {
+  const rawKey = extractBearer(authHeader);
+  if (!rawKey) return { ok: false, reason: 'missing or malformed Authorization header' };
+
+  const record = await store.resolve(rawKey);
+  if (!record) return { ok: false, reason: 'unknown or revoked API key' };
+
+  return {
+    ok: true,
+    ctx: {
+      apiKey: rawKey,
+      tenantId: record.tenantId,
+      tier: record.tier,
+      scopes: record.scopes,
+    },
+  };
 }
