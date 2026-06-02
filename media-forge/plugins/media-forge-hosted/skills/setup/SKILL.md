@@ -1,0 +1,43 @@
+---
+name: setup
+description: "Onboarding wizard: env detection, API key prompts, output dir setup, first dry-run smoke. Run on first install."
+allowed-tools: Read, Write, Bash, Grep, Glob
+preamble-tier: 1
+user-invocable: true
+---
+
+# media-forge:setup
+
+First-time onboarding wizard. Detects environment, prompts for missing API keys, configures output directories, and runs a dry-run smoke test.
+
+## Workflow
+
+1. Run `media-forge config get apiKey`. If key is present, skip to step 4.
+2. Prompt user for Google AI API key (never echo back in full — show only last 4 chars).
+3. Write key to `~/.media-forge/config.json` via `media-forge config set apiKey <value>`.
+4. Prompt user for output directory (default: `./outputs`). Write to config.
+5. Run `media-forge doctor --skip-network` to validate installation.
+6. If doctor passes: suggest first example: `/media-forge:create a cinematic sunset over mountains`.
+7. If doctor fails: show structured error and troubleshooting steps.
+
+## Higgsfield credentials + plan picker (P14)
+
+Refer to `commands/setup.md` for the Higgsfield credentials + plan picker step (P14). That document owns the authoritative wizard prose (API key/secret, usdPerCredit plan selection, webhook URL, tunnel guidance).
+
+## Kling credentials (P15+)
+
+Refer to `commands/setup.md` Step N+2 for the Kling credential wizard (P15+). That document owns the authoritative prose (Access Key, Secret Key, watermark default, JWT cache TTL, webhook URL). NEVER echo the secret — show only the last 4 chars per project security policy.
+
+## Seedance 2.0 credentials (P16+)
+
+Refer to `commands/setup.md` Step N+3 for the Seedance 2.0 credential wizard (P16+). That document owns the authoritative prose (`FAL_KEY`, `BYTEPLUS_ARK_API_KEY`, `MEDIA_FORGE_SEEDANCE_ENABLED`, IP risk advisory). NEVER echo the full key — show only the last 4 chars per project security policy.
+
+## When to use
+
+Run once after installing the media-forge plugin, or any time configuration is lost or needs reset.
+
+## Outputs
+
+- Configuration status report
+- Doctor check results
+- First example command suggestion
