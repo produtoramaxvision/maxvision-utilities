@@ -1,52 +1,31 @@
-# media-forge-mcp — Swarm stack (MCP HTTP hospedado da forja de mídia)
+# media-forge-mcp — Swarm stack (MCP HTTP hospedado da forja de midia)
+# F-C: reintroduz mcp-redis (rate-limit por tenant) + mcp-postgres (tenants/keys hasheadas).
 #
-# Contrato de env = SOMENTE o que o código consome (src/core/config.ts:loadConfig
-# + auth de providers). Zero env morta. Secrets via env no Portainer — nunca no arquivo.
+# Contrato de env = SOMENTE o que o codigo consome. Secrets via Portainer — nunca no arquivo.
 # Redeploy: Portainer (stack id 69) ou: docker stack deploy -c media-forge-mcp.stack.yml media-forge-mcp
 #
-# PREENCHER no Portainer (valores):
-#   GOOGLE_API_KEY                    OBRIGATÓRIO p/ gerar (Google AI Studio). config.ts usa como apiKey.
-#                                     Alias aceito: GEMINI_API_KEY (mesmo valor) — use só um.
-#   ANTHROPIC_API_KEY                 opcional — review de qualidade via Claude (llm-judge)
-#   MEDIA_FORGE_OCR_GOOGLE_VISION_KEY opcional — OCR no review (checar texto na imagem)
+# PREENCHER no Portainer (valores existentes — F-A/F-B):
+#   GOOGLE_API_KEY                    OBRIGATORIO p/ gerar (Google AI Studio).
+#   ANTHROPIC_API_KEY                 opcional — review de qualidade via Claude
+#   MEDIA_FORGE_OCR_GOOGLE_VISION_KEY opcional — OCR
 #   FAL_KEY                           opcional — Kling/Higgsfield/Seedance via fal.ai
-#   BYTEPLUS_ARK_API_KEY              opcional — Seedance fallback (BytePlus ARK)
+#   BYTEPLUS_ARK_API_KEY              opcional — Seedance fallback
 #   HF_API_KEY / HF_API_SECRET        opcional — Higgsfield direto
-#   MEDIA_FORGE_API_KEYS              já setado — Bearer aceito pelo MCP (F-A auth)
+#   MEDIA_FORGE_API_KEYS              mantido para self-host/bootstrap sem Postgres
+#   MINIO_* / MEDIA_FORGE_WEBHOOK_*   F-B (sem alteracao)
 #
-# ADICIONADO EM F-B (2026-06-02):
-#   MINIO_ENDPOINT                    OBRIGATÓRIO p/ entrega via signed URL (ex: https://s3.meuagente.api.br).
-#                                     Sem ele, handlers caem no path local (disco efêmero) — degradação graciosa.
-#   MINIO_REGION                      padrão: us-east-1
-#   MINIO_BUCKET                      padrão: media-forge-outputs (bucket dedicado; ver provisão no plano F-B)
-#   MINIO_ACCESS_KEY                  access key do service account media-forge-svc
-#   MINIO_SECRET_KEY                  secret key do service account media-forge-svc
-#   MINIO_USE_SSL                     padrão: true (config.ts lê; o endpoint já carrega o scheme)
-#   MEDIA_FORGE_WEBHOOK_SECRET        HMAC secret para callbacks de provider (openssl rand -hex 32).
-#                                     Sem ele, o endpoint /webhooks fica desabilitado.
-#   MEDIA_FORGE_ARTIFACT_TTL_SECONDS  TTL signed URLs em segundos (padrão: 604800 = 7 dias)
-#   MEDIA_FORGE_WEBHOOK_PUBLIC_URL    base pública (HOST, SEM /webhooks). O provider anexa
-#                                     /webhooks/{provider}/{job_id} (kling.ts:458). Valor: o host raiz
-#                                     https://media-forge.produtoramaxvision.com.br — NÃO incluir /webhooks
-#                                     (senão duplica → /webhooks/webhooks/...). O endpoint Hono recebe em
-#                                     /webhooks/{provider}/{job_id}.
-#                                     LIMITAÇÃO (pré-F-B): Kling/Higgsfield NÃO assinam HMAC, então o
-#                                     callback é suprimido por padrão (Kling exige MEDIA_FORGE_KLING_WEBHOOK_INSECURE=true;
-#                                     Higgsfield path quebrado por design). Entrega via MinIO p/ vídeo só
-#                                     funciona ponta-a-ponta para Seedance/Bytedance (fal.ai assina Ed25519).
+# NOVOS EM F-C (provisionar no Portainer — nunca commitar valores):
+#   DATABASE_URL          ex: postgres://media_forge:<POSTGRES_PASSWORD>@mcp-postgres:5432/media_forge
+#                         Quando presente, o servidor usa KeyStore (Postgres + HMAC-SHA256).
+#                         Quando ausente, cai em FlatKeyStore (MEDIA_FORGE_API_KEYS plana).
+#   MEDIA_FORGE_KEY_PEPPER  32+ chars aleatorios (openssl rand -hex 32). NUNCA commitar.
+#                           Pepper invalida todas as keys se rotacionado (operacao planejada).
+#   POSTGRES_PASSWORD     senha do usuario media_forge no mcp-postgres.
+#   REDIS_URL e configurado inline (redis://mcp-redis:6379) — nao precisa setar no Portainer.
 #
-# REMOVIDOS por não serem lidos pelo media-forge (evita env morta):
-#   LOG_LEVEL (o lido é MEDIA_FORGE_LOG_LEVEL) · MCP_PORT · MCP_API_KEYS · REDIS_URL
-#   MASTER_KEY · MAXVISION_LICENSE_SERVER_URL · LICENSE_CHECK_ENABLED
-#   CREDIT_CORE_URL/CREDIT_CORE_API_KEY (billing entra no F-E) · serviço mcp_redis (sem consumidor até F-C)
-#   GEMINI_API_KEY (alias redundante de GOOGLE_API_KEY)
-#
-# Pendências de feature (não são env, são fases): billing credit-core = F-E;
-# rate-limit Redis cross-replica = F-C. Reintroduzir as envs correspondentes nessas fases.
-#
-# replicas: 1 mantido em F-B — o state de job (video_jobs SQLite) é single-replica.
-# A chave de artefato (outputs/{job_id}.ext) é determinística (presign stateless),
-# mas o job-state SQLite limita escala horizontal. Cross-replica → F-I.
+# Decisao D1: Postgres proprio (mcp-postgres) — nao compartilhado com credit-core.
+#   Rationale: concern de autenticacao do media-forge; fronteira de servico (eng review A3).
+#   Sub-volume: mcp-pg-data (isolado do ledger de dinheiro).
 
 version: "3.9"
 
@@ -55,15 +34,25 @@ services:
     image: ghcr.io/produtoramaxvision/media-forge-mcp:${MEDIA_FORGE_TAG:-latest}
     networks:
       - net
+    depends_on:
+      - mcp-redis
+      - mcp-postgres
     environment:
       NODE_ENV: production
       TZ: America/Sao_Paulo
       MEDIA_FORGE_HTTP_PORT: "3000"
       MEDIA_FORGE_LOG_LEVEL: info
       MEDIA_FORGE_LOG_FORMAT: json
-      # refs (imagens de referência) exigem MinIO+pgvector+Voyage, não provisionados → desliga
+      # refs (imagens de referencia) exigem MinIO+pgvector+Voyage, nao provisionados
       MEDIA_FORGE_REFS_ENABLED: "false"
+      # F-A auth (mantida para self-host/bootstrap — se DATABASE_URL presente, KeyStore real assume)
       MEDIA_FORGE_API_KEYS: ${MEDIA_FORGE_API_KEYS}
+      # F-C tenancy (Postgres proprio)
+      DATABASE_URL: ${DATABASE_URL}
+      MEDIA_FORGE_KEY_PEPPER: ${MEDIA_FORGE_KEY_PEPPER}
+      # F-C rate-limit (Redis interno — inline, nao exposto externamente)
+      REDIS_URL: redis://mcp-redis:6379
+      # Providers
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       MEDIA_FORGE_OCR_GOOGLE_VISION_KEY: ${MEDIA_FORGE_OCR_GOOGLE_VISION_KEY}
@@ -71,17 +60,15 @@ services:
       BYTEPLUS_ARK_API_KEY: ${BYTEPLUS_ARK_API_KEY}
       HF_API_KEY: ${HF_API_KEY}
       HF_API_SECRET: ${HF_API_SECRET}
-      # F-B: entrega de artefato via MinIO/S3 (presigned URLs). Bucket dedicado: media-forge-outputs.
+      # F-B: entrega de artefato via MinIO/S3
       MINIO_ENDPOINT: ${MINIO_ENDPOINT}
       MINIO_REGION: ${MINIO_REGION:-us-east-1}
       MINIO_BUCKET: ${MINIO_BUCKET:-media-forge-outputs}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_USE_SSL: ${MINIO_USE_SSL:-true}
-      # F-B: webhook endpoint público para callbacks de provider.
-      # Providers enviam callbacks para: https://media-forge.produtoramaxvision.com.br/webhooks/{provider}/{job_id}
+      # F-B: webhook endpoint publico para callbacks de provider
       MEDIA_FORGE_WEBHOOK_SECRET: ${MEDIA_FORGE_WEBHOOK_SECRET}
-      # HOST raiz, SEM /webhooks — o provider anexa /webhooks/{provider}/{job_id} (kling.ts:458).
       MEDIA_FORGE_WEBHOOK_PUBLIC_URL: ${MEDIA_FORGE_WEBHOOK_PUBLIC_URL:-https://media-forge.produtoramaxvision.com.br}
       MEDIA_FORGE_ARTIFACT_TTL_SECONDS: ${MEDIA_FORGE_ARTIFACT_TTL_SECONDS:-604800}
     deploy:
@@ -98,6 +85,45 @@ services:
         - traefik.http.routers.media-forge.tls=true
         - traefik.http.routers.media-forge.tls.certresolver=letsencryptresolver
         - traefik.http.services.media-forge.loadbalancer.server.port=3000
+
+  mcp-redis:
+    image: redis:7-alpine
+    networks:
+      - net
+    command: redis-server --save "" --appendonly no --maxmemory 64mb --maxmemory-policy allkeys-lru
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          memory: 96M
+
+  mcp-postgres:
+    image: postgres:16-alpine
+    networks:
+      - net
+    environment:
+      POSTGRES_DB: media_forge
+      POSTGRES_USER: media_forge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - mcp-pg-data:/var/lib/postgresql/data
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          memory: 256M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U media_forge -d media_forge"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mcp-pg-data:
 
 networks:
   net:
