@@ -1,24 +1,27 @@
 # media-forge-mcp — Swarm stack (MCP HTTP hospedado da forja de mídia)
 #
-# Espelha tiktok-mcp/linkedin-mcp: server na porta interna 3000, roteado pelo Traefik
-# via rede `net`; Redis interno; billing delegado ao stack `credit-core` (carteira única).
-# Secrets via env no Portainer — nunca neste arquivo.
+# Contrato de env = SOMENTE o que o código consome (src/core/config.ts:loadConfig
+# + auth de providers). Zero env morta. Secrets via env no Portainer — nunca no arquivo.
+# Redeploy: Portainer (stack id 69) ou: docker stack deploy -c media-forge-mcp.stack.yml media-forge-mcp
 #
-# Deploy: Portainer → Stacks → Add stack (cole o YAML, defina env) ou
-#         docker stack deploy -c media-forge-mcp.stack.yml media-forge-mcp
+# PREENCHER no Portainer (valores):
+#   GOOGLE_API_KEY                    OBRIGATÓRIO p/ gerar (Google AI Studio). config.ts usa como apiKey.
+#                                     Alias aceito: GEMINI_API_KEY (mesmo valor) — use só um.
+#   ANTHROPIC_API_KEY                 opcional — review de qualidade via Claude (llm-judge)
+#   MEDIA_FORGE_OCR_GOOGLE_VISION_KEY opcional — OCR no review (checar texto na imagem)
+#   FAL_KEY                           opcional — Kling/Higgsfield/Seedance via fal.ai
+#   BYTEPLUS_ARK_API_KEY              opcional — Seedance fallback (BytePlus ARK)
+#   HF_API_KEY / HF_API_SECRET        opcional — Higgsfield direto
+#   MEDIA_FORGE_API_KEYS              já setado — Bearer aceito pelo MCP (F-A auth)
 #
-# IMAGEM: `media-forge-mcp` é publicada pelo build F-A (Dockerfile + ghcr). Enquanto não
-# existir, `mcp-server` fica em ImagePull/retry; `mcp_redis` sobe normalmente.
+# REMOVIDOS por não serem lidos pelo media-forge (evita env morta):
+#   LOG_LEVEL (o lido é MEDIA_FORGE_LOG_LEVEL) · MCP_PORT · MCP_API_KEYS · REDIS_URL
+#   MASTER_KEY · MAXVISION_LICENSE_SERVER_URL · LICENSE_CHECK_ENABLED
+#   CREDIT_CORE_URL/CREDIT_CORE_API_KEY (billing entra no F-E) · serviço mcp_redis (sem consumidor até F-C)
+#   GEMINI_API_KEY (alias redundante de GOOGLE_API_KEY)
 #
-# Pré-requisito: stack `credit-core` no ar (alias `credit-core` na rede `net`).
-#
-# Env vars a definir no Portainer:
-#   MEDIA_FORGE_API_KEYS   chave(s) Bearer aceitas pelo MCP (F-A auth)
-#   CREDIT_CORE_API_KEY    chave para falar com o credit-core
-#   GOOGLE_API_KEY / GEMINI_API_KEY / FAL_KEY   chaves dos provedores de IA (server-side)
-#   MASTER_KEY             chave mestra de criptografia (padrão da suíte)
-#   MAXVISION_LICENSE_SERVER_URL   endpoint de validação de licença (C1)
-#   MEDIA_FORGE_TAG        tag da imagem (default: latest)
+# Pendências de feature (não são env, são fases): entrega de saída via MinIO/URL assinada = F-B;
+# billing credit-core = F-E; rate-limit Redis = F-C. Reintroduzir as envs correspondentes nessas fases.
 
 version: "3.9"
 
@@ -26,29 +29,23 @@ services:
   mcp-server:
     image: ghcr.io/produtoramaxvision/media-forge-mcp:${MEDIA_FORGE_TAG:-latest}
     networks:
-      - net        # Traefik alcança o server por aqui
-      - internal
+      - net
     environment:
       NODE_ENV: production
       TZ: America/Sao_Paulo
-      LOG_LEVEL: info
-      # F-A: o server HTTP lê MEDIA_FORGE_HTTP_PORT (default 8787); fixamos 3000 p/ casar com a suíte
       MEDIA_FORGE_HTTP_PORT: "3000"
-      MCP_PORT: "3000"
+      MEDIA_FORGE_LOG_LEVEL: info
+      MEDIA_FORGE_LOG_FORMAT: json
+      # refs (imagens de referência) exigem MinIO+pgvector+Voyage, não provisionados → desliga
+      MEDIA_FORGE_REFS_ENABLED: "false"
       MEDIA_FORGE_API_KEYS: ${MEDIA_FORGE_API_KEYS}
-      MCP_API_KEYS: ${MEDIA_FORGE_API_KEYS}
-      REDIS_URL: redis://mcp_redis:6379
-      # Billing: carteira compartilhada (stack credit-core) via rede `net`
-      CREDIT_CORE_URL: http://credit-core:8080
-      CREDIT_CORE_API_KEY: ${CREDIT_CORE_API_KEY}
-      # Provedores de IA (chaves no server, como nos outros MCPs)
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      MEDIA_FORGE_OCR_GOOGLE_VISION_KEY: ${MEDIA_FORGE_OCR_GOOGLE_VISION_KEY}
       FAL_KEY: ${FAL_KEY}
-      # Licenciamento C1 (mesmo padrão do tiktok-mcp)
-      LICENSE_CHECK_ENABLED: "true"
-      MAXVISION_LICENSE_SERVER_URL: ${MAXVISION_LICENSE_SERVER_URL}
-      MASTER_KEY: ${MASTER_KEY}
+      BYTEPLUS_ARK_API_KEY: ${BYTEPLUS_ARK_API_KEY}
+      HF_API_KEY: ${HF_API_KEY}
+      HF_API_SECRET: ${HF_API_SECRET}
     deploy:
       replicas: 1
       restart_policy:
@@ -64,18 +61,6 @@ services:
         - traefik.http.routers.media-forge.tls.certresolver=letsencryptresolver
         - traefik.http.services.media-forge.loadbalancer.server.port=3000
 
-  mcp_redis:
-    image: redis:7-alpine
-    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
-    networks:
-      - internal
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-
 networks:
   net:
     external: true
-  internal:
-    driver: overlay
