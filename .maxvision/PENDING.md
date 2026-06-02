@@ -45,5 +45,18 @@
 - **EXT-C** — Construir a landing (F-H) no Claude Design (prompt pronto em `.maxvision/specs/`).
 - **EXT-D** — Se distribuir via npm: confirmar schema do `marketplace.json` source npm.
 
----
-_(F-F adicionará seus próprios gates de deploy ao final desta seção.)_
+## 🔑 F-F — deploy do Worker de licença (quando você decidir CF vs Keygen)
+
+Código pronto e testado (`license-worker/` + `media-forge/src/license/*`). Hospedado já roda com a licença **desligada** (`LICENSE_CHECK_ENABLED=false`). O abaixo é só pra ativar o self-host C1 (agências):
+
+| # | Gate | Comando/valor |
+|---|---|---|
+| LIC1 | Cloudflare Account ID | dash.cloudflare.com (canto sup. direito) |
+| LIC2 | Wrangler API token | permissões `Workers Scripts:Edit` + `Workers KV Storage:Edit` |
+| LIC3 | KV namespace | `wrangler kv:namespace create LICENSES` → por o ID em `license-worker/wrangler.toml` |
+| LIC4 | Admin secret | `cd license-worker && wrangler secret put LICENSE_ADMIN_SECRET` |
+| LIC5 | Deploy do Worker | `cd license-worker && pnpm deploy` → URL `https://media-forge-license.<acct>.workers.dev` |
+| LIC6 | Emitir 1ª licença agência | `POST /admin/issue` com Bearer admin secret, body `{"tier":"agency"}` → `{licenseKey:"MFK-…"}` |
+| LIC7 | Config da agência on-prem | `LICENSE_CHECK_ENABLED=true` + `MAXVISION_LICENSE_SERVER_URL=<worker>/validate` + `MEDIA_FORGE_LICENSE_KEY=MFK-…` + `MEDIA_FORGE_LICENSE_INSTANCE_ID=<id estável>` |
+
+Alternativa Keygen: cliente é agnóstico — troca só o transporte em `src/license/client.ts`. (Decisão D2 do relicenciamento MIT→AGPL segue aberta acima.)
