@@ -19,7 +19,7 @@ export function buildHttpApp(opts: HttpAppOpts = {}) {
   app.post('/mcp', async (c) => {
     const auth = resolveAuth(c.req.header('Authorization'), env);
     if (!auth.ok) return c.json({ error: 'unauthorized', reason: auth.reason }, 401);
-    return handleMcpRequest(c.req.raw, auth.ctx);
+    return handleMcpRequest(c.req.raw, auth.ctx, env);
   });
 
   return app;
