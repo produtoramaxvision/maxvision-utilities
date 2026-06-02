@@ -4,7 +4,7 @@ All notable changes to `media-forge` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.1] - 2026-06-02
+## [0.2.0] - 2026-06-02
 
 ### Fixed
 
@@ -12,8 +12,6 @@ All notable changes to `media-forge` are documented here. The format follows
   binds `0.0.0.0` (IPv4); `localhost` resolves to `::1` (IPv6) first inside the
   container, so the healthcheck got `connection refused` and Swarm SIGKILLed the
   task in a restart loop despite the server being healthy.
-
-## [0.2.0] - 2026-06-02
 
 ### Added
 

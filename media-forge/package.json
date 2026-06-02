@@ -1,6 +1,6 @@
 {
   "name": "media-forge",
-  "version": "0.2.1",
+  "version": "0.2.0",
   "description": "Production-grade Claude Code plugin for image and video generation using top-tier Google AI models (Nano Banana Pro, Imagen 4 Ultra, Veo 3.1 Pro).",
   "type": "module",
   "engines": {
