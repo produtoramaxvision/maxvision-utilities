@@ -17,6 +17,7 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --ignore-workspace --prod
 COPY --from=build /app/dist ./dist
 EXPOSE 3000
+# 127.0.0.1 (não localhost): server binda 0.0.0.0 IPv4; localhost resolve ::1 (IPv6) → refused
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-  CMD wget -qO- http://localhost:3000/health || exit 1
+  CMD wget -qO- http://127.0.0.1:3000/health || exit 1
 CMD ["node", "dist/http/server.js"]
