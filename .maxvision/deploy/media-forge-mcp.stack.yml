@@ -136,10 +136,13 @@ services:
       POSTGRES_DB: media_forge
       POSTGRES_USER: media_forge
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      SCHEDULE: "@daily"         # CONFIRM: mirror meuagente stack value (may be @hourly)
-      BACKUP_KEEP_DAYS: "7"      # CONFIRM: mirror meuagente stack value
-      BACKUP_KEEP_WEEKS: "4"     # CONFIRM: mirror meuagente stack value
-      BACKUP_KEEP_MONTHS: "6"    # CONFIRM: mirror meuagente stack value
+      # Alinhado ao padrão da suíte (meuagente-postgres_app_backup): a cada 6h, retenção 14d/8w/12m.
+      SCHEDULE: "0 */6 * * *"
+      BACKUP_KEEP_DAYS: "14"
+      BACKUP_KEEP_WEEKS: "8"
+      BACKUP_KEEP_MONTHS: "12"
+      # --clean --if-exists: dump restaurável (pg_restore/psql) sem schemas de outro app.
+      POSTGRES_EXTRA_OPTS: "--clean --if-exists"
       HEALTHCHECK_PORT: "8080"
     volumes:
       - mcp-pg-backups:/backups
