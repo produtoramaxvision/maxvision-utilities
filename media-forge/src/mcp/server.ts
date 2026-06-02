@@ -12,6 +12,7 @@ import { createClient } from '../core/client.js';
 import { loadPricingOverridesFromEnv } from '../core/pricing.js';
 import { validateHiggsfieldPricingAtBoot } from '../core/higgsfield-pricing.js';
 import { registerAllTools, setWebhookRouter } from './handlers.js';
+import type { Tier } from '../http/auth.js';
 import {
   startWebhookRouter,
   stopWebhookRouter,
@@ -33,6 +34,8 @@ export interface BuildServerOpts {
   client?: ReturnType<typeof createClient>;
   /** F-B: artifact storage client. When undefined, handlers write to local disk (graceful degradation). */
   storage?: OutputStorageClient;
+  /** F-C: tier do tenant — controla quais tools sao registradas. Default 'pro' (todos). */
+  tier?: Tier;
 }
 
 export function buildServer(opts: BuildServerOpts = {}): McpServer {
@@ -60,8 +63,8 @@ export function buildServer(opts: BuildServerOpts = {}): McpServer {
   // registerAllTools — otherwise media_video_route + media_video_cost_estimate
   // silently report compiled-in public rates and the override env var is a no-op.
   loadPricingOverridesFromEnv(process.env);
-  const server = new McpServer({ name: 'media-forge', version: '0.1.1' });
-  registerAllTools(server, { client, config, storage: opts.storage });
+  const server = new McpServer({ name: 'media-forge', version: '0.2.0' });
+  registerAllTools(server, { client, config, storage: opts.storage, tier: opts.tier });
   return server;
 }
 

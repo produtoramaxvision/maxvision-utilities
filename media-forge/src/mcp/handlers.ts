@@ -1,7 +1,8 @@
 // src/mcp/handlers.ts
-// Registers all 22 MCP tools backed by service implementations.
+// Registers all MCP tools backed by service implementations.
 // Pattern: wrap each service call in wrap() for unified error handling and logging.
 // NEVER throw from a handler — always return {isError: true} with message.
+// F-C: registerAllTools receives optional tier and skips tools outside the tier gate.
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -16,6 +17,7 @@ import { safeJoin, jobId as generateJobId } from '../utils/paths.js';
 import { storeArtifact, presignExistingArtifact } from '../output/output-storage.js';
 import { ValidationError } from '../core/errors.js';
 import { MCP_TOOLS, type MCPTool } from './schemas.js';
+import { isToolAllowed } from '../http/tier-gates.js';
 
 // Strict jobId pattern: starts with alnum, only alnum + `_.-`, max 128 chars.
 // Mirrors the format emitted by OutputManager (YYYYMMDDTHHMMSSZ-<random6>-<slug>)
@@ -1624,8 +1626,10 @@ export interface HandlersDeps {
   client: MediaForgeClient;
   config: MediaForgeConfig;
   outputManager?: OutputManager;
-  /** F-B: quando presente, artefatos são enviados para MinIO; resultado retorna url + expires_at. */
+  /** F-B: quando presente, artefatos sao enviados para MinIO; resultado retorna url + expires_at. */
   storage?: OutputStorageClient;
+  /** F-C: tier do tenant — controla quais tools sao registradas. undefined = 'pro' (backward compat). */
+  tier?: import('../http/auth.js').Tier;
 }
 
 // ---------------------------------------------------------------------------
@@ -1821,6 +1825,14 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
   const { client, config, storage } = deps;
   const reg = looseRegister(server);
 
+  // F-C: tier gating — pula o registro de tools fora do gate do tier.
+  // undefined/missing tier = 'pro' (backward compat para stdio + testes existentes).
+  const effectiveTier = deps.tier ?? 'pro';
+  function regIfAllowed(name: string, cfg: Parameters<LooseRegisterTool>[1], cb: Parameters<LooseRegisterTool>[2]): void {
+    if (!isToolAllowed(effectiveTier, name)) return;
+    reg(name, cfg, cb);
+  }
+
   function getTool(name: string) {
     const t = MCP_TOOLS.find((tool) => tool.name === name);
     if (!t) throw new Error(`BUG: tool ${name} not found in MCP_TOOLS registry`);
@@ -1831,7 +1843,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_generate_image');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Generate Image (Nano Banana Pro)', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -1843,7 +1855,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_generate_imagen');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Generate Image (Imagen 4 Ultra)', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -1855,7 +1867,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_edit_image');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Edit Image', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await editImage(validateInput(t, input), client))),
@@ -1864,7 +1876,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_compose_scene');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Compose Scene', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await composeScene(input as never, client))),
@@ -1873,7 +1885,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_describe_image');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Describe Image', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await describeImage(input as never, client))),
@@ -1882,7 +1894,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_extract_palette');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Extract Color Palette', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await extractPalette(input as never))),
@@ -1893,7 +1905,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_generate_video_t2v');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Generate Video (Text to Video)', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await generateVideoT2V(validateInput(t, input), client))),
@@ -1902,7 +1914,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_generate_video_i2v');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Generate Video (Image to Video)', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await generateVideoI2V(validateInput(t, input), client))),
@@ -1911,7 +1923,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_generate_video_interpolate');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Generate Video (Interpolate)', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await generateVideoInterpolate(validateInput(t, input), client))),
@@ -1920,7 +1932,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_generate_video_with_refs');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Generate Video With References', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await generateVideoWithRefs(validateInput(t, input), client))),
@@ -1932,7 +1944,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     // Adapter: ExtendVideoInput → ExtendOpts
     // v0.1.0 limitation: treats sourceVideoPath as sourceVideoUri, prompt as both
     // originalPrompt and extensionDirective (no separate directive field in schema).
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Extend Video', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -1958,7 +1970,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_poll_video_operation');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Poll Video Operation', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -1985,7 +1997,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     // v0.1.0: downloadVideo requires a direct videoUri (not an operationName).
     // If caller passes an operation name instead of a resolved URI, return a
     // structured error note rather than making a broken HTTP request.
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Download Video', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2032,7 +2044,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_dry_run_payload');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Dry Run Payload', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2044,7 +2056,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_estimate_cost');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Estimate Cost', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2126,7 +2138,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_validate_environment');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Validate Environment', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (_input) => {
@@ -2179,7 +2191,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_capability_matrix');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Capability Matrix', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2198,7 +2210,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_list_outputs');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'List Outputs', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2238,7 +2250,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_get_job_metadata');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Get Job Metadata', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2322,7 +2334,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_run_ocr');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Run OCR', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2349,7 +2361,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_check_brand_compliance');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Check Brand Compliance', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2373,7 +2385,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_help');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Help', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2405,7 +2417,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_refs_search');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Search reference assets in media-forge-refs', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2427,7 +2439,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_refs_compose_moodboard');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Compose a moodboard keyframe from refs + subject images', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2440,7 +2452,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_refs_presign');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Generate presigned URLs for ref objects', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2453,7 +2465,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_refs_index');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Index refs bucket into pgvector (Phase 2)', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2475,7 +2487,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
   // reports `{ running: false, handlers: [] }`.
   {
     const t = getTool('media_video_webhook_status');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Webhook Router Status', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async () => asResult(await handleVideoWebhookStatus())),
@@ -2486,7 +2498,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_video_cost_estimate');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Video Cost Estimate', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleVideoCostEstimate(input))),
@@ -2495,7 +2507,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_video_cost_report');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Video Cost Report', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleVideoCostReport(input))),
@@ -2506,7 +2518,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_video_route');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Video Provider Routing', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleVideoRoute(input))),
@@ -2517,7 +2529,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_higgsfield_soul_id');
-    reg(
+    regIfAllowed(
       t.name,
       {
         title: 'Higgsfield Soul ID',
@@ -2532,7 +2544,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_higgsfield_dop');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Higgsfield DoP', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldDop(input))),
@@ -2543,7 +2555,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_higgsfield_cinema_studio');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Higgsfield Cinema Studio', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldCinemaStudio(input))),
@@ -2554,7 +2566,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_higgsfield_speak');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Higgsfield Speak', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldSpeak(input))),
@@ -2565,7 +2577,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_higgsfield_marketing_studio');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Higgsfield Marketing Studio', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldMarketingStudio(input))),
@@ -2576,7 +2588,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_higgsfield_recast');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Higgsfield Recast', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldRecast(input))),
@@ -2587,7 +2599,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_higgsfield_virality_predictor');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Higgsfield Virality Predictor', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldViralityPredictor(input))),
@@ -2597,7 +2609,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
   // ---- Higgsfield Generate (Codex P2 round 7 PR#10 — generic Soul/Soul2 submit) ----
   {
     const t = getTool('media_higgsfield_generate');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Higgsfield Generate', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldGenerate(input))),
@@ -2607,7 +2619,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
   // ---- Higgsfield Poll + Download (Codex P2 round 5 PR#10 — async lifecycle) ----
   {
     const t = getTool('media_higgsfield_poll');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Higgsfield Poll', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldPoll(input, { storage }))),
@@ -2615,7 +2627,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
   }
   {
     const t = getTool('media_higgsfield_download');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Higgsfield Download', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldDownload(input))),
@@ -2626,7 +2638,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_motion_brush');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Motion Brush', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingMotionBrush(input))),
@@ -2637,7 +2649,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_element_create');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Element Create', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingElementCreate(input))),
@@ -2646,7 +2658,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_element_list');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Element List', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingElementList(input))),
@@ -2655,7 +2667,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_element_delete');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Element Delete', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingElementDelete(input))),
@@ -2666,7 +2678,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_elements');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Elements', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingElements(input))),
@@ -2677,7 +2689,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_lip_sync');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Lip-Sync', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingLipSync(input))),
@@ -2688,7 +2700,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_omni_multishot');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Omni Multi-Shot', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingOmniMultiShot(input))),
@@ -2699,7 +2711,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_video_extend');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Video Extend', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingVideoExtend(input))),
@@ -2710,7 +2722,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_poll');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Poll', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingPoll(input, { storage }))),
@@ -2719,7 +2731,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_download');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Download', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingDownload(input))),
@@ -2734,7 +2746,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
   if (isSeedanceEnabled()) {
     {
       const t = getTool('media_seedance_text_to_video');
-      reg(
+      regIfAllowed(
         t.name,
         { title: 'Seedance 2.0 Text-to-Video', description: t.description, inputSchema: t.inputSchema as never },
         wrap(t.name, async (input) => asResult(await handleSeedanceTextToVideo(input))),
@@ -2743,7 +2755,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
     {
       const t = getTool('media_seedance_image_to_video');
-      reg(
+      regIfAllowed(
         t.name,
         { title: 'Seedance 2.0 Image-to-Video', description: t.description, inputSchema: t.inputSchema as never },
         wrap(t.name, async (input) => asResult(await handleSeedanceImageToVideo(input))),
@@ -2752,7 +2764,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
     {
       const t = getTool('media_seedance_multishot');
-      reg(
+      regIfAllowed(
         t.name,
         { title: 'Seedance 2.0 Multi-Shot', description: t.description, inputSchema: t.inputSchema as never },
         wrap(t.name, async (input) => asResult(await handleSeedanceMultishot(input))),
@@ -2761,7 +2773,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
     {
       const t = getTool('media_seedance_reference_fusion');
-      reg(
+      regIfAllowed(
         t.name,
         { title: 'Seedance 2.0 Reference Fusion', description: t.description, inputSchema: t.inputSchema as never },
         wrap(t.name, async (input) => asResult(await handleSeedanceReferenceFusion(input))),
