@@ -2741,7 +2741,34 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Kling Download', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleKlingDownload(input))),
+      wrap(t.name, async (input) => {
+        const result = await handleKlingDownload(input, { storage });
+        // F-I: record the completed generation in the gallery.
+        // credits_debited + credit_value_usd are set to 0 as a documented placeholder —
+        // they require F-D capture-call integration (credit-core not yet wired into media-forge).
+        // SEAM F-D: replace 0/0 with actual credits/creditValue from capture response when
+        // http://credit-core:8080 capture is integrated.
+        if (deps.galleryStore && typeof (result as Record<string, unknown>).actualUsd === 'number') {
+          const parsed = KlingDownloadInput.safeParse(input);
+          if (parsed.success && !parsed.data.jobIdOrUrl.startsWith('http')) {
+            await deps.galleryStore.insertGeneration({
+              generationId: parsed.data.jobIdOrUrl,
+              tenantId: deps.tenantId ?? 'default',
+              model: 'kling',
+              provider: 'kling',
+              costUsd: (result as Record<string, unknown>).actualUsd as number,
+              creditsDebited: 0,      // SEAM F-D: fill from credit-core capture
+              creditValueUsd: 0.01,   // SEAM F-D: fill from credit-core capture
+              status: 'completed',
+            }).catch((err: unknown) => {
+              process.stderr.write(
+                `[gallery] insertGeneration failed for ${parsed.data.jobIdOrUrl}: ${(err as Error).message}\n`,
+              );
+            });
+          }
+        }
+        return asResult(result);
+      }),
     );
   }
 
