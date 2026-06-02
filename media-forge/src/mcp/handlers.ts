@@ -13,7 +13,7 @@ import type { OutputStorageClient } from '../output/storage.js';
 import type { ZodTypeAny } from 'zod';
 import { logger } from '../core/logger.js';
 import { safeJoin, jobId as generateJobId } from '../utils/paths.js';
-import { storeArtifact } from '../output/output-storage.js';
+import { storeArtifact, presignExistingArtifact } from '../output/output-storage.js';
 import { ValidationError } from '../core/errors.js';
 import { MCP_TOOLS, type MCPTool } from './schemas.js';
 
@@ -231,25 +231,53 @@ export function _resetHiggsfieldProviderForTests(): void {
 // 7 Higgsfield generation tools (Codex P2 round 5 PR#10).
 // ---------------------------------------------------------------------------
 
-export async function handleHiggsfieldPoll(rawInput: unknown): Promise<{
+interface HiggsfieldPollResult {
   jobId: string;
   state: string;
   progress?: number;
   assetUrls?: ReadonlyArray<string>;
+  url?: string;
+  expires_at?: string;
   errorMessage?: string;
-}> {
+}
+
+export async function handleHiggsfieldPoll(
+  rawInput: unknown,
+  opts: { storage?: OutputStorageClient } = {},
+): Promise<HiggsfieldPollResult> {
   const input = rawInput as { jobId?: unknown };
   if (typeof input?.jobId !== 'string' || input.jobId.length === 0) {
     throw new Error('media_higgsfield_poll requires { jobId: string }');
   }
   const provider = higgsfieldProvider();
   const status = await provider.pollStatus(input.jobId);
+
+  // F-B: quando completed e storage configurado, tentar presign do objeto já no
+  // MinIO (uploaded pelo webhook handler). NOTA: o handler de webhook da
+  // Higgsfield é um logging stub sem buffer — na prática o objeto não existe e
+  // presignExistingArtifact retorna null, caindo no fallback assetUrls do
+  // provider. O branch fica aqui para simetria com Kling/Seedance.
+  let signedUrl: string | undefined;
+  let expiresAt: string | undefined;
+  if (status.state === 'completed' && opts.storage) {
+    const artifact = await presignExistingArtifact({
+      storage: opts.storage,
+      jobId: input.jobId,
+      contentType: 'video/mp4',
+    }).catch(() => null);
+    if (artifact) {
+      signedUrl = artifact.url;
+      expiresAt = artifact.expiresAt;
+    }
+  }
+
   return {
     jobId: status.jobId,
     state: status.state,
     ...(status.progress !== undefined ? { progress: status.progress } : {}),
     ...(status.assetUrls ? { assetUrls: status.assetUrls } : {}),
     ...(status.errorMessage ? { errorMessage: status.errorMessage } : {}),
+    ...(signedUrl !== undefined ? { url: signedUrl, expires_at: expiresAt } : {}),
   };
 }
 
@@ -753,6 +781,8 @@ export async function handleHiggsfieldSoulId(rawInput: unknown): Promise<
 
 export interface KlingHandlerExecOpts {
   readonly fetchImpl?: typeof fetch;
+  /** F-B: when present, handleKlingPoll presigns the MinIO artifact uploaded by the webhook handler. */
+  readonly storage?: OutputStorageClient;
 }
 
 export async function handleKlingMotionBrush(
@@ -1099,16 +1129,20 @@ export async function handleKlingVideoExtend(
 // completion without depending on a registered webhook.
 // ---------------------------------------------------------------------------
 
-export async function handleKlingPoll(
-  rawInput: unknown,
-  opts: KlingHandlerExecOpts = {},
-): Promise<{
+interface KlingPollResult {
   jobId: string;
   state: string;
   assetUrls?: readonly string[];
+  url?: string;
+  expires_at?: string;
   errorMessage?: string;
   progress?: number;
-}> {
+}
+
+export async function handleKlingPoll(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<KlingPollResult> {
   const input: KlingPollInputT = KlingPollInput.parse(rawInput);
   const provider = new KlingProvider({
     dbPath: defaultDbPath(),
@@ -1129,12 +1163,31 @@ export async function handleKlingPoll(
       "UPDATE video_jobs SET status = 'failed', actual_usd = COALESCE(actual_usd, 0), completed_at = ? WHERE id = ? AND status != 'completed'",
     ).run(new Date().toISOString(), input.jobId);
   }
+
+  // F-B: quando completed e storage configurado, presign do artefato já no MinIO
+  // (uploaded pelo webhook handler). Se o objeto não existir (webhook não chegou /
+  // callback suprimido no path manual), cair no fallback assetUrls do provider.
+  let signedUrl: string | undefined;
+  let expiresAt: string | undefined;
+  if (status.state === 'completed' && opts.storage) {
+    const artifact = await presignExistingArtifact({
+      storage: opts.storage,
+      jobId: input.jobId,
+      contentType: 'video/mp4',
+    }).catch(() => null);
+    if (artifact) {
+      signedUrl = artifact.url;
+      expiresAt = artifact.expiresAt;
+    }
+  }
+
   return {
     jobId: status.jobId,
     state: status.state,
     ...(status.assetUrls ? { assetUrls: status.assetUrls } : {}),
     ...(status.errorMessage ? { errorMessage: status.errorMessage } : {}),
     ...(typeof status.progress === 'number' ? { progress: status.progress } : {}),
+    ...(signedUrl !== undefined ? { url: signedUrl, expires_at: expiresAt } : {}),
   };
 }
 
@@ -2557,7 +2610,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     reg(
       t.name,
       { title: 'Higgsfield Poll', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleHiggsfieldPoll(input))),
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldPoll(input, { storage }))),
     );
   }
   {
@@ -2660,7 +2713,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     reg(
       t.name,
       { title: 'Kling Poll', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleKlingPoll(input))),
+      wrap(t.name, async (input) => asResult(await handleKlingPoll(input, { storage }))),
     );
   }
 

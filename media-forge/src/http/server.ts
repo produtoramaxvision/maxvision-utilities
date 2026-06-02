@@ -13,10 +13,8 @@ import type { WebhookHonoApp } from './webhook-hono.js';
 export function startHttpServer(): void {
   const port = Number(process.env['MEDIA_FORGE_HTTP_PORT'] ?? 8787);
   const config = loadConfig(process.env);
-  // F-B: storage de artefato. Importado já aqui (Task 4) para evitar uma segunda
-  // modificação deste arquivo; injetado nos webhook handlers na Task 7.
-  const _storage = outputStorageFromConfig(config) ?? undefined;
-  void _storage;
+  // F-B: storage de artefato. Injetado nos webhook handlers de provider abaixo.
+  const storage = outputStorageFromConfig(config) ?? undefined;
   const app = buildHttpApp();
   const appRec = app as unknown as Record<string, unknown>;
 
@@ -27,16 +25,19 @@ export function startHttpServer(): void {
     const dbPath = join(projectDir, 'cost.db');
 
     // Higgsfield HMAC handler (logging stub — sem buffer; entrega via fallback assetUrls).
-    // storage adicionado na Task 7.
-    webhookApp.webhookHandlers.set('higgsfield', createHiggsfieldWebhookHandler({ dbPath }));
+    webhookApp.webhookHandlers.set(
+      'higgsfield',
+      createHiggsfieldWebhookHandler({ dbPath, storage }),
+    );
 
-    // Kling HMAC handler — storage adicionado na Task 7 (upload do asset em state=succeed).
+    // Kling HMAC handler — upload do asset para MinIO quando state=succeed.
     webhookApp.webhookHandlers.set(
       'kling',
       createKlingWebhookHandler({
         dbPath,
         outputsDir: join(projectDir, 'outputs', 'kling'),
         env: process.env as never,
+        storage,
       }),
     );
 
@@ -46,7 +47,7 @@ export function startHttpServer(): void {
     if (isSeedanceEnabled()) {
       webhookApp.webhookHandlers.set(
         'bytedance',
-        createBytedanceWebhookHandler({ dbPath, outputsDir: seedanceOutputsDir }),
+        createBytedanceWebhookHandler({ dbPath, outputsDir: seedanceOutputsDir, storage }),
       );
     } else {
       webhookApp.webhookHandlers.set('bytedance', async (ctx) => {
