@@ -9,6 +9,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { MediaForgeClient } from '../core/client.js';
 import type { MediaForgeConfig } from '../core/config.js';
 import type { OutputManager } from '../output/output-manager.js';
+import type { OutputStorageClient } from '../output/storage.js';
 import type { ZodTypeAny } from 'zod';
 import { logger } from '../core/logger.js';
 import { safeJoin } from '../utils/paths.js';
@@ -1569,6 +1570,8 @@ export interface HandlersDeps {
   client: MediaForgeClient;
   config: MediaForgeConfig;
   outputManager?: OutputManager;
+  /** F-B: quando presente, artefatos são enviados para MinIO; resultado retorna url + expires_at. */
+  storage?: OutputStorageClient;
 }
 
 // ---------------------------------------------------------------------------

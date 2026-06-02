@@ -25,11 +25,14 @@ import { createBytedanceWebhookHandler } from '../video/providers/bytedance-webh
 import { verifyFalWebhookSignature } from '../video/providers/auth/fal-ed25519.js';
 import { isSeedanceEnabled } from '../core/feature-flags.js';
 import { join } from 'node:path';
+import type { OutputStorageClient } from '../output/storage.js';
 
 export interface BuildServerOpts {
   // Injection point for tests — config + client come from outside in tests
   config?: ReturnType<typeof loadConfig>;
   client?: ReturnType<typeof createClient>;
+  /** F-B: artifact storage client. When undefined, handlers write to local disk (graceful degradation). */
+  storage?: OutputStorageClient;
 }
 
 export function buildServer(opts: BuildServerOpts = {}): McpServer {
@@ -58,7 +61,7 @@ export function buildServer(opts: BuildServerOpts = {}): McpServer {
   // silently report compiled-in public rates and the override env var is a no-op.
   loadPricingOverridesFromEnv(process.env);
   const server = new McpServer({ name: 'media-forge', version: '0.1.1' });
-  registerAllTools(server, { client, config });
+  registerAllTools(server, { client, config, storage: opts.storage });
   return server;
 }
 

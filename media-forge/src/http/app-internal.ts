@@ -14,11 +14,9 @@ export async function handleMcpRequest(
   // afetar process.env global. _ctx carrega o tenant em F-C (injeção nos
   // handlers); em F-A é só a apiKey.
   // F-B: storage opcional — quando MINIO_* configurado, handlers retornam signed URL.
-  // BuildServerOpts.storage é adicionado na Task 5; aqui (Task 4) só computamos o cliente.
   const config = loadConfig(env);
   const storage = outputStorageFromConfig(config);
-  void storage;
-  const server = buildServer({ config });
+  const server = buildServer({ config, storage: storage ?? undefined });
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
