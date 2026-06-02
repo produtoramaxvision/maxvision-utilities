@@ -4,9 +4,17 @@ All notable changes to `media-forge` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-06-02
 
-> Targets patch v0.1.2 (docs/metadata only; no code change). `0.1.1` is already tagged; these entries are a retroactive sync that ships in the next patch.
+### Added
+
+- **HTTP transport (F-A):** hosted MCP server over Hono + Streamable HTTP
+  (stateless, per-request `McpServer`) alongside the existing stdio path. New
+  `src/http/` (`auth.ts` Bearer resolver, `app.ts` with `/health` `/metrics`
+  `/mcp`, `startHttpServer()`), pinned MCP SDK `^1.29`, `start:http` script.
+- **Docker image + publish:** multi-stage arm64 `Dockerfile` (system ffmpeg,
+  `/health` healthcheck); `release.yml` builds + pushes
+  `ghcr.io/produtoramaxvision/media-forge-mcp` to ghcr on the release tag.
 
 ### Docs / Metadata sync (no code change)
 
