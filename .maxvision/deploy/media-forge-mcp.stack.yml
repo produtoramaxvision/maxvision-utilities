@@ -148,6 +148,11 @@ services:
       - mcp-pg-backups:/backups
     depends_on:
       - mcp-postgres
+    # Cron de backup (daemon long-running). Healthcheck de orquestração desnecessário
+    # — o serviço não atende requests; a imagem traz um HEALTHCHECK que fica "starting"
+    # no Swarm sem flipar. Desabilitado → task converge 1/1; o cron roda a cada 6h.
+    healthcheck:
+      disable: true
     deploy:
       replicas: 1
       restart_policy:
