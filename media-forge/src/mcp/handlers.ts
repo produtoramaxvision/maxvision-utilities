@@ -12,7 +12,8 @@ import type { OutputManager } from '../output/output-manager.js';
 import type { OutputStorageClient } from '../output/storage.js';
 import type { ZodTypeAny } from 'zod';
 import { logger } from '../core/logger.js';
-import { safeJoin } from '../utils/paths.js';
+import { safeJoin, jobId as generateJobId } from '../utils/paths.js';
+import { storeArtifact } from '../output/output-storage.js';
 import { ValidationError } from '../core/errors.js';
 import { MCP_TOOLS, type MCPTool } from './schemas.js';
 
@@ -1720,8 +1721,51 @@ function buildHelpText(topic: string | undefined): string {
 // registerAllTools — main export
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// F-B: image artifact upload helper
+// ---------------------------------------------------------------------------
+// The image services return { base64, mimeType, ... } (NOT a Buffer and NOT a
+// jobId). When storage is configured and the result carries real image bytes
+// (not a dry-run), decode base64 -> Buffer, mint a deterministic jobId via the
+// shared minter, upload to MinIO and return signed { url, expires_at } merged
+// into the result. Graceful degradation: no storage / dry-run / empty bytes ->
+// the original result passes through unchanged (F-A behaviour).
+type ImageGenResult = {
+  base64: string;
+  mimeType: string;
+  dryRun?: boolean;
+};
+
+async function maybeStoreImageArtifact(
+  result: ImageGenResult,
+  storage: OutputStorageClient | undefined,
+  prefix: string,
+): Promise<unknown> {
+  if (!storage || result.dryRun || !result.base64) {
+    return result;
+  }
+  try {
+    const id = generateJobId(prefix);
+    const bytes = Buffer.from(result.base64, 'base64');
+    const artifact = await storeArtifact({
+      storage,
+      jobId: id,
+      bytes,
+      contentType: result.mimeType,
+    });
+    return { ...result, job_id: id, url: artifact.url, expires_at: artifact.expiresAt };
+  } catch (err) {
+    // Best-effort: upload failure must not drop the generated image. Surface the
+    // base64 result (F-A path) so the caller still receives the artifact.
+    process.stderr.write(
+      `[image-storage] upload failed (${prefix}): ${(err as Error).message}\n`,
+    );
+    return result;
+  }
+}
+
 export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
-  const { client, config } = deps;
+  const { client, config, storage } = deps;
   const reg = looseRegister(server);
 
   function getTool(name: string) {
@@ -1737,7 +1781,10 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     reg(
       t.name,
       { title: 'Generate Image (Nano Banana Pro)', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await generateImageNanoBananaPro(validateInput(t, input), client))),
+      wrap(t.name, async (input) => {
+        const result = await generateImageNanoBananaPro(validateInput(t, input), client);
+        return asResult(await maybeStoreImageArtifact(result, storage, 'nano-banana-pro'));
+      }),
     );
   }
 
@@ -1746,7 +1793,10 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     reg(
       t.name,
       { title: 'Generate Image (Imagen 4 Ultra)', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await generateImageImagen4Ultra(input as never, client))),
+      wrap(t.name, async (input) => {
+        const result = await generateImageImagen4Ultra(input as never, client);
+        return asResult(await maybeStoreImageArtifact(result, storage, 'imagen-4-ultra'));
+      }),
     );
   }
 
