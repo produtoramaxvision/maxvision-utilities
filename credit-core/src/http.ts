@@ -73,6 +73,9 @@ async function main(): Promise<void> {
   if (apiKeys.length === 0) throw new Error('CREDIT_API_KEYS is required (comma-separated)');
 
   const pool = new Pool({ connectionString });
+  const { runMigrations } = await import('./migrate.js');
+  const applied = await runMigrations(pool);
+  if (applied.length) console.log(`migrations applied: ${applied.join(', ')}`); // eslint-disable-line no-console
   const svc = new CreditService(new Store(pool));
   const app = buildCreditApp(svc, { apiKeys });
   const port = Number(process.env.PORT ?? 8080);
