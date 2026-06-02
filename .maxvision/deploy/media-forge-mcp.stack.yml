@@ -34,6 +34,7 @@ services:
     image: ghcr.io/produtoramaxvision/media-forge-mcp:${MEDIA_FORGE_TAG:-latest}
     networks:
       - net
+      - internal
     depends_on:
       - mcp-redis
       - mcp-postgres
@@ -89,7 +90,7 @@ services:
   mcp-redis:
     image: redis:7-alpine
     networks:
-      - net
+      - internal
     command: redis-server --save "" --appendonly no --maxmemory 64mb --maxmemory-policy allkeys-lru
     deploy:
       replicas: 1
@@ -102,7 +103,7 @@ services:
   mcp-postgres:
     image: postgres:16-alpine
     networks:
-      - net
+      - internal
     environment:
       POSTGRES_DB: media_forge
       POSTGRES_USER: media_forge
@@ -128,3 +129,5 @@ volumes:
 networks:
   net:
     external: true
+  internal:
+    driver: overlay
