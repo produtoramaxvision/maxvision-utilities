@@ -6,8 +6,8 @@
     "url": "https://github.com/produtoramaxvision"
   },
   "metadata": {
-    "description": "MaxVision's curated Claude Code marketplace — production-grade skills for n8n workflows, Google Tag Manager API, and more.",
-    "version": "0.1.1"
+    "description": "MaxVision's curated Claude Code marketplace - production-grade skills for n8n workflows, Google Tag Manager API, media-forge hosted edition, and more.",
+    "version": "0.2.0"
   },
   "plugins": [
     {
@@ -27,7 +27,7 @@
     },
     {
       "name": "gtm-skills",
-      "description": "Google Tag Manager API expert skill — create, update, delete, and publish tags, triggers, and variables programmatically",
+      "description": "Google Tag Manager API expert skill - create, update, delete, and publish tags, triggers, and variables programmatically",
       "source": "./gtm-skills",
       "strict": true,
       "skills": [
@@ -36,7 +36,7 @@
     },
     {
       "name": "media-forge",
-      "description": "Production-grade image and video generation. Google top-tier AI (Nano Banana Pro, Imagen 4 Ultra, Veo 3.1) plus multi-provider video (Higgsfield, Kling 3.0, Seedance 2.0). 14 domain-specialized subagents, 14 skills, 54 MCP tools, smart-routing quality reviewer, dual surface (Claude Code plugin + MCP server + CLI).",
+      "description": "media-forge self-host edition - stdio plugin for local MCP server. Requires local build (Node + sharp + ffmpeg). For devs and self-hosted C1. See media-forge-hosted for zero-dep cloud edition.",
       "source": "./media-forge",
       "strict": true,
       "skills": [
@@ -55,6 +55,11 @@
         "./skills/seedance-prompting",
         "./skills/setup"
       ]
+    },
+    {
+      "name": "media-forge-hosted",
+      "description": "media-forge hosted edition - image and video generation via MaxVision cloud. Google Imagen 4 / Veo 3.1 / Nano Banana Pro + Higgsfield / Kling 3.0 / Seedance 2.0. Zero local deps: just set MEDIA_FORGE_API_KEY.",
+      "source": "./media-forge/plugins/media-forge-hosted"
     }
   ]
 }
