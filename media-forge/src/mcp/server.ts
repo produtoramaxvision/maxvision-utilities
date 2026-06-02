@@ -27,6 +27,7 @@ import { verifyFalWebhookSignature } from '../video/providers/auth/fal-ed25519.j
 import { isSeedanceEnabled } from '../core/feature-flags.js';
 import { join } from 'node:path';
 import type { OutputStorageClient } from '../output/storage.js';
+import type { GalleryStore } from '../gallery/gallery-store.js';
 
 export interface BuildServerOpts {
   // Injection point for tests — config + client come from outside in tests
@@ -36,6 +37,10 @@ export interface BuildServerOpts {
   storage?: OutputStorageClient;
   /** F-C: tier do tenant — controla quais tools sao registradas. Default 'pro' (todos). */
   tier?: Tier;
+  /** F-I: gallery store for list_my_generations. undefined = gallery disabled (self-host). */
+  galleryStore?: GalleryStore;
+  /** F-I: tenantId from AuthContext (F-C). undefined = 'default' (stdio / self-host). */
+  tenantId?: string;
 }
 
 export function buildServer(opts: BuildServerOpts = {}): McpServer {
@@ -64,7 +69,14 @@ export function buildServer(opts: BuildServerOpts = {}): McpServer {
   // silently report compiled-in public rates and the override env var is a no-op.
   loadPricingOverridesFromEnv(process.env);
   const server = new McpServer({ name: 'media-forge', version: '0.2.0' });
-  registerAllTools(server, { client, config, storage: opts.storage, tier: opts.tier });
+  registerAllTools(server, {
+    client,
+    config,
+    storage: opts.storage,
+    tier: opts.tier,
+    galleryStore: opts.galleryStore,
+    tenantId: opts.tenantId,
+  });
   return server;
 }
 

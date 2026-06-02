@@ -29,6 +29,9 @@ const UTILITY_TOOLS = new Set([
 
 const HELP_TOOLS = new Set(['media_help']);
 
+// Gallery tools (F-I): available to all tiers — tenants read their own history only
+const GALLERY_TOOLS = new Set(['list_my_generations']);
+
 const VIDEO_TOOLS = new Set([
   'media_generate_video_t2v',
   'media_generate_video_i2v',
@@ -88,14 +91,15 @@ function union(...sets: Set<string>[]): Set<string> {
 }
 
 export const TIER_GATES: Record<Tier, ReadonlySet<string>> = {
-  // free: so imagem + utilidade + help (spec §4.4: "Free tier so caminho imagem")
-  free: union(IMAGE_TOOLS, UTILITY_TOOLS, HELP_TOOLS),
+  // free: so imagem + utilidade + help + galeria propria (F-I: leitura tenant-scoped)
+  free: union(IMAGE_TOOLS, UTILITY_TOOLS, HELP_TOOLS, GALLERY_TOOLS),
 
-  // creator: + video (Veo/Kling/Higgsfield/Seedance) + custo/rota (cap por ciclo vem de F-E)
+  // creator: + video (Veo/Kling/Higgsfield/Seedance) + custo/rota + galeria
   creator: union(
     IMAGE_TOOLS, UTILITY_TOOLS, HELP_TOOLS,
     VIDEO_TOOLS, COST_TOOLS,
     HIGGSFIELD_TOOLS, KLING_TOOLS, SEEDANCE_TOOLS,
+    GALLERY_TOOLS,
   ),
 
   // pro: construido diretamente do registry -- nunca diverge; inclui refs + todas as futuras tools

@@ -817,6 +817,23 @@ export const SeedanceReferenceFusionInput = _SeedanceReferenceFusionBase
 export type SeedanceReferenceFusionInputT = z.infer<typeof SeedanceReferenceFusionInput>;
 
 // ---------------------------------------------------------------------------
+// Gallery — F-I
+// ---------------------------------------------------------------------------
+
+// list_my_generations — paginated gallery query (tenant from AuthContext, not client input)
+export const ListMyGenerationsInput = z.object({
+  page: z.number().int().min(1).default(1).describe('Página (1-based, default: 1)'),
+  page_size: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .default(20)
+    .describe('Itens por página (max 100, default: 20)'),
+});
+export type ListMyGenerationsInputT = z.infer<typeof ListMyGenerationsInput>;
+
+// ---------------------------------------------------------------------------
 // MCPTool interface
 // ---------------------------------------------------------------------------
 export interface MCPTool {
@@ -828,7 +845,7 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 54 tools total (PR#11 base 50 + P16 4 Seedance = 54)
+// MCP_TOOLS registry — 55 tools total (PR#11 base 54 + F-I 1 gallery = 55)
 // 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route
 // + 7 higgsfield (soul_id, dop, cinema_studio, speak, marketing_studio, recast, virality_predictor)
 // + 1 higgsfield_generate (Codex round 7 PR#10)
@@ -1206,6 +1223,14 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
       'Seedance 2.0 reference-to-video (omni-reference fusion). Up to 9 image refs + 3 video refs + 3 audio refs. Prompt should reference them via @Image1/@Video1/@Audio1 mention syntax. The model fuses identity / style / motion / voice across all refs. NOTE: Seedance has unresolved IP litigation (Disney/Paramount C&D); operator assumes full compliance responsibility, see README "Legal Note on Seedance 2.0".',
     inputSchema: _SeedanceReferenceFusionBase,
     validationSchema: SeedanceReferenceFusionInput,
+  },
+
+  // ---- Gallery (1 — F-I: list tenant's own generation history) ----
+  {
+    name: 'list_my_generations',
+    description:
+      'List completed generations for the authenticated tenant (paginated, newest first). tenantId is read from server-side AuthContext — never from client input.',
+    inputSchema: ListMyGenerationsInput,
   },
 ] as const) as readonly MCPTool[];
 

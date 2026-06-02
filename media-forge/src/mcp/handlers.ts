@@ -19,6 +19,8 @@ import { ValidationError } from '../core/errors.js';
 import { MCP_TOOLS, type MCPTool } from './schemas.js';
 import { isToolAllowed } from '../http/tier-gates.js';
 import type { Tier } from '../http/auth.js';
+import type { GalleryStore } from '../gallery/gallery-store.js';
+import { ListMyGenerationsInput } from './schemas.js';
 
 // Strict jobId pattern: starts with alnum, only alnum + `_.-`, max 128 chars.
 // Mirrors the format emitted by OutputManager (YYYYMMDDTHHMMSSZ-<random6>-<slug>)
@@ -1631,6 +1633,10 @@ export interface HandlersDeps {
   storage?: OutputStorageClient;
   /** F-C: tier do tenant — controla quais tools sao registradas. undefined = 'pro' (backward compat). */
   tier?: Tier;
+  /** F-I: gallery store para list_my_generations. undefined = gallery desabilitada (self-host sem Postgres). */
+  galleryStore?: GalleryStore;
+  /** F-I: tenantId do AuthContext (F-C). undefined = 'default' (self-host / stdio). */
+  tenantId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -2780,5 +2786,42 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
         wrap(t.name, async (input) => asResult(await handleSeedanceReferenceFusion(input))),
       );
     }
+  }
+
+  // ---- Gallery (F-I) — list_my_generations: tenant from AuthContext, never from client ----
+  {
+    const t = getTool('list_my_generations');
+    regIfAllowed(
+      t.name,
+      {
+        title: 'List My Generations',
+        description: t.description,
+        inputSchema: t.inputSchema as never,
+      },
+      wrap(t.name, async (input) => {
+        const parsed = ListMyGenerationsInput.safeParse(input);
+        if (!parsed.success) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: 'invalid_input', issues: parsed.error.issues }) }],
+            isError: true,
+          };
+        }
+        // tenantId comes from AuthContext (F-C seam). Falls back to 'default' for self-host (no DATABASE_URL).
+        const tenantId = deps.tenantId ?? 'default';
+        const galleryStore = deps.galleryStore;
+        if (!galleryStore) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: 'gallery_not_configured' }) }],
+            isError: true,
+          };
+        }
+        const page = await galleryStore.listGenerations({
+          tenantId,
+          page: parsed.data.page,
+          pageSize: parsed.data.page_size,
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(page) }] };
+      }),
+    );
   }
 }
