@@ -14,14 +14,32 @@
 #   HF_API_KEY / HF_API_SECRET        opcional — Higgsfield direto
 #   MEDIA_FORGE_API_KEYS              já setado — Bearer aceito pelo MCP (F-A auth)
 #
+# ADICIONADO EM F-B (2026-06-02):
+#   MINIO_ENDPOINT                    OBRIGATÓRIO p/ entrega via signed URL (ex: https://s3.meuagente.api.br).
+#                                     Sem ele, handlers caem no path local (disco efêmero) — degradação graciosa.
+#   MINIO_REGION                      padrão: us-east-1
+#   MINIO_BUCKET                      padrão: media-forge-outputs (bucket dedicado; ver provisão no plano F-B)
+#   MINIO_ACCESS_KEY                  access key do service account media-forge-svc
+#   MINIO_SECRET_KEY                  secret key do service account media-forge-svc
+#   MINIO_USE_SSL                     padrão: true (config.ts lê; o endpoint já carrega o scheme)
+#   MEDIA_FORGE_WEBHOOK_SECRET        HMAC secret para callbacks de provider (openssl rand -hex 32).
+#                                     Sem ele, o endpoint /webhooks fica desabilitado.
+#   MEDIA_FORGE_ARTIFACT_TTL_SECONDS  TTL signed URLs em segundos (padrão: 604800 = 7 dias)
+#   MEDIA_FORGE_WEBHOOK_PUBLIC_URL    base pública dos callbacks. F-B: https://media-forge.produtoramaxvision.com.br/webhooks
+#                                     Provider envia callback p/ {base}/{provider}/{job_id}.
+#
 # REMOVIDOS por não serem lidos pelo media-forge (evita env morta):
 #   LOG_LEVEL (o lido é MEDIA_FORGE_LOG_LEVEL) · MCP_PORT · MCP_API_KEYS · REDIS_URL
 #   MASTER_KEY · MAXVISION_LICENSE_SERVER_URL · LICENSE_CHECK_ENABLED
 #   CREDIT_CORE_URL/CREDIT_CORE_API_KEY (billing entra no F-E) · serviço mcp_redis (sem consumidor até F-C)
 #   GEMINI_API_KEY (alias redundante de GOOGLE_API_KEY)
 #
-# Pendências de feature (não são env, são fases): entrega de saída via MinIO/URL assinada = F-B;
-# billing credit-core = F-E; rate-limit Redis = F-C. Reintroduzir as envs correspondentes nessas fases.
+# Pendências de feature (não são env, são fases): billing credit-core = F-E;
+# rate-limit Redis cross-replica = F-C. Reintroduzir as envs correspondentes nessas fases.
+#
+# replicas: 1 mantido em F-B — o state de job (video_jobs SQLite) é single-replica.
+# A chave de artefato (outputs/{job_id}.ext) é determinística (presign stateless),
+# mas o job-state SQLite limita escala horizontal. Cross-replica → F-I.
 
 version: "3.9"
 
@@ -46,6 +64,18 @@ services:
       BYTEPLUS_ARK_API_KEY: ${BYTEPLUS_ARK_API_KEY}
       HF_API_KEY: ${HF_API_KEY}
       HF_API_SECRET: ${HF_API_SECRET}
+      # F-B: entrega de artefato via MinIO/S3 (presigned URLs). Bucket dedicado: media-forge-outputs.
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_BUCKET: ${MINIO_BUCKET:-media-forge-outputs}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-true}
+      # F-B: webhook endpoint público para callbacks de provider.
+      # Providers enviam callbacks para: https://media-forge.produtoramaxvision.com.br/webhooks/{provider}/{job_id}
+      MEDIA_FORGE_WEBHOOK_SECRET: ${MEDIA_FORGE_WEBHOOK_SECRET}
+      MEDIA_FORGE_WEBHOOK_PUBLIC_URL: ${MEDIA_FORGE_WEBHOOK_PUBLIC_URL:-https://media-forge.produtoramaxvision.com.br/webhooks}
+      MEDIA_FORGE_ARTIFACT_TTL_SECONDS: ${MEDIA_FORGE_ARTIFACT_TTL_SECONDS:-604800}
     deploy:
       replicas: 1
       restart_policy:
