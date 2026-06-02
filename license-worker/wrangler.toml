@@ -1,6 +1,7 @@
 name = "media-forge-license"
 main = "src/index.ts"
 compatibility_date = "2025-05-01"
+compatibility_flags = ["nodejs_compat"]
 
 [[kv_namespaces]]
 binding = "LICENSES"
