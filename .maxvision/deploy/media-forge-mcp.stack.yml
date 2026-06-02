@@ -128,7 +128,7 @@ services:
   # CONFIRM before deploy: SCHEDULE, BACKUP_KEEP_DAYS/WEEKS/MONTHS against meuagente stack values.
   # NOTE: POSTGRES_PASSWORD_FILE not supported; inline var used (value from Portainer secret/env).
   mcp-postgres-backup:
-    image: ghcr.io/prodrigestivill/postgres-backup-local:16
+    image: prodrigestivill/postgres-backup-local:16
     networks:
       - internal
     environment:
