@@ -71,6 +71,50 @@ describe('createKlingWebhookHandler', () => {
     expect(report.byProvider.kling?.actualUsd).toBeCloseTo(0.126 * 5, 4);
   });
 
+  it('F-B: uploads completed asset to MinIO under canonical key outputs/{jobId}.mp4', async () => {
+    recordJob({
+      dbPath,
+      jobId: 'internal-job-S3',
+      provider: 'kling',
+      model: 'kling-v3-standard',
+      mode: 't2v',
+      paramsHash: 'hS3',
+      estUsd: 0.63,
+    });
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Map([['content-type', 'video/mp4']]),
+      arrayBuffer: async () => new TextEncoder().encode('MP4_FOR_MINIO').buffer,
+    });
+    const putObject = vi.fn().mockResolvedValue(undefined);
+    const storage = { putObject, presignGet: vi.fn(), headObject: vi.fn() };
+
+    const handler = createKlingWebhookHandler({
+      dbPath,
+      outputsDir,
+      fetchImpl: fetchImpl as never,
+      storage,
+    });
+    await handler({
+      provider: 'kling',
+      jobId: 'internal-job-S3',
+      payload: {
+        task_id: 'kling-native-S3',
+        task_status: 'succeed',
+        task_result: { videos: [{ id: 'v1', url: 'https://cdn.kling/asset-S3.mp4', duration: '5' }] },
+      },
+      headers: {},
+    });
+
+    expect(putObject).toHaveBeenCalledTimes(1);
+    const [key, body, contentType] = putObject.mock.calls[0] as [string, Buffer, string];
+    expect(key).toBe('outputs/internal-job-S3.mp4');
+    expect(Buffer.isBuffer(body)).toBe(true);
+    expect(body.toString()).toBe('MP4_FOR_MINIO');
+    expect(contentType).toBe('video/mp4');
+  });
+
   it('ignores payload when task_status is not "succeed" (processing/submitted)', async () => {
     recordJob({
       dbPath,

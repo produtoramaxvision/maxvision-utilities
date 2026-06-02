@@ -25,8 +25,15 @@
 #   MEDIA_FORGE_WEBHOOK_SECRET        HMAC secret para callbacks de provider (openssl rand -hex 32).
 #                                     Sem ele, o endpoint /webhooks fica desabilitado.
 #   MEDIA_FORGE_ARTIFACT_TTL_SECONDS  TTL signed URLs em segundos (padrão: 604800 = 7 dias)
-#   MEDIA_FORGE_WEBHOOK_PUBLIC_URL    base pública dos callbacks. F-B: https://media-forge.produtoramaxvision.com.br/webhooks
-#                                     Provider envia callback p/ {base}/{provider}/{job_id}.
+#   MEDIA_FORGE_WEBHOOK_PUBLIC_URL    base pública (HOST, SEM /webhooks). O provider anexa
+#                                     /webhooks/{provider}/{job_id} (kling.ts:458). Valor: o host raiz
+#                                     https://media-forge.produtoramaxvision.com.br — NÃO incluir /webhooks
+#                                     (senão duplica → /webhooks/webhooks/...). O endpoint Hono recebe em
+#                                     /webhooks/{provider}/{job_id}.
+#                                     LIMITAÇÃO (pré-F-B): Kling/Higgsfield NÃO assinam HMAC, então o
+#                                     callback é suprimido por padrão (Kling exige MEDIA_FORGE_KLING_WEBHOOK_INSECURE=true;
+#                                     Higgsfield path quebrado por design). Entrega via MinIO p/ vídeo só
+#                                     funciona ponta-a-ponta para Seedance/Bytedance (fal.ai assina Ed25519).
 #
 # REMOVIDOS por não serem lidos pelo media-forge (evita env morta):
 #   LOG_LEVEL (o lido é MEDIA_FORGE_LOG_LEVEL) · MCP_PORT · MCP_API_KEYS · REDIS_URL
@@ -74,7 +81,8 @@ services:
       # F-B: webhook endpoint público para callbacks de provider.
       # Providers enviam callbacks para: https://media-forge.produtoramaxvision.com.br/webhooks/{provider}/{job_id}
       MEDIA_FORGE_WEBHOOK_SECRET: ${MEDIA_FORGE_WEBHOOK_SECRET}
-      MEDIA_FORGE_WEBHOOK_PUBLIC_URL: ${MEDIA_FORGE_WEBHOOK_PUBLIC_URL:-https://media-forge.produtoramaxvision.com.br/webhooks}
+      # HOST raiz, SEM /webhooks — o provider anexa /webhooks/{provider}/{job_id} (kling.ts:458).
+      MEDIA_FORGE_WEBHOOK_PUBLIC_URL: ${MEDIA_FORGE_WEBHOOK_PUBLIC_URL:-https://media-forge.produtoramaxvision.com.br}
       MEDIA_FORGE_ARTIFACT_TTL_SECONDS: ${MEDIA_FORGE_ARTIFACT_TTL_SECONDS:-604800}
     deploy:
       replicas: 1
