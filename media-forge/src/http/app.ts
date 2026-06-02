@@ -2,6 +2,7 @@
 // Hono app do transporte HTTP. F-C: resolveAuth async + rate-limit + store/limiter injetaveis.
 // /webhooks/:provider/:jobId monta o webhook Hono sub-app quando o secret esta presente (F-B).
 // F-I: galleryStore injetado para list_my_generations + /metrics margin gauges.
+// F-F: licenseState injetado para gate de licença C1 self-host (403 quando revogada).
 import { Hono } from 'hono';
 import { resolveAuth } from './auth.js';
 import { handleMcpRequest } from './app-internal.js';
@@ -12,6 +13,7 @@ import type { RateLimiter } from './rate-limiter.js';
 import { NullRateLimiter } from './rate-limiter.js';
 import type { GalleryStore } from '../gallery/gallery-store.js';
 import { computeMargin } from '../gallery/margin.js';
+import type { LicenseState } from '../license/types.js';
 
 export interface HttpAppOpts {
   env?: NodeJS.ProcessEnv;
@@ -19,6 +21,8 @@ export interface HttpAppOpts {
   limiter?: RateLimiter;
   /** F-I: gallery store for list_my_generations + /metrics margin gauges. */
   galleryStore?: GalleryStore;
+  /** F-F: presente só quando LICENSE_CHECK_ENABLED=true (self-host C1). No-op quando ausente. */
+  licenseState?: () => LicenseState;
 }
 
 export function buildHttpApp(opts: HttpAppOpts = {}) {
@@ -27,6 +31,7 @@ export function buildHttpApp(opts: HttpAppOpts = {}) {
     opts.store ?? new FlatKeyStore(env['MEDIA_FORGE_API_KEYS'] ?? '');
   const limiter: RateLimiter = opts.limiter ?? new NullRateLimiter();
   const galleryStore = opts.galleryStore;
+  const licenseState = opts.licenseState;
   const app = new Hono();
 
   app.get('/health', (c) => c.json({ ok: true }));
@@ -76,11 +81,18 @@ export function buildHttpApp(opts: HttpAppOpts = {}) {
   });
 
   app.post('/mcp', async (c) => {
-    // 1. Autenticacao
+    // 1. Autenticacao (401)
     const auth = await resolveAuth(c.req.header('Authorization'), store);
     if (!auth.ok) return c.json({ error: 'unauthorized', reason: auth.reason }, 401);
 
-    // 2. Rate-limit por tenant
+    // 2. Gate de licença (F-F self-host C1): 403 quando revogada. No-op no modo hosted.
+    // Auth (401) roda ANTES do gate de licença (403) para não vazar estado a anônimos.
+    if (licenseState) {
+      const state = licenseState();
+      if (!state.allowed) return c.json({ error: 'license_invalid', reason: state.reason }, 403);
+    }
+
+    // 3. Rate-limit por tenant
     const rl = await limiter.check(auth.ctx.tenantId, auth.ctx.tier);
     if (!rl.allowed) {
       return c.json(
@@ -90,7 +102,7 @@ export function buildHttpApp(opts: HttpAppOpts = {}) {
       );
     }
 
-    // 3. Handle MCP (propaga ctx com tenantId+tier+scopes + galleryStore F-I)
+    // 4. Handle MCP (propaga ctx com tenantId+tier+scopes + galleryStore F-I)
     return handleMcpRequest(c.req.raw, auth.ctx, env, { galleryStore });
   });
 
