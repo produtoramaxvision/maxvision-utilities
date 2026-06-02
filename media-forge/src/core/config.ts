@@ -96,6 +96,15 @@ export interface MediaForgeConfig {
   readonly refsEnabled: boolean;
   readonly refMatchEnabled: boolean;
   readonly refMatchThreshold: number;
+
+  // License C1 self-host gating (F-F). Reintroduzidas com consumidor real
+  // (src/license/*). Default OFF → modo hosted (B) não é afetado.
+  readonly licenseCheckEnabled: boolean;
+  readonly licenseServerUrl: string | undefined;
+  readonly licenseKey: string | undefined;
+  readonly licenseInstanceId: string | undefined;
+  readonly licenseRevalidateMs: number;
+  readonly licenseGraceMs: number;
 }
 
 function envStr(env: NodeJS.ProcessEnv, name: string): string | undefined {
@@ -208,5 +217,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MediaForgeConf
     refsEnabled: envBool(env, 'MEDIA_FORGE_REFS_ENABLED', true),
     refMatchEnabled: envBool(env, 'MEDIA_FORGE_REF_MATCH_ENABLED', false),
     refMatchThreshold: envFloat(env, 'MEDIA_FORGE_REF_MATCH_THRESHOLD', 0.65),
+
+    // License C1 (F-F)
+    licenseCheckEnabled: envBool(env, 'LICENSE_CHECK_ENABLED', false),
+    licenseServerUrl: envStr(env, 'MAXVISION_LICENSE_SERVER_URL'),
+    licenseKey: envStr(env, 'MEDIA_FORGE_LICENSE_KEY'),
+    licenseInstanceId: envStr(env, 'MEDIA_FORGE_LICENSE_INSTANCE_ID'),
+    licenseRevalidateMs: envInt(env, 'MEDIA_FORGE_LICENSE_REVALIDATE_MS', 3_600_000),
+    licenseGraceMs: envInt(env, 'MEDIA_FORGE_LICENSE_GRACE_MS', 259_200_000),
   });
 }
