@@ -1,6 +1,10 @@
 import { serve } from '@hono/node-server';
 import { join } from 'node:path';
+import pg from 'pg';
 import { buildHttpApp } from './app.js';
+import { KeyStore, FlatKeyStore } from './key-store.js';
+import type { IKeyStore } from './key-store.js';
+import { createRateLimiter } from './rate-limiter.js';
 import { logger } from '../core/logger.js';
 import { loadConfig } from '../core/config.js';
 import { outputStorageFromConfig } from '../output/storage.js';
@@ -10,18 +14,48 @@ import { createBytedanceWebhookHandler } from '../video/providers/bytedance-webh
 import { isSeedanceEnabled } from '../core/feature-flags.js';
 import type { WebhookHonoApp } from './webhook-hono.js';
 
+const { Pool } = pg;
+
 export function startHttpServer(): void {
   const port = Number(process.env['MEDIA_FORGE_HTTP_PORT'] ?? 8787);
-  const config = loadConfig(process.env);
+  const env = process.env;
+  const config = loadConfig(env);
   // F-B: storage de artefato. Injetado nos webhook handlers de provider abaixo.
   const storage = outputStorageFromConfig(config) ?? undefined;
-  const app = buildHttpApp();
+
+  // F-C: escolha do store: KeyStore (Postgres) se DATABASE_URL presente, FlatKeyStore caso contrario.
+  // Graceful degradation: self-host sem Postgres usa MEDIA_FORGE_API_KEYS plana.
+  let store: IKeyStore;
+  const databaseUrl = env['DATABASE_URL'];
+  if (databaseUrl) {
+    const pepper = env['MEDIA_FORGE_KEY_PEPPER'];
+    if (!pepper) {
+      logger.error('MEDIA_FORGE_KEY_PEPPER must be set when DATABASE_URL is configured');
+      process.exit(1);
+    }
+    const pool = new Pool({ connectionString: databaseUrl });
+    store = new KeyStore(pool, pepper);
+    logger.info('media-forge: using Postgres KeyStore (F-C tenancy)');
+  } else {
+    const flatKeys = env['MEDIA_FORGE_API_KEYS'] ?? '';
+    if (!flatKeys) {
+      logger.error('Either DATABASE_URL or MEDIA_FORGE_API_KEYS must be set');
+      process.exit(1);
+    }
+    store = new FlatKeyStore(flatKeys);
+    logger.info('media-forge: using flat KeyStore (F-A compat, no tenancy)');
+  }
+
+  // F-C: rate-limiter real (Redis) ou no-op (sem REDIS_URL)
+  const limiter = createRateLimiter(env);
+
+  const app = buildHttpApp({ store, limiter });
   const appRec = app as unknown as Record<string, unknown>;
 
   // Wire provider webhook handlers into the Hono webhook app if it was mounted.
   const webhookApp = appRec['webhookApp'] as WebhookHonoApp | undefined;
   if (webhookApp) {
-    const projectDir = process.env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
+    const projectDir = env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
     const dbPath = join(projectDir, 'cost.db');
 
     // Higgsfield HMAC handler (logging stub — sem buffer; entrega via fallback assetUrls).
@@ -36,7 +70,7 @@ export function startHttpServer(): void {
       createKlingWebhookHandler({
         dbPath,
         outputsDir: join(projectDir, 'outputs', 'kling'),
-        env: process.env as never,
+        env: env as never,
         storage,
       }),
     );
@@ -66,7 +100,7 @@ export function startHttpServer(): void {
   }
 
   serve({ fetch: app.fetch, port, hostname: '0.0.0.0' });
-  logger.info('media-forge MCP HTTP server ready', { port });
+  logger.info('media-forge MCP HTTP server ready', { port, tenancy: !!databaseUrl });
 }
 
 import { pathToFileURL } from 'node:url';
