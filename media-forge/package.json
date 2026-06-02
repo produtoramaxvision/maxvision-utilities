@@ -56,6 +56,7 @@
     "test:coverage": "vitest run --coverage",
     "hello": "tsx scripts/hello-smoke.ts",
     "validate:plugin": "claude plugin validate . --strict",
+    "start:http": "node dist/http/server.js",
     "mcp:start": "node dist/mcp/server.js",
     "cli": "node bin/media-forge",
     "format": "prettier --write \"**/*.{ts,tsx,json,md,yaml,yml}\"",
