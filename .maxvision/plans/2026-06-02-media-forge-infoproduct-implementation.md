@@ -522,3 +522,34 @@ git commit -m "ci(release): build+push media-forge-mcp image to ghcr on media-fo
 **NÃO empurrar tag, NÃO publicar imagem, NÃO fazer deploy.** O release tag (que dispara o publish) é passo final do controlador, após review. Deliverable do executor = Dockerfile + workflow commitados + suíte verde no branch do worktree.
 
 **F-A.7/8 exit criteria:** `docker build media-forge` completa (ou CI verde); `release.yml` tem o job `docker` com `packages:write`. Imagem só publica quando o controlador empurrar `media-forge-vX.Y.Z`.
+
+---
+
+## Status dos planos de fase (2026-06-02)
+
+| Fase | Status | Plano | Tasks |
+|---|---|---|---|
+| F-A | ✅ FEITO (deployado) | (acima) | — |
+| F-B | 📝 PLANEJADO | `2026-06-02-F-B-async-output-delivery.md` | 9 |
+| F-C | 📝 PLANEJADO | `2026-06-02-F-C-tenancy-tiers-ratelimit.md` | 12 |
+| F-D | ✅ FEITO (deployado) | `2026-06-02-credit-core-implementation.md` | — |
+| F-E | 📝 PLANEJADO | `2026-06-02-F-E-payments-billing.md` | 11 |
+| F-F | 📝 PLANEJADO | `2026-06-02-F-F-license-selfhost.md` | 14 |
+| F-G | 📝 PLANEJADO | `2026-06-02-F-G-marketplace-thin-plugin.md` | 8 |
+| F-H | ✅ PRONTO (prompt Claude Design) | `.maxvision/specs/...landing...` | — |
+| F-I | 📝 PLANEJADO | `2026-06-02-F-I-gallery-backup-observability.md` | 12 |
+
+### Itens de reconciliação cross-fase (resolver ANTES da execução das fases citadas)
+
+1. **🔴 DINHEIRO — unificar `external_id` de capture (F-E ↔ F-D).** O sweep do credit-core usa `sweep-cap-${suffix}` (`credit-core/src/sweep.ts:21`); o F-E propõe `cap-{jobId}`. IDs diferentes para a MESMA reserva ⇒ idempotência `(kind, external_id)` não dedup ⇒ **captura dobrada / cobrança em dobro**. Fix: ambos usam `cap-{reservationId}` (e `rel-{reservationId}` para release). Pequena mudança no sweep do credit-core + contrato do cliente F-E. **Bloqueia go-live do F-E.**
+2. **Versão hardcoded:** `buildServer` fixa `version:'0.1.1'` (`src/mcp/server.ts`) vs package.json 0.2.0. Corrigir (ler de package.json) — pega F-G/onboarding.
+3. **Licença do core (F-F):** core é MIT; spec §5 fala AGPL-3.0 + EULA. Relicenciar é decisão maior — o EULA de F-F cobre só a licença comercial self-host, não relicencia o core. **Decisão do dono.**
+4. **context7 indisponível aos subagentes do planejamento:** shapes de Asaas/Stripe (F-E) e Workers KV/D1 (F-F) foram escritos de conhecimento estável e marcados "confirmar no sandbox/context7" — validar no início da execução dessas fases.
+
+### Ordem de execução recomendada
+
+- **Solo, sem dependência de você:** F-B → F-C → F-I (F-I depende de F-B+F-C).
+- **Paralelo (Lane 3):** F-F (licença) + F-G (marketplace) — independentes de B/C.
+- **F-E por último entre os de billing:** precisa F-C (tenant) + F-D (vivo) + suas credenciais (Asaas/Stripe) + o fix #1 acima.
+
+Cada fase, ao ser executada, segue subagent-driven-development (worktree isolado, TDD, review de duas etapas), com o mesmo cuidado de integração (cherry-pick por base-antiga de worktree, gates verdes, deploy via Portainer, env contract enxuto, media-forge fixo em v0.2.0).
