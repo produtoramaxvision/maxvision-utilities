@@ -413,3 +413,112 @@ Expected: presente — o caminho stdio não foi removido (self-host local segue 
 **Type consistency:** `AuthContext`/`AuthResult`/`resolveAuth` (Task 2) usados em `app.ts` (Task 3) e `app-internal.ts` (Task 4) com a mesma assinatura. `buildHttpApp({env})` consistente entre tasks 3/4/5. `buildServer()` reusado verbatim do `src/mcp/server.ts` existente.
 
 **Known execution-time:** o `WebStandardStreamableHTTPServerTransport.handleRequest` é stateless single-use por request (cada request cria transport novo — já é o caso). Confirmar o nome exato do método (`handleRequest`) no SDK 1.29 instalado no Step 2 da Task 1; se a API diferir, ajustar a Task 4.
+
+---
+
+## Adendo F-A.7/8 — Imagem Docker + publish ghcr (deploy na VPS)
+
+> Produz `ghcr.io/produtoramaxvision/media-forge-mcp` (linux/arm64) consumida pelo stack Swarm `media-forge-mcp` (já criado na VPS, aguardando imagem). Publicação via CI no tag `media-forge-v*` usando `GITHUB_TOKEN` com `packages:write` — **sem PAT local**. O server escuta em `MEDIA_FORGE_HTTP_PORT=3000` (casado com o Traefik do stack).
+
+### Task 7: Dockerfile multi-stage (arm64, ffmpeg de sistema)
+
+**Files:** Create `media-forge/Dockerfile`, `media-forge/.dockerignore`
+
+- [ ] **Step 1: `.dockerignore`**
+
+```
+node_modules
+dist
+.git
+tests
+.fallow
+*.log
+```
+
+- [ ] **Step 2: `Dockerfile`** (espelha a CI: `pnpm install --frozen-lockfile --ignore-workspace`; media-forge tem lockfile próprio)
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM node:22-alpine AS build
+WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --ignore-workspace
+COPY . .
+RUN pnpm exec tsup
+
+FROM node:22-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production MEDIA_FORGE_HTTP_PORT=3000
+# ffmpeg de sistema (LGPL-safe): resolveFfmpegPath() o encontra; ffmpeg-static foi removido na Fase 1
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate \
+ && apk add --no-cache ffmpeg
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --ignore-workspace --prod
+COPY --from=build /app/dist ./dist
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
+  CMD wget -qO- http://localhost:3000/health || exit 1
+CMD ["node", "dist/http/server.js"]
+```
+
+- [ ] **Step 3: Build local de fumaça (se houver Docker; senão a CI valida)**
+
+Run (opcional, requer buildx): `docker build -t media-forge-mcp:smoke media-forge` → deve completar. Sem Docker local, pular: a CI (Task 8) faz o build arm64 real.
+
+- [ ] **Step 4: Commit**
+
+```bash
+set -euo pipefail
+git add media-forge/Dockerfile media-forge/.dockerignore
+git commit -m "build(docker): media-forge-mcp arm64 image (system ffmpeg + /health)"
+```
+
+### Task 8: CI — build + push da imagem no release
+
+**Files:** Modify `.github/workflows/release.yml` (job novo `docker`, após `release`)
+
+- [ ] **Step 1: Adicionar o job `docker`**
+
+```yaml
+  docker:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+      - id: version
+        run: echo "version=${GITHUB_REF#refs/tags/media-forge-v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: media-forge
+          file: media-forge/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ghcr.io/produtoramaxvision/media-forge-mcp:${{ steps.version.outputs.version }}
+            ghcr.io/produtoramaxvision/media-forge-mcp:latest
+```
+
+> O `defaults.run.working-directory: media-forge` do workflow afeta só `run:`; `build-push-action` usa `context: media-forge` a partir da raiz — independente do default.
+
+- [ ] **Step 2: Commit**
+
+```bash
+set -euo pipefail
+git add .github/workflows/release.yml
+git commit -m "ci(release): build+push media-forge-mcp image to ghcr on media-forge-v* tag"
+```
+
+**NÃO empurrar tag, NÃO publicar imagem, NÃO fazer deploy.** O release tag (que dispara o publish) é passo final do controlador, após review. Deliverable do executor = Dockerfile + workflow commitados + suíte verde no branch do worktree.
+
+**F-A.7/8 exit criteria:** `docker build media-forge` completa (ou CI verde); `release.yml` tem o job `docker` com `packages:write`. Imagem só publica quando o controlador empurrar `media-forge-vX.Y.Z`.
