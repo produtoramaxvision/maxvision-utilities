@@ -89,14 +89,16 @@ const EXPECTED_TOOL_NAMES = [
   'media_seedance_image_to_video',
   'media_seedance_multishot',
   'media_seedance_reference_fusion',
+  // gallery (1 — F-I: list tenant's own generation history)
+  'list_my_generations',
 ] as const;
 
 // ---------------------------------------------------------------------------
 // Registry shape assertions
 // ---------------------------------------------------------------------------
 describe('MCP_TOOLS registry', () => {
-  it('contains exactly 54 tools', () => {
-    expect(MCP_TOOLS.length).toBe(54);
+  it('contains exactly 55 tools', () => {
+    expect(MCP_TOOLS.length).toBe(55);
   });
 
   it('is frozen (Object.isFrozen)', () => {
@@ -110,9 +112,10 @@ describe('MCP_TOOLS registry', () => {
     }
   });
 
-  it('every tool name starts with media_', () => {
+  it('every tool name starts with media_ or is a gallery tool (list_my_*)', () => {
     for (const tool of MCP_TOOLS) {
-      expect(tool.name.startsWith('media_')).toBe(true);
+      const ok = tool.name.startsWith('media_') || tool.name.startsWith('list_my_');
+      expect(ok).toBe(true);
     }
   });
 
@@ -140,11 +143,11 @@ describe('MCP_TOOLS registry', () => {
 // listMCPToolNames()
 // ---------------------------------------------------------------------------
 describe('listMCPToolNames()', () => {
-  it('returns an array of length 54', () => {
-    expect(listMCPToolNames().length).toBe(54);
+  it('returns an array of length 55', () => {
+    expect(listMCPToolNames().length).toBe(55);
   });
 
-  it('contains all 54 expected tool names', () => {
+  it('contains all 55 expected tool names', () => {
     const names = listMCPToolNames();
     for (const expected of EXPECTED_TOOL_NAMES) {
       expect(names).toContain(expected);
