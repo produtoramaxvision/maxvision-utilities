@@ -54,6 +54,7 @@
     "test:integration:dispatch": "cross-env RUN_INTEGRATION=1 vitest run tests/integration/plugin-dispatch.test.ts --config vitest.integration.config.ts",
     "test:evals": "cross-env MEDIA_FORGE_RUN_EVALS=true vitest run --config vitest.evals.config.ts",
     "test:coverage": "vitest run --coverage",
+    "db:create-key": "tsx scripts/create-key.mts",
     "hello": "tsx scripts/hello-smoke.ts",
     "validate:plugin": "claude plugin validate . --strict",
     "start:http": "node dist/http/server.js",
