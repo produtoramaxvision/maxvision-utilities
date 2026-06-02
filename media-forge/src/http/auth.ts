@@ -12,7 +12,7 @@ export function resolveAuth(
   if (!authHeader) return { ok: false, reason: 'missing Authorization header' };
   const m = /^Bearer\s+(.+)$/.exec(authHeader.trim());
   if (!m) return { ok: false, reason: 'expected Bearer scheme' };
-  const key = m[1].trim();
+  const key = (m[1] ?? '').trim();
   const allowed = (env['MEDIA_FORGE_API_KEYS'] ?? '')
     .split(',')
     .map((s) => s.trim())
