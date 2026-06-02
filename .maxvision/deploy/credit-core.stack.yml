@@ -1,0 +1,80 @@
+# credit-core — Swarm stack (carteira de créditos compartilhada da suíte MaxVision)
+#
+# Espelha o padrão dos MCPs da suíte (tiktok-mcp/linkedin-mcp): rede externa `net`
+# (Traefik) + overlay interna do stack; secrets via env no Portainer (nunca neste arquivo).
+#
+# Deploy (Portainer → Stacks → Add stack → cole este YAML; defina as env vars abaixo)
+# ou CLI:  docker stack deploy -c credit-core.stack.yml credit-core
+#
+# IMAGENS: `credit-core` é publicada pelo build F-D (ghcr.io/produtoramaxvision/credit-core).
+# Enquanto a imagem não existir, postgres+redis sobem normalmente e o serviço `credit-core`
+# fica em ImagePull/retry — esperado. Suba só a camada de dados agora se quiser destravar testes.
+#
+# Env vars a definir no Portainer:
+#   POSTGRES_PASSWORD     senha forte do Postgres do credit-core (gere com `openssl rand -hex 24`)
+#   CREDIT_CORE_API_KEY   chave(s) Bearer da API do credit-core (consumidores: media-forge, x, tiktok, linkedin)
+#   CREDIT_CORE_TAG       tag da imagem (default: latest)
+
+version: "3.9"
+
+services:
+  credit-core:
+    image: ghcr.io/produtoramaxvision/credit-core:${CREDIT_CORE_TAG:-latest}
+    networks:
+      - net        # exposto à suíte por DNS Swarm: outros stacks chamam http://credit-core:8080
+      - internal
+    environment:
+      NODE_ENV: production
+      TZ: America/Sao_Paulo
+      LOG_LEVEL: info
+      PORT: "8080"
+      DATABASE_URL: postgres://credit:${POSTGRES_PASSWORD}@credit_postgres:5432/credit_core
+      REDIS_URL: redis://credit_redis:6379
+      CREDIT_API_KEYS: ${CREDIT_CORE_API_KEY}
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      update_config:
+        order: start-first
+      # Sem labels Traefik: API interna da suíte (rede `net`), não exposta publicamente.
+      # Se precisar expor (ex.: webhooks externos), adicionar router Traefik como nos MCPs.
+
+  credit_postgres:
+    image: postgres:16-alpine
+    networks:
+      - internal
+    environment:
+      POSTGRES_USER: credit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: credit_core
+    volumes:
+      - credit_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U credit -d credit_core"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  credit_redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    networks:
+      - internal
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+volumes:
+  credit_pgdata:
+
+networks:
+  net:
+    external: true
+  internal:
+    driver: overlay
