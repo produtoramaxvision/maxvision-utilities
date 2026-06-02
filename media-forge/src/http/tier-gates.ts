@@ -81,13 +81,6 @@ const SEEDANCE_TOOLS = new Set([
   'media_seedance_reference_fusion',
 ]);
 
-const REFS_TOOLS = new Set([
-  'media_refs_search',
-  'media_refs_compose_moodboard',
-  'media_refs_presign',
-  'media_refs_index',
-]);
-
 function union(...sets: Set<string>[]): Set<string> {
   const out = new Set<string>();
   for (const s of sets) for (const v of s) out.add(v);

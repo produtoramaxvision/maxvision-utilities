@@ -91,7 +91,7 @@ describe('buildServer()', () => {
       }
     ).server;
     expect(inner._serverInfo.name).toBe('media-forge');
-    expect(inner._serverInfo.version).toBe('0.1.1');
+    expect(inner._serverInfo.version).toBe('0.2.0');
   });
 });
 

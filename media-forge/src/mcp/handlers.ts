@@ -18,6 +18,7 @@ import { storeArtifact, presignExistingArtifact } from '../output/output-storage
 import { ValidationError } from '../core/errors.js';
 import { MCP_TOOLS, type MCPTool } from './schemas.js';
 import { isToolAllowed } from '../http/tier-gates.js';
+import type { Tier } from '../http/auth.js';
 
 // Strict jobId pattern: starts with alnum, only alnum + `_.-`, max 128 chars.
 // Mirrors the format emitted by OutputManager (YYYYMMDDTHHMMSSZ-<random6>-<slug>)
@@ -1629,7 +1630,7 @@ export interface HandlersDeps {
   /** F-B: quando presente, artefatos sao enviados para MinIO; resultado retorna url + expires_at. */
   storage?: OutputStorageClient;
   /** F-C: tier do tenant — controla quais tools sao registradas. undefined = 'pro' (backward compat). */
-  tier?: import('../http/auth.js').Tier;
+  tier?: Tier;
 }
 
 // ---------------------------------------------------------------------------
