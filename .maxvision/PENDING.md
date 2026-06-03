@@ -37,6 +37,7 @@
 - **OPS4** — Actions Docker no CI usam Node 20 (deprecação jun/2026) — pinar/atualizar `docker/*-action`.
 - **OPS5** — Worktree leftover (`.claude/worktrees/agent-a439…`) fisicamente no disco (gitignored, node_modules travado no Windows) — `git worktree prune` + remover dir.
 - **OPS6** — F-G: confirmar que o loader tolera header `X-MaxVision-License` vazio (perfil B); smoke real de `claude plugin install` com a key; decidir hosting do marketplace (repo próprio vs atual).
+- **OPS7** — Imagem **amd64 pras agências on-prem x86** (C1 self-host): F-F adicionou `linux/amd64` ao `release.yml`, mas o multi-arch via QEMU **travou >2h** (era ~5min arm64-only). Revertido pra arm64-only no hospedado. Quando vender C1, criar workflow `workflow_dispatch` dedicado pro build amd64 (ou usar runner nativo `ubuntu-24.04-arm` p/ multi-arch sem QEMU). Sem isso, o self-host só roda em arm64.
 
 ## 🌐 Gates externos de go-live comercial (seus/terceiros)
 

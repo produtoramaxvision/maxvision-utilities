@@ -76,7 +76,10 @@ jobs:
         with:
           context: media-forge
           file: media-forge/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          # arm64-only: a VPS hospedada e arm64. O multi-arch (amd64+arm64 via QEMU)
+          # travou >2h num build (era ~5min arm64-only). amd64 e so p/ agencia on-prem
+          # x86 (C1 self-host) — build sob demanda em workflow proprio quando vender C1.
+          platforms: linux/arm64
           push: true
           tags: |
             ghcr.io/produtoramaxvision/media-forge-mcp:${{ steps.version.outputs.version }}
