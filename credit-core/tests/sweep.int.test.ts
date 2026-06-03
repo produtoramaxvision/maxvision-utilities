@@ -30,7 +30,7 @@ d('runSweep (integração)', () => {
     const res = await runSweep({
       store, service: svc, tenantId: 'sw1', nowIso: NOW,
       probe: async () => 'failed',
-      reserveMeta: () => ({ amount: 30, externalSuffix: 'RF' }),
+      reserveMeta: () => ({ amount: 30 }),
     });
 
     expect(res.released).toEqual(['RF']);
@@ -46,7 +46,7 @@ d('runSweep (integração)', () => {
     const res = await runSweep({
       store, service: svc, tenantId: 'sw2', nowIso: NOW,
       probe: async () => 'completed',
-      reserveMeta: () => ({ amount: 30, externalSuffix: 'RC' }),
+      reserveMeta: () => ({ amount: 30 }),
     });
 
     expect(res.captured).toEqual(['RC']);
@@ -61,11 +61,32 @@ d('runSweep (integração)', () => {
     const res = await runSweep({
       store, service: svc, tenantId: 'sw3', nowIso: NOW,
       probe: async () => 'completed',
-      reserveMeta: () => ({ amount: 40, externalSuffix: 'RV' }),
+      reserveMeta: () => ({ amount: 40 }),
     });
 
     expect(res.captured).toEqual([]);
     expect(res.released).toEqual([]);
     expect(await svc.balance('sw3')).toBe(60); // reserva continua ativa
+  });
+
+  // EXT1 (gate de dinheiro): sweep e callback "live" podem settlar a MESMA reserva.
+  // Com external_id determinístico cap-{rid} nos DOIS, o segundo settle é no-op
+  // (ON CONFLICT) → 1 débito só. Sem o fix (sweep-cap-{suffix}) seria cobrança em dobro.
+  it('EXT1: sweep captura, callback tardio captura a mesma reserva → 1 débito (idempotente)', async () => {
+    await svc.grant({ tenantId: 'sw4', amount: 100, externalId: 'g-sw4' });
+    await svc.reserve({ tenantId: 'sw4', amount: 30, reservationId: 'J4', ttlAt: PAST_TTL, externalId: 'res-J4' });
+
+    // (1) Sweep roda antes do callback (reserva vencida) → captura com cap-J4.
+    const res = await runSweep({
+      store, service: svc, tenantId: 'sw4', nowIso: NOW,
+      probe: async () => 'completed',
+      reserveMeta: () => ({ amount: 30 }),
+    });
+    expect(res.captured).toEqual(['J4']);
+    expect(await svc.balance('sw4')).toBe(70); // 1 capture aplicado
+
+    // (2) Callback tardio: caminho live captura o custo real com o MESMO external_id.
+    await svc.capture({ tenantId: 'sw4', reservationId: 'J4', amount: 30, externalId: 'cap-J4' });
+    expect(await svc.balance('sw4')).toBe(70); // INALTERADO — sem débito dobrado
   });
 });
