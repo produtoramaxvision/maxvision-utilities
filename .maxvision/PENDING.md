@@ -9,6 +9,8 @@
 | S1 | **Rotacionar a senha admin do Portainer** | Vazou em texto plano no chat desta sessão. |
 | S2 | Preencher `GOOGLE_API_KEY` no Portainer (stack 69) | Sem ela o handshake MCP autentica mas retorna 500 (`buildServer`→ConfigError). Com ela, a forja gera. Opcionais: `ANTHROPIC_API_KEY` (review), `FAL_KEY`/`HF_*`/`BYTEPLUS_ARK_API_KEY` (vídeo), `MEDIA_FORGE_OCR_GOOGLE_VISION_KEY` (OCR). |
 | S3 | Guardar a key creator `mfk_0e49…` com segurança | Primeira API key do produto (tier creator). Revogável/reemitível, não recuperável. |
+| S4 | **Rotacionar a `sk_live` do Stripe** (Dashboard → Developers → API keys → Roll) | A secret LIVE (`sk_live_…Tj4I4`) foi colada em texto plano no chat. Queimada. A CLI usa `sk_test`/`rk_live` próprios — F-E nunca usa a `sk_live` colada. |
+| S5 | **Regenerar a chave PROD do Asaas** (Config → Integrações → API) | A chave de produção (`$aact_prod_…1YjVi`) foi colada em texto plano. A sandbox (`$aact_hmlg_…`) é a usada no dev. |
 
 ## ⚖️ Decisões que preciso de você
 
@@ -16,11 +18,29 @@
 |---|---|---|
 | D1 | **F-F licença: Cloudflare Worker (recomendado) vs Keygen** | Cliente de licença é agnóstico → escrevo o código já; o deploy do Worker precisa das creds CF (Account ID, Wrangler token, KV). |
 | D2 | **Relicenciar o core MIT → AGPL-3.0?** | Spec §5 pede AGPL+EULA; o core hoje é MIT. O EULA do F-F cobre só a licença comercial self-host, NÃO relicencia o core sozinho. Decisão do dono. |
-| D3 | **F-E pagamentos: chaves Asaas (Pix) + Stripe (sandbox)** + criar produtos/planos (R$37,90/mês + packs R$19,90/49,90/99,90) | Sem isso o F-E não começa o deploy. Há `asaas-mcp`/`stripe-mcp` conectados — confirmar se já têm acesso. |
+| D3 | **F-E catálogo: moeda do Stripe (intl) + fluxo de metadata** | CÓDIGO F-E PRONTO (ver bloco abaixo). Falta criar os produtos/planos. O webhook do Stripe concede créditos lendo `event.data.object.metadata.credits` + `creditValueUsd` → a iniciação do checkout (Payment Link/Session) PRECISA carregar esses metadados. Decisão: prices intl em USD ou BRL? Asaas sandbox já tem a chave (`$aact_hmlg_`). |
+
+## ✅ F-E — Pagamentos & Billing: CÓDIGO ENTREGUE (2026-06-03)
+
+Tasks 1–10 implementadas, testadas e commitadas na `homolog` (10 commits `feat(billing)`). Suite **1546 passed / 0 failed**. Versão mantida **0.2.0** (sem bump). **Billing dorme** no deploy hosted até as envs serem setadas — zero impacto no que já roda.
+
+- **Entregue:** cliente credit-core (retry, 402 no-retry) · orquestrador reserve→capture/release (`external_id` determinístico) · catálogo de packs + gate de margem regra-de-ouro#3 (corrigido bug do plano — gate por pack inteiro) · store `payments`/`billing_customers` (idempotência por payment_id) · veo-cap puro (regras #1/#2/#3) · reconcile sweep (F1) · webhook Asaas (token estático) · webhook Stripe (`constructEvent`) · rotas montadas no app + reconcile loop no entrypoint · débito reserve→capture em IMAGEM (`generate_image`/`generate_imagen`) e VÍDEO Kling.
+- **Chaves Stripe TEST:** a Stripe CLI já está logada na conta MaxVision (`acct_1SWXI9…`) e tem `sk_test`/`pk_test` provisionadas localmente — **não precisa de login** pra testar.
+
+### Gates restantes do F-E (ordem)
+1. **EXT1** (abaixo) — re-tag credit-core. Bloqueia **só o débito-na-geração** (money-OUT). O fluxo de concessão (money-IN: pagamento→webhook→grant) é independente e idempotente por payment_id/event.id.
+2. **Provisionar sandbox:** criar produtos/prices Stripe TEST (+ metadata credits/creditValueUsd) + endpoint de webhook TEST (→ `whsec`) + assinatura/packs no Asaas sandbox. Depende de D3.
+3. **Iniciação de checkout:** não há tool/frontend que crie a Checkout Session/Payment Link ainda (parte do F-H landing ou um tool dedicado). Sem isso o smoke e2e não roda fim-a-fim.
+4. **Ativar billing no VPS (test):** setar no Portainer `CREDIT_API_URL`/`CREDIT_API_KEY` + `ASAAS_*` + `STRIPE_*` → as rotas montam e o débito liga. Só após EXT1.
+
+### Seams deferidos no F-E (TODO markers explícitos no código, não silenciosos)
+- **Veo/Higgsfield/Seedance débito:** só Kling é ciclo totalmente reconciliável em `handlers.ts` (submit jobId == download jobId + `actualUsd`). Os outros capturam em provider modules / webhook-router → wiring maior, deferido.
+- **Veo cycle-cap (Task 6 Step 4):** funções puras prontas+testadas; integração (acopla handlers a PaymentsStore+Redis) deferida pra pós-EXT1.
+- **`media_edit_image`/`media_compose_scene`:** geração de imagem ainda não cobrada (`estimateImageCost` não precifica limpo).
 
 ## 💰 Gate de dinheiro (bloqueia go-live do F-E)
 
-- **EXT1 — Unificar `external_id` de capture.** O sweep do credit-core usa `sweep-cap-{suffix}`; o F-E proporá `cap-{jobId}`. IDs diferentes pra mesma reserva ⇒ idempotência não dedup ⇒ **cobrança em dobro**. Fix: `cap-{reservationId}`/`rel-{reservationId}` nos DOIS. Exige re-tag do credit-core (hoje v0.1.0 com `sweep-cap-`).
+- **EXT1 — Unificar `external_id` de capture.** O sweep do credit-core usa `sweep-cap-{suffix}`; o F-E emite `cap-{jobId}`. IDs diferentes pra mesma reserva ⇒ idempotência não dedup ⇒ **cobrança em dobro**. Fix: `cap-{reservationId}`/`rel-{reservationId}` nos DOIS lados. Exige re-tag do credit-core (hoje v0.1.0 com `sweep-cap-`). Freeze v0.2.0 é **só media-forge** → re-tag do credit-core é permitido.
 
 ## 🧩 Seams a fechar (a maioria no F-E)
 
