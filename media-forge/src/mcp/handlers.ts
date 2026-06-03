@@ -131,6 +131,9 @@ import {
 } from '../video/providers/kling-elements.js';
 import { openDb, runMigrations } from '../core/db.js';
 import { recordActualCost } from '../core/cost-tracker.js';
+import { runWithDebit, reserveForJob, captureJob, releaseJob } from '../billing/debit.js';
+import { priceCredits } from '../billing/pricing.js';
+import type { CreditClient } from '../billing/credit-client.js';
 import {
   getBytedanceSeedanceProvider,
   type BytedanceSeedanceEnv,
@@ -1637,6 +1640,118 @@ export interface HandlersDeps {
   galleryStore?: GalleryStore;
   /** F-I: tenantId do AuthContext (F-C). undefined = 'default' (self-host / stdio). */
   tenantId?: string;
+  /** F-E: credit-core HTTP client para débito. undefined = billing OFF (self-host / hosted-sem-billing) → no-op. */
+  creditClient?: CreditClient;
+}
+
+// ---------------------------------------------------------------------------
+// F-E billing — débito de geração (imagem síncrona + vídeo assíncrono).
+//
+// Invariante no-op: TODA função de débito abaixo retorna o caminho original
+// inalterado quando `creditClient` ou `tenantId` é undefined (self-host /
+// hosted-sem-billing). Billing é OPCIONAL por construção — zero chamadas de
+// billing quando o client não foi injetado.
+//
+// 402 (InsufficientCreditError de reserve) propaga como exceção: como cada
+// débito roda DENTRO do callback de `wrap()`, o catch de wrap o converte no
+// tool-error estruturado padrão ({ isError: true, ... }) — nunca um 500 cru.
+// ---------------------------------------------------------------------------
+const IMAGE_MARKUP = 10;
+const VIDEO_MARKUP = 4;
+const DEFAULT_CREDIT_VALUE_USD = 0.01;
+/** Imagem: ciclo síncrono curto → TTL de 2 min para o sweep liberar reserva presa. */
+const IMAGE_TTL_MS = 120_000;
+/** Vídeo: render assíncrono pode levar minutos → TTL folgado (2h) cobre o pior caso
+ *  antes do sweep do credit-core liberar a reserva. O capture na conclusão é o caminho
+ *  primário; o TTL é só a rede de segurança caso o callback nunca chegue. */
+const VIDEO_TTL_MS = 2 * 60 * 60 * 1000;
+
+/** Embrulha uma geração de IMAGEM (síncrona) com reserve→capture. No-op se billing off.
+ *  `actualCostUSD` raramente vem do serviço de imagem (custo é determinístico por size);
+ *  o fallback para a estimativa é o caminho de produção e é exato. */
+export async function withImageDebit<T extends object>(
+  deps: HandlersDeps,
+  jobId: string,
+  estimateUsd: number,
+  exec: () => Promise<T>,
+): Promise<T> {
+  if (!deps.creditClient || !deps.tenantId) return exec(); // self-host / billing off
+  const estimateCredits = priceCredits({
+    costUsd: estimateUsd,
+    markup: IMAGE_MARKUP,
+    creditValueUsd: DEFAULT_CREDIT_VALUE_USD,
+  });
+  const ttlAt = new Date(Date.now() + IMAGE_TTL_MS).toISOString();
+  const out = await runWithDebit(
+    { client: deps.creditClient, tenantId: deps.tenantId, jobId, estimateCredits, ttlAt },
+    async () => {
+      const result = await exec();
+      // `actualCostUSD` is rarely present on image results (cost is deterministic per
+      // size). Read it defensively; fall back to the estimate (= exact in production).
+      const actualUsd = (result as { actualCostUSD?: number }).actualCostUSD ?? estimateUsd;
+      const actualCredits = priceCredits({
+        costUsd: actualUsd,
+        markup: IMAGE_MARKUP,
+        creditValueUsd: DEFAULT_CREDIT_VALUE_USD,
+      });
+      return { result, actualCredits };
+    },
+  );
+  return out.result;
+}
+
+/** Reserva crédito para um submit de VÍDEO (assíncrono) usando o jobId/operationName
+ *  retornado pelo submit. No-op se billing off. Chamada APÓS o submit obter o id —
+ *  reserve/capture só reconciliam quando ambos usam o MESMO id (res-{jobId}/cap-{jobId}).
+ *  402 propaga (convertido em tool-error pelo wrap). */
+export async function reserveVideoSubmit(
+  deps: HandlersDeps,
+  jobId: string,
+  estimateUsd: number,
+): Promise<void> {
+  if (!deps.creditClient || !deps.tenantId) return; // self-host / billing off
+  // TODO(F-E veo-cap): wire veoAllowance + effectiveVeoCreditValue (Redis counter +
+  // paidCreditValuesFor) when billing goes live (post-EXT1). As funções puras de
+  // veo-cap já existem + testadas; só a integração (PaymentsStore/Redis) está deferida.
+  const estimateCredits = priceCredits({
+    costUsd: estimateUsd,
+    markup: VIDEO_MARKUP,
+    creditValueUsd: DEFAULT_CREDIT_VALUE_USD,
+  });
+  const ttlAt = new Date(Date.now() + VIDEO_TTL_MS).toISOString();
+  await reserveForJob({ client: deps.creditClient, tenantId: deps.tenantId, jobId, estimateCredits, ttlAt });
+}
+
+/** Captura o custo REAL de um vídeo concluído. Idempotente via external_id cap-{jobId}
+ *  (replay do callback não dobra). No-op se billing off ou actualUsd ausente. */
+export async function captureVideoComplete(
+  deps: HandlersDeps,
+  jobId: string,
+  actualUsd: number,
+): Promise<void> {
+  if (!deps.creditClient || !deps.tenantId) return; // self-host / billing off
+  const actualCredits = priceCredits({
+    costUsd: actualUsd,
+    markup: VIDEO_MARKUP,
+    creditValueUsd: DEFAULT_CREDIT_VALUE_USD,
+  });
+  await captureJob({ client: deps.creditClient, tenantId: deps.tenantId, jobId, actualCredits });
+}
+
+/** Libera a reserva de um vídeo que falhou terminalmente. Idempotente via rel-{jobId}.
+ *  No-op se billing off. */
+export async function releaseVideoFailed(
+  deps: HandlersDeps,
+  jobId: string,
+  estimateUsd: number,
+): Promise<void> {
+  if (!deps.creditClient || !deps.tenantId) return; // self-host / billing off
+  const reservedCredits = priceCredits({
+    costUsd: estimateUsd,
+    markup: VIDEO_MARKUP,
+    creditValueUsd: DEFAULT_CREDIT_VALUE_USD,
+  });
+  await releaseJob({ client: deps.creditClient, tenantId: deps.tenantId, jobId, reservedCredits });
 }
 
 // ---------------------------------------------------------------------------
@@ -1854,7 +1969,15 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Generate Image (Nano Banana Pro)', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const result = await generateImageNanoBananaPro(validateInput(t, input), client);
+        const parsed = validateInput<{ imageSize?: '1K' | '2K' | '4K' }>(t, input);
+        const estimateUsd = estimateImageCost({
+          model: IMAGE_MODEL_NANO_BANANA_PRO,
+          imageSize: parsed.imageSize ?? '4K',
+        }).usd;
+        const jobId = generateJobId('nano-banana-pro');
+        const result = await withImageDebit(deps, jobId, estimateUsd, () =>
+          generateImageNanoBananaPro(parsed as never, client),
+        );
         return asResult(await maybeStoreImageArtifact(result, storage, 'nano-banana-pro'));
       }),
     );
@@ -1866,7 +1989,15 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Generate Image (Imagen 4 Ultra)', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const result = await generateImageImagen4Ultra(input as never, client);
+        const inp = input as { numberOfImages?: number };
+        const estimateUsd = estimateImageCost({
+          model: IMAGE_MODEL_IMAGEN_4_ULTRA,
+          numberOfImages: inp.numberOfImages ?? 1,
+        }).usd;
+        const jobId = generateJobId('imagen-4-ultra');
+        const result = await withImageDebit(deps, jobId, estimateUsd, () =>
+          generateImageImagen4Ultra(input as never, client),
+        );
         return asResult(await maybeStoreImageArtifact(result, storage, 'imagen-4-ultra'));
       }),
     );
@@ -1915,6 +2046,11 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Generate Video (Text to Video)', description: t.description, inputSchema: t.inputSchema as never },
+      // TODO(F-E veo-billing): Veo reserve/capture is DEFERRED — not reconcilable in handlers.ts.
+      // Reserve would key on `operationName`, but completion runs through
+      // media_poll_video_operation / media_download_video (id = resolved URI, changes; no
+      // actualUsd; no recordActualCost). Reserving here without a matching capture would leak
+      // the reservation until TTL → free Veo. Same deferral class as the webhook-router path.
       wrap(t.name, async (input) => asResult(await generateVideoT2V(validateInput(t, input), client))),
     );
   }
@@ -1924,6 +2060,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Generate Video (Image to Video)', description: t.description, inputSchema: t.inputSchema as never },
+      // TODO(F-E veo-billing): DEFERRED — see media_generate_video_t2v note above.
       wrap(t.name, async (input) => asResult(await generateVideoI2V(validateInput(t, input), client))),
     );
   }
@@ -1933,6 +2070,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Generate Video (Interpolate)', description: t.description, inputSchema: t.inputSchema as never },
+      // TODO(F-E veo-billing): DEFERRED — see media_generate_video_t2v note above.
       wrap(t.name, async (input) => asResult(await generateVideoInterpolate(validateInput(t, input), client))),
     );
   }
@@ -1942,6 +2080,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Generate Video With References', description: t.description, inputSchema: t.inputSchema as never },
+      // TODO(F-E veo-billing): DEFERRED — see media_generate_video_t2v note above.
       wrap(t.name, async (input) => asResult(await generateVideoWithRefs(validateInput(t, input), client))),
     );
   }
@@ -2547,6 +2686,13 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     );
   }
 
+  // TODO(F-E higgsfield-billing): all Higgsfield video submits below (DoP, Cinema Studio,
+  // Speak, Marketing Studio, Recast, Generate) are DEFERRED — same deferral class as Veo.
+  // Their capture point (recordActualCostUSD) lives in HiggsfieldProvider, not a handler tool,
+  // and completion runs through the webhook router (stdio entrypoint, no per-request
+  // creditClient). Reservable here, but not reconcilable → left unbilled until provider-level
+  // capture plumbing lands (post-EXT1). Kling is the only fully-reconcilable cycle in handlers.
+
   // ---- Higgsfield DoP (1 — P14 image-to-video with WAN Camera Control verbs) ----
 
   {
@@ -2648,7 +2794,13 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Kling Motion Brush', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleKlingMotionBrush(input))),
+      wrap(t.name, async (input) => {
+        const r = await handleKlingMotionBrush(input);
+        // F-E: reserve AFTER submit, keyed on the returned jobId — the SAME id
+        // media_kling_download captures with. No-op when billing off. 402 → wrap → tool error.
+        await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        return asResult(r);
+      }),
     );
   }
 
@@ -2688,7 +2840,11 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Kling Elements', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleKlingElements(input))),
+      wrap(t.name, async (input) => {
+        const r = await handleKlingElements(input);
+        await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        return asResult(r);
+      }),
     );
   }
 
@@ -2699,7 +2855,11 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Kling Lip-Sync', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleKlingLipSync(input))),
+      wrap(t.name, async (input) => {
+        const r = await handleKlingLipSync(input);
+        await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        return asResult(r);
+      }),
     );
   }
 
@@ -2710,7 +2870,11 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Kling Omni Multi-Shot', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleKlingOmniMultiShot(input))),
+      wrap(t.name, async (input) => {
+        const r = await handleKlingOmniMultiShot(input);
+        await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        return asResult(r);
+      }),
     );
   }
 
@@ -2721,7 +2885,11 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Kling Video Extend', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleKlingVideoExtend(input))),
+      wrap(t.name, async (input) => {
+        const r = await handleKlingVideoExtend(input);
+        await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        return asResult(r);
+      }),
     );
   }
 
@@ -2732,6 +2900,10 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Kling Poll', description: t.description, inputSchema: t.inputSchema as never },
+      // F-E: on terminal failure, the reservation is NOT explicitly released here — the poll
+      // input carries only jobId (no estimate to pass as reservedCredits). credit-core's TTL
+      // sweep releases the stuck reservation (no capture ever fires for a failed job → no
+      // double-charge). `releaseVideoFailed` is available for callers that DO have the estimate.
       wrap(t.name, async (input) => asResult(await handleKlingPoll(input, { storage }))),
     );
   }
@@ -2743,6 +2915,16 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       { title: 'Kling Download', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
         const result = await handleKlingDownload(input, { storage });
+        // F-E: capture the REAL cost on completion. jobId = the kling job id (NOT a raw URL,
+        // which has no reservation to settle). Idempotent via cap-{jobId}. No-op when billing
+        // off. This is the PRIMARY capture path for video; credit-core's TTL sweep is the
+        // safety net for the webhook-router path (stdio entrypoint, no per-request creditClient).
+        {
+          const r = result as { jobIdOrUrl: string; actualUsd?: number };
+          if (typeof r.actualUsd === 'number' && !r.jobIdOrUrl.startsWith('http')) {
+            await captureVideoComplete(deps, r.jobIdOrUrl, r.actualUsd);
+          }
+        }
         // F-I: record the completed generation in the gallery.
         // credits_debited + credit_value_usd are set to 0 as a documented placeholder —
         // they require F-D capture-call integration (credit-core not yet wired into media-forge).
@@ -2771,6 +2953,11 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       }),
     );
   }
+
+  // TODO(F-E seedance-billing): all 4 Seedance submits below are DEFERRED — same deferral class
+  // as Veo/Higgsfield. Capture (recordActualCostUSD) lives in BytedanceSeedanceProvider on
+  // webhook/poll completion, not a handler tool with deps + matching id → not reconcilable here.
+  // Left unbilled until provider-level capture plumbing lands (post-EXT1).
 
   // ---- Seedance 2.0 (ByteDance) — P16 Task 7 (4 tools: t2v / i2v / multishot / reference-fusion) ----
   // Task 8.5: all 4 tools are conditionally registered based on MEDIA_FORGE_SEEDANCE_ENABLED flag.

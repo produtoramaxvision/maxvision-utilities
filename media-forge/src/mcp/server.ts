@@ -28,6 +28,7 @@ import { isSeedanceEnabled } from '../core/feature-flags.js';
 import { join } from 'node:path';
 import type { OutputStorageClient } from '../output/storage.js';
 import type { GalleryStore } from '../gallery/gallery-store.js';
+import type { CreditClient } from '../billing/credit-client.js';
 
 export interface BuildServerOpts {
   // Injection point for tests — config + client come from outside in tests
@@ -41,6 +42,8 @@ export interface BuildServerOpts {
   galleryStore?: GalleryStore;
   /** F-I: tenantId from AuthContext (F-C). undefined = 'default' (stdio / self-host). */
   tenantId?: string;
+  /** F-E: credit-core client for billing debit. undefined = billing OFF (self-host / hosted-sem-billing). */
+  creditClient?: CreditClient;
 }
 
 export function buildServer(opts: BuildServerOpts = {}): McpServer {
@@ -76,6 +79,7 @@ export function buildServer(opts: BuildServerOpts = {}): McpServer {
     tier: opts.tier,
     galleryStore: opts.galleryStore,
     tenantId: opts.tenantId,
+    creditClient: opts.creditClient,
   });
   return server;
 }
