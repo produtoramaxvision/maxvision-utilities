@@ -69,6 +69,8 @@ export default defineConfig({
       'tests/integration/gallery/**/*.test.ts',
       // F-F: license gate integration test (exit criteria proof)
       'tests/integration/license-gate.test.ts',
+      // F-E: billing integration tests (payments-store, reconcile — embedded-postgres)
+      'tests/integration/billing/**/*.test.ts',
     ],
     exclude: ['tests/integration/live-smoke.test.ts', 'tests/golden/**', 'tests/evals/**'],
     // F-I: globalSetup launches embedded-postgres for gallery integration tests.

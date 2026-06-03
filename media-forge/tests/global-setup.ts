@@ -22,7 +22,11 @@ export async function setup(): Promise<void> {
   await pg.initialise();
   await pg.start();
   await pg.createDatabase('media_forge_test');
-  process.env.GALLERY_DATABASE_URL = `postgres://mediaforge:mediaforge@localhost:${port}/media_forge_test`;
+  const url = `postgres://mediaforge:mediaforge@localhost:${port}/media_forge_test`;
+  process.env.GALLERY_DATABASE_URL = url;
+  // F-E: billing integration tests (payments-store, reconcile) read DATABASE_URL.
+  // Same embedded-postgres instance/db — billing migrations apply alongside gallery.
+  process.env.DATABASE_URL = url;
 }
 
 export async function teardown(): Promise<void> {
