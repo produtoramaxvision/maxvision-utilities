@@ -18,6 +18,11 @@ import { GalleryStore } from '../gallery/gallery-store.js';
 import { startMarginCron } from '../gallery/margin-cron.js';
 import { createTelegramNotifier } from '../gallery/gallery-notifier.js';
 import { LicenseCache } from '../license/cache.js';
+import Stripe from 'stripe';
+import type { BillingWebhookDeps } from './app.js';
+import { PaymentsStore } from '../billing/payments-store.js';
+import { CreditClient } from '../billing/credit-client.js';
+import { startReconcileLoop } from '../billing/reconcile.js';
 
 const { Pool } = pg;
 
@@ -52,6 +57,7 @@ export async function startHttpServer(): Promise<void> {
   // Graceful degradation: self-host sem Postgres usa MEDIA_FORGE_API_KEYS plana.
   let store: IKeyStore;
   let galleryStore: GalleryStore | undefined;
+  let billing: BillingWebhookDeps | undefined;
   const databaseUrl = env['DATABASE_URL'];
   if (databaseUrl) {
     const pepper = env['MEDIA_FORGE_KEY_PEPPER'];
@@ -72,6 +78,43 @@ export async function startHttpServer(): Promise<void> {
     const stopCron = startMarginCron({ store: galleryStore, notifier, thresholdPct, intervalMs });
     process.once('SIGTERM', stopCron);
     process.once('SIGINT', stopCron);
+
+    // F-E: billing (pagamentos -> carteira credit-core). Reusa o mesmo Pool.
+    // Requer CREDIT_API_URL + CREDIT_API_KEY (grant + reconcile). Cada rota de
+    // webhook é montada só com sua config (Asaas token / Stripe secret+whsec).
+    // Ausente => billing OFF (hosted sem envs): rotas não montam, débito é no-op.
+    const creditApiUrl = env['CREDIT_API_URL'];
+    const creditApiKey = env['CREDIT_API_KEY'];
+    if (creditApiUrl && creditApiKey) {
+      const paymentsStore = new PaymentsStore(pool);
+      const credit = new CreditClient({ baseUrl: creditApiUrl, apiKey: creditApiKey });
+      const asaasWebhookToken = env['ASAAS_WEBHOOK_TOKEN'];
+      const stripeSecret = env['STRIPE_SECRET_KEY'];
+      const stripeWebhookSecret = env['STRIPE_WEBHOOK_SECRET'];
+      let stripeConstructEvent: BillingWebhookDeps['stripeConstructEvent'];
+      if (stripeSecret && stripeWebhookSecret) {
+        const stripe = new Stripe(stripeSecret);
+        stripeConstructEvent = (rawBody, signature) =>
+          stripe.webhooks.constructEvent(rawBody, signature, stripeWebhookSecret) as unknown as ReturnType<
+            NonNullable<BillingWebhookDeps['stripeConstructEvent']>
+          >;
+      }
+      billing = {
+        store: paymentsStore,
+        credit,
+        ...(asaasWebhookToken ? { asaasWebhookToken } : {}),
+        ...(stripeConstructEvent ? { stripeConstructEvent } : {}),
+      };
+      const stopReconcile = startReconcileLoop({ store: paymentsStore, credit });
+      process.once('SIGTERM', stopReconcile);
+      process.once('SIGINT', stopReconcile);
+      logger.info('billing enabled (F-E)', {
+        asaas: Boolean(asaasWebhookToken),
+        stripe: Boolean(stripeConstructEvent),
+      });
+    } else {
+      logger.info('billing disabled (CREDIT_API_URL/CREDIT_API_KEY unset)');
+    }
   } else {
     const flatKeys = env['MEDIA_FORGE_API_KEYS'] ?? '';
     if (!flatKeys) {
@@ -92,6 +135,7 @@ export async function startHttpServer(): Promise<void> {
     store,
     limiter,
     galleryStore,
+    ...(billing ? { billing } : {}),
     ...(licenseCache ? { licenseState: () => licenseCache!.getState() } : {}),
   });
   const appRec = app as unknown as Record<string, unknown>;

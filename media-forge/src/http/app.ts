@@ -14,6 +14,21 @@ import { NullRateLimiter } from './rate-limiter.js';
 import type { GalleryStore } from '../gallery/gallery-store.js';
 import { computeMargin } from '../gallery/margin.js';
 import type { LicenseState } from '../license/types.js';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
+import { handleAsaasWebhook } from '../billing/asaas-webhook.js';
+import { handleStripeWebhook } from '../billing/stripe-webhook.js';
+import type { StripeWebhookDeps } from '../billing/stripe-webhook.js';
+import type { PaymentsStore } from '../billing/payments-store.js';
+import type { CreditClient } from '../billing/credit-client.js';
+
+/** F-E: deps de billing pra rotas de webhook de pagamento. Cada rota é montada
+ *  só quando sua config existe — um deploy pode usar só Asaas, só Stripe, ou ambos. */
+export interface BillingWebhookDeps {
+  store: PaymentsStore;
+  credit: CreditClient;
+  asaasWebhookToken?: string;
+  stripeConstructEvent?: StripeWebhookDeps['constructEvent'];
+}
 
 export interface HttpAppOpts {
   env?: NodeJS.ProcessEnv;
@@ -23,6 +38,8 @@ export interface HttpAppOpts {
   galleryStore?: GalleryStore;
   /** F-F: presente só quando LICENSE_CHECK_ENABLED=true (self-host C1). No-op quando ausente. */
   licenseState?: () => LicenseState;
+  /** F-E: webhooks de pagamento (Asaas/Stripe). Ausente = billing off (hosted sem envs). */
+  billing?: BillingWebhookDeps;
 }
 
 export function buildHttpApp(opts: HttpAppOpts = {}) {
@@ -105,6 +122,34 @@ export function buildHttpApp(opts: HttpAppOpts = {}) {
     // 4. Handle MCP (propaga ctx com tenantId+tier+scopes + galleryStore F-I)
     return handleMcpRequest(c.req.raw, auth.ctx, env, { galleryStore });
   });
+
+  // F-E: webhooks de pagamento (auth própria por provider — NÃO usam o Bearer do /mcp).
+  // Registrados ANTES do mount F-B '/webhooks' pra não serem sombreados (belt: /webhooks/asaas
+  // tem 1 segmento, não casa com '/:provider/:jobId' do F-B de qualquer forma).
+  const billing = opts.billing;
+  if (billing?.asaasWebhookToken) {
+    const token = billing.asaasWebhookToken;
+    app.post('/webhooks/asaas', async (c) => {
+      const body = await c.req.json().catch(() => null);
+      const r = await handleAsaasWebhook(
+        { token: c.req.header('asaas-access-token'), body },
+        { store: billing.store, credit: billing.credit, webhookToken: token },
+      );
+      return c.json(r.body as Record<string, unknown>, r.status as ContentfulStatusCode);
+    });
+  }
+  if (billing?.stripeConstructEvent) {
+    const constructEvent = billing.stripeConstructEvent;
+    app.post('/webhooks/stripe', async (c) => {
+      // Stripe exige o RAW body pra verificar a assinatura — ler texto ANTES de qualquer parse.
+      const rawBody = await c.req.text();
+      const r = await handleStripeWebhook(
+        { rawBody, signature: c.req.header('stripe-signature') },
+        { store: billing.store, credit: billing.credit, constructEvent },
+      );
+      return c.json(r.body as Record<string, unknown>, r.status as ContentfulStatusCode);
+    });
+  }
 
   // F-B: monta o webhook app quando o secret esta configurado. Sem secret = endpoint desabilitado.
   const secret = env['MEDIA_FORGE_WEBHOOK_SECRET'];
