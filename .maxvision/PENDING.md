@@ -28,7 +28,7 @@ Tasks 1–10 implementadas, testadas e commitadas na `homolog` (10 commits `feat
 - **Chaves Stripe TEST:** a Stripe CLI já está logada na conta MaxVision (`acct_1SWXI9…`) e tem `sk_test`/`pk_test` provisionadas localmente — **não precisa de login** pra testar.
 
 ### Gates restantes do F-E (ordem)
-1. **EXT1** (abaixo) — re-tag credit-core. Bloqueia **só o débito-na-geração** (money-OUT). O fluxo de concessão (money-IN: pagamento→webhook→grant) é independente e idempotente por payment_id/event.id.
+1. **EXT1** — ✅ FEITO (credit-core v0.1.1 deployado, ver gate de dinheiro abaixo). Débito-na-geração desbloqueado.
 2. **Provisionar sandbox:** criar produtos/prices Stripe TEST (+ metadata credits/creditValueUsd) + endpoint de webhook TEST (→ `whsec`) + assinatura/packs no Asaas sandbox. Depende de D3.
 3. **Iniciação de checkout:** não há tool/frontend que crie a Checkout Session/Payment Link ainda (parte do F-H landing ou um tool dedicado). Sem isso o smoke e2e não roda fim-a-fim.
 4. **Ativar billing no VPS (test):** setar no Portainer `CREDIT_API_URL`/`CREDIT_API_KEY` + `ASAAS_*` + `STRIPE_*` → as rotas montam e o débito liga. Só após EXT1.
@@ -40,7 +40,7 @@ Tasks 1–10 implementadas, testadas e commitadas na `homolog` (10 commits `feat
 
 ## 💰 Gate de dinheiro (bloqueia go-live do F-E)
 
-- **EXT1 — Unificar `external_id` de capture.** O sweep do credit-core usa `sweep-cap-{suffix}`; o F-E emite `cap-{jobId}`. IDs diferentes pra mesma reserva ⇒ idempotência não dedup ⇒ **cobrança em dobro**. Fix: `cap-{reservationId}`/`rel-{reservationId}` nos DOIS lados. Exige re-tag do credit-core (hoje v0.1.0 com `sweep-cap-`). Freeze v0.2.0 é **só media-forge** → re-tag do credit-core é permitido.
+- **EXT1 — ✅ RESOLVIDO (2026-06-03, credit-core v0.1.1 deployado).** O sweep agora emite `cap-{reservationId}`/`rel-{reservationId}`, idêntico ao live (`cap-{jobId}`). Settle duplo (sweep + callback tardio) colide em `ON CONFLICT (kind, external_id)` → 1 débito só. Teste de integração de prova adicionado (sweep capture + late live capture → saldo inalterado). Imagem `ghcr.io/produtoramaxvision/credit-core:0.1.1` (arm64) publicada + serviço `credit-core_credit-core` atualizado na VPS (1/1, /health ok, healthcheck OPS1 corrigido junto). Re-tag permitido (freeze v0.2.0 é só media-forge).
 
 ## 🧩 Seams a fechar (a maioria no F-E)
 
