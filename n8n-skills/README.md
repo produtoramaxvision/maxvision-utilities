@@ -86,6 +86,14 @@ No manual invocation required.
 
 ---
 
+## Template library
+
+Ready-to-import n8n workflows (import seeds, structural references, validation
+fixtures) live in a separate repo to keep this marketplace lean:
+[`maxvision-n8n-templates`](https://github.com/produtoramaxvision/maxvision-n8n-templates).
+
+---
+
 ## Attribution
 
 Derivative of [czlonkowski/n8n-skills](https://github.com/czlonkowski/n8n-skills) v1.21.0 (commit `29d3c31`) by **Romuald Członkowski**, MIT.
