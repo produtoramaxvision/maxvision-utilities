@@ -2,6 +2,26 @@
 
 > Acumulado durante a implementação. Revisar ao final. Atualizado conforme as fases avançam.
 
+## ✅ 2026-06-21 — Pivot Fase 1: MCP único tier-gated (SHIPPED, branch `pivot/phase1`)
+
+Single hosted MCP, acesso por tier (free/creator/pro). Self-host distribuído **eliminado**. 17 commits, verde local (typecheck/lint 0, 1558 testes, tsup OK; CI sem quota — validado local).
+
+- **D1 RESOLVED** — self-host C1 morto. `src/license/`, `license-worker/`, `LICENSE-COMMERCIAL/` deletados; gate desconectado de `app.ts`/`server.ts`/`config.ts`/stack yml.
+- **D2 REVERSED** — licença AGPL-3.0 → **MIT** (repo vai privado). LICENSE + 3 manifests + README.
+- **F-F (Worker de licença) OBSOLETO** — seção abaixo não se aplica mais (camada removida). Mantida só como histórico.
+- **Tier engine (approach B): wired + audited + reconciled, mas INERTE até o checkout self-serve (Fase 2 / gate EXT abaixo).** `setTenantTier` (tx atômica + audit `tier_changes`), `reconcileTiers` (source of truth `subscriptions`), webhooks Stripe/Asaas dirigem tier (sub→creator/pro, cancel→free), loop de reconcile endurecido (log estruturado + guard anti-overlap).
+- **T12b — ✅ FEITO:** migrations `004_tier_changes.sql` + `005_subscriptions.sql` aplicadas manualmente no prod `media-forge-mcp_mcp-postgres` (db `media_forge`), em tx. Ambas tabelas confirmadas. **OPS3 segue aberto** (sem runner automático; 004/005 foram manuais como 001-003).
+
+**Desvios do plano achados na execução (auditoria):**
+1. Task 3 do plano não listava `tests/unit/license/` (4 testes do módulo deletado) — removidos junto, senão typecheck/test quebravam.
+2. Comando de teste do plano (`--config vitest.integration.config.ts`) daria **falso-skip** (esse config não tem global-setup → sem `DATABASE_URL`). Os int tests rodam pelo config default (embedded-postgres). T9 validado pelo caminho correto.
+3. `vitest.config.ts` referenciava o `license-gate.test.ts` deletado (include morto) — removido.
+4. Import órfão `hostname` (node:os) em `server.ts` removido junto com o bootstrap de licença.
+
+**Caveat pré-go-live (Fase 2):** o shape Stripe `invoice.subscription_details.metadata.tier` veio do plano (não re-checado ao vivo, inerte hoje). Confirmar via stripe-mcp antes de ligar o checkout `pro`. Asaas (`SUBSCRIPTION_DELETED`/`SUBSCRIPTION_INACTIVATED`, payload `subscription.{id,customer}`) **confirmado** na doc oficial.
+
+**Fase 2 (não construída):** OAuth 2.1 via Supabase como AS + checkout self-serve. `pro`-tier depende do D3 (conta Stripe `acct_1SWXI9` ainda não conectada).
+
 ## 🔴 Ações suas — segurança/config (destravam o produto)
 
 | # | Item | Por quê |
