@@ -12,17 +12,25 @@
   "plugins": [
     {
       "name": "n8n-skills",
-      "description": "7 expert skills for building flawless n8n workflows in Claude Code",
+      "description": "14 expert skills + router + hooks enforcement layer for building flawless n8n workflows in Claude Code",
       "source": "./n8n-skills",
       "strict": true,
       "skills": [
+        "./skills/using-n8n-mcp-skills",
         "./skills/n8n-code-javascript",
         "./skills/n8n-code-python",
+        "./skills/n8n-code-tool",
         "./skills/n8n-expression-syntax",
         "./skills/n8n-mcp-tools-expert",
         "./skills/n8n-node-configuration",
         "./skills/n8n-validation-expert",
-        "./skills/n8n-workflow-patterns"
+        "./skills/n8n-workflow-patterns",
+        "./skills/n8n-agents",
+        "./skills/n8n-error-handling",
+        "./skills/n8n-binary-and-data",
+        "./skills/n8n-subworkflows",
+        "./skills/n8n-multi-instance",
+        "./skills/n8n-self-hosting"
       ]
     },
     {
