@@ -24,6 +24,10 @@ export default defineConfig([
   // HTTP server bundle: mcp/server is marked external so its top-level
   // startup guard (process.argv[1] check) does not run inside this bundle.
   // At runtime, node resolves the external import to dist/mcp/server.js.
+  // OPS3: core/pg-migrate is emitted as a separate file (own entry below) so
+  // import.meta.url inside it resolves to dist/core/pg-migrate.js — the correct
+  // depth for the migrations/ directory lookup. Mark it external here so tsup
+  // does not inline it into this bundle.
   {
     entry: {
       'http/server': 'src/http/server.ts',
@@ -36,6 +40,22 @@ export default defineConfig([
     target: 'node20',
     outDir: 'dist',
     shims: false,
-    external: [/.*mcp\/server\.js$/, /.*mcp\/server$/],
+    external: [/.*mcp\/server\.js$/, /.*mcp\/server$/, /.*core\/pg-migrate\.js$/, /.*core\/pg-migrate$/],
+  },
+  // OPS3: pg-migrate standalone entry — emitted as dist/core/pg-migrate.js so
+  // import.meta.url resolves correctly (depth: dist/core → dist → media-forge → migrations).
+  // Also consumed by scripts/migrate.mjs for ops/CI runs.
+  {
+    entry: {
+      'core/pg-migrate': 'src/core/pg-migrate.ts',
+    },
+    format: ['esm'],
+    dts: true,
+    splitting: false,
+    sourcemap: true,
+    clean: false,
+    target: 'node20',
+    outDir: 'dist',
+    shims: false,
   },
 ]);
