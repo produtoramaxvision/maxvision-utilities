@@ -8,7 +8,7 @@ Single hosted MCP, acesso por tier (free/creator/pro). Self-host distribuído **
 
 - **D1 RESOLVED** — self-host C1 morto. `src/license/`, `license-worker/`, `LICENSE-COMMERCIAL/` deletados; gate desconectado de `app.ts`/`server.ts`/`config.ts`/stack yml.
 - **D2 REVERSED** — licença AGPL-3.0 → **MIT** (repo vai privado). LICENSE + 3 manifests + README.
-- **F-F (Worker de licença) OBSOLETO** — seção abaixo não se aplica mais (camada removida). Mantida só como histórico.
+- **F-F (Worker de licença) OBSOLETO + removido** — camada self-host deletada no pivot; seção F-F, decisões D1/D2 (licença) e as partes F-G do OPS6 scrubadas deste doc em 2026-06-21.
 - **Tier engine (approach B): wired + audited + reconciled, mas INERTE até o checkout self-serve (Fase 2 / gate EXT abaixo).** `setTenantTier` (tx atômica + audit `tier_changes`), `reconcileTiers` (source of truth `subscriptions`), webhooks Stripe/Asaas dirigem tier (sub→creator/pro, cancel→free), loop de reconcile endurecido (log estruturado + guard anti-overlap).
 - **T12b — ✅ FEITO:** migrations `004_tier_changes.sql` + `005_subscriptions.sql` aplicadas manualmente no prod `media-forge-mcp_mcp-postgres` (db `media_forge`), em tx. Ambas tabelas confirmadas. **OPS3 RESOLVIDO** (runner pg automático shipped — ver OPS3 abaixo; ativa no próximo deploy do media-forge).
 
@@ -37,8 +37,6 @@ Single hosted MCP, acesso por tier (free/creator/pro). Self-host distribuído **
 
 | # | Decisão | Contexto |
 |---|---|---|
-| D1 | ⏳ **AGUARDANDO sua escolha: Cloudflare Worker (recomendado) vs Keygen** | Explicado didaticamente em 2026-06-21. Cliente de licença é agnóstico → escrevo o código assim que decidir; só o transporte/deploy muda. CF Worker: ~R$0 free tier, dados seus, precisa creds CF. Keygen: SaaS pronto, mensalidade. |
-| D2 | ✅ **RESOLVIDO (2026-06-21): SIM, relicenciado MIT → AGPL-3.0-or-later (dual-license).** | `media-forge/LICENSE` agora é AGPL-3.0 verbatim; `package.json` + ambos `.claude-plugin/plugin.json` → `AGPL-3.0-or-later`; README com seção dual-license apontando pro `LICENSE-COMMERCIAL/EULA.md` (já existente). Commit `49ebb10`. Liberado no release pra `main` (`be154a1`). |
 | D3 | 🔴 **BLOQUEADO na sua ação: moeda decidida (Ambas BRL+USD), mas conta Stripe errada conectada.** | Decisão 2026-06-21: **multi-currency** (prices BRL + USD por pack). Modo TEST confirmado no MCP. PORÉM o stripe-mcp está conectado na `acct_1SWLoD` (Meu Agente), e o billing F-E usa `acct_1SWXI9` (MaxVision). **Pra eu provisionar:** reconecte o stripe-mcp na `acct_1SWXI9`. Catálogo pronto abaixo (gate 2). |
 
 ## ✅ F-E — Pagamentos & Billing: CÓDIGO ENTREGUE (2026-06-03)
@@ -84,12 +82,12 @@ Tasks 1–10 implementadas, testadas e commitadas na `homolog` (10 commits `feat
 
 ## 🛠️ Follow-ups de infra/ops
 
-- **OPS1** — credit-core Dockerfile healthcheck já corrigido no repo (`127.0.0.1`) mas imagem não re-publicada (roda ok via dual-stack); entra no próximo tag do credit-core.
+- **OPS1 — ✅ RESOLVIDO (validado 2026-06-21):** healthcheck do credit-core já em prod. A imagem `0.1.3` rodando inspeciona `["CMD-SHELL","wget -qO- http://127.0.0.1:8080/health || exit 1"]` e está `healthy` (fix entrou desde a `0.1.1`, ver EXT1). Nota anterior estava stale — nenhum rebuild necessário.
 - **OPS2 — ✅ FEITO (2026-06-21):** `postgres-backup-local:16` adicionado ao stack credit-core (serviço `credit_postgres_backup`, vol `credit_pgbackups`, cron 6h, retenção 14d/8w/12m). Deployado via Portainer API (stack 68, env preservado → credit-core intacto em 0.1.3). Verificado: dump real `credit_core-*.sql.gz` criado com sucesso.
-- **OPS3 — ✅ SHIPPED (2026-06-21), deploy adiado:** runner pg automático no media-forge (`src/core/pg-migrate.ts` + boot wiring em server.ts + `scripts/migrate.mjs` + `db:migrate`). Aplica só migrations underscore `NNN_*.sql` (dash são track refs via psql var); idempotente + tracking `schema_migrations`. No main, validado local (typecheck/lint/test). **Ativa no próximo deploy do media-forge** (001-005 já aplicadas; runner é pras futuras).
+- **OPS3 — ✅ DEPLOYADO (2026-06-21, media-forge v0.2.6):** runner pg automático no media-forge (`src/core/pg-migrate.ts` + boot wiring em server.ts + `scripts/migrate.mjs` + `db:migrate`). Aplica só migrations underscore `NNN_*.sql` (dash são track refs via psql var); idempotente + tracking `schema_migrations`. Ativado no boot da `0.2.6` na VPS (001-005 já existiam → no-op idempotente + seed do `schema_migrations`; futuras aplicam sozinhas).
 - **OPS4** — Actions Docker no CI usam Node 20 (deprecação jun/2026) — pinar/atualizar `docker/*-action`.
 - **OPS5** — Worktree leftover (`.claude/worktrees/agent-a439…`) fisicamente no disco (gitignored, node_modules travado no Windows) — `git worktree prune` + remover dir.
-- **OPS6** — F-G: confirmar que o loader tolera header `X-MaxVision-License` vazio (perfil B); smoke real de `claude plugin install` com a key; decidir hosting do marketplace (repo próprio vs atual).
+- **OPS6** — decidir hosting do marketplace do plugin (repo próprio vs atual). _(Partes F-G de licença removidas — camada de licença deletada no pivot 2026-06-21.)_
 - **OPS7** — Build **multi-arch** (amd64+arm64): a primeira tentativa via QEMU **travou >2h**. Refeito com o padrão oficial Docker — runners **nativos** por arch (amd64 em `ubuntu-latest`, arm64 em `ubuntu-24.04-arm`), push por digest + merge de manifest, `timeout-minutes:30`. Dependência: o runner hosted `ubuntu-24.04-arm` precisa estar habilitado no plano do org (privado). Se a fila do job arm64 travar, validar disponibilidade ou cair pra QEMU-com-timeout. Validado neste deploy: ver run da tag.
 - **OPS8 — ✅ FEITO (2026-06-21, commit `8775418`): Windows CI não-bloqueante.** O runner `windows-latest` não consegue bootstrapar o `embedded-postgres` (`pg_ctl` falha) → suites pg-backed jogam erro na coleta. Não é bug de código e não tem fix runner-side. `ci.yml` mantém Windows pra typecheck/lint/build (sinal real; dev box é Windows) mas marca o step **Test** `continue-on-error` só no Windows. Ubuntu segue como gate autoritativo. Para de bloquear todo merge.
 - **OPS9 — ✅ FEITO (2026-06-21, commit `8775418`): stale-LB converge hardening.** Ambos serviços-app já têm `HEALTHCHECK` na imagem (wget `/health`) + `start-first`, então a saúde do task é gated. Endurecido `update_config` dos dois stacks com `monitor: 30s` + `failure_action: rollback` + `rollback_config` (converge observado e auto-revert). O resíduo do IPVS mantendo a task antiga por segundos pós-converge no overlay `net` é inerente do Swarm e money-safe (404 → sweep release); documentado inline com o remédio `docker service update --force <stack>_<svc>`.
@@ -100,19 +98,3 @@ Tasks 1–10 implementadas, testadas e commitadas na `homolog` (10 commits `feat
 - **EXT-B** — Validar imposto (Simples ~6%) com contador.
 - **EXT-C** — Construir a landing (F-H) no Claude Design (prompt pronto em `.maxvision/specs/`).
 - **EXT-D** — Se distribuir via npm: confirmar schema do `marketplace.json` source npm.
-
-## 🔑 F-F — deploy do Worker de licença (quando você decidir CF vs Keygen)
-
-Código pronto e testado (`license-worker/` + `media-forge/src/license/*`). Hospedado já roda com a licença **desligada** (`LICENSE_CHECK_ENABLED=false`). O abaixo é só pra ativar o self-host C1 (agências):
-
-| # | Gate | Comando/valor |
-|---|---|---|
-| LIC1 | Cloudflare Account ID | dash.cloudflare.com (canto sup. direito) |
-| LIC2 | Wrangler API token | permissões `Workers Scripts:Edit` + `Workers KV Storage:Edit` |
-| LIC3 | KV namespace | `wrangler kv:namespace create LICENSES` → por o ID em `license-worker/wrangler.toml` |
-| LIC4 | Admin secret | `cd license-worker && wrangler secret put LICENSE_ADMIN_SECRET` |
-| LIC5 | Deploy do Worker | `cd license-worker && pnpm deploy` → URL `https://media-forge-license.<acct>.workers.dev` |
-| LIC6 | Emitir 1ª licença agência | `POST /admin/issue` com Bearer admin secret, body `{"tier":"agency"}` → `{licenseKey:"MFK-…"}` |
-| LIC7 | Config da agência on-prem | `LICENSE_CHECK_ENABLED=true` + `MAXVISION_LICENSE_SERVER_URL=<worker>/validate` + `MEDIA_FORGE_LICENSE_KEY=MFK-…` + `MEDIA_FORGE_LICENSE_INSTANCE_ID=<id estável>` |
-
-Alternativa Keygen: cliente é agnóstico — troca só o transporte em `src/license/client.ts`. (Decisão D2 do relicenciamento MIT→AGPL segue aberta acima.)
