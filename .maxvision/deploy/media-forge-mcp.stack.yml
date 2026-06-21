@@ -101,7 +101,19 @@ services:
       restart_policy:
         condition: on-failure
       update_config:
+        # start-first: a nova task fica HEALTHY (image HEALTHCHECK -> /health) antes
+        # da antiga sair. monitor dá tempo ao healthcheck; failure_action reverte
+        # sozinho se a nova nao subir saudavel. Mitiga o stale-LB do IPVS no overlay
+        # `net` (residual de poucos segundos pos-converge e money-safe: 404 -> sweep
+        # release). Forcar reconvergencia imediata do LB se preciso:
+        # `docker service update --force media-forge-mcp_mcp-server`.
         order: start-first
+        monitor: 30s
+        failure_action: rollback
+        delay: 10s
+      rollback_config:
+        order: start-first
+        monitor: 20s
       labels:
         - traefik.enable=true
         - traefik.docker.network=net

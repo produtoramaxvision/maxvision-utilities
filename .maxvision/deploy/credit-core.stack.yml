@@ -44,7 +44,22 @@ services:
       restart_policy:
         condition: on-failure
       update_config:
+        # start-first: a nova task sobe e fica HEALTHY (image HEALTHCHECK -> /health)
+        # ANTES da antiga ser drenada — sem janela de zero-task. monitor dá tempo ao
+        # healthcheck confirmar steady-state antes da convergência; failure_action
+        # reverte sozinho se a nova task não ficar saudável (sem fix manual).
         order: start-first
+        monitor: 30s
+        failure_action: rollback
+        delay: 10s
+      rollback_config:
+        order: start-first
+        monitor: 20s
+      # NOTA stale-LB (residual, inerente ao Swarm): mesmo com start-first+healthcheck,
+      # o IPVS no overlay `net` pode manter a task ANTIGA na rotação por alguns segundos
+      # após a convergência -> 404 transiente cross-service. Money-safe (sweep: 404 ->
+      # probe unknown -> release, sem overdraft). Se precisar forçar a reconvergência do
+      # LB imediatamente: `docker service update --force credit-core_credit-core`.
       # Sem labels Traefik: API interna da suíte (rede `net`), não exposta publicamente.
       # Se precisar expor (ex.: webhooks externos), adicionar router Traefik como nos MCPs.
 
