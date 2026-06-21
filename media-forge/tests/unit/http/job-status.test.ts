@@ -25,4 +25,13 @@ describe('/job-status/:jobId', () => {
     const res = await route({ status: 'completed', actualCredits: 25 }).request('/J', { headers: { 'x-mf-status-secret': 'wrong' } });
     expect(res.status).toBe(401);
   });
+  it('FAIL CLOSED: empty configured secret + no header → 401 (no fail-open)', async () => {
+    const open = buildJobStatusRoute({ secret: '', getJobRecord: () => ({ status: 'completed', actualCredits: 25 } as never) });
+    expect((await open.request('/J')).status).toBe(401);
+    expect((await open.request('/J', { headers: { 'x-mf-status-secret': '' } })).status).toBe(401);
+  });
+  it('FAIL CLOSED: valid secret but empty incoming header → 401', async () => {
+    const res = await route({ status: 'completed', actualCredits: 25 }).request('/J', { headers: { 'x-mf-status-secret': '' } });
+    expect(res.status).toBe(401);
+  });
 });

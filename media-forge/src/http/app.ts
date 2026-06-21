@@ -58,14 +58,22 @@ export function buildHttpApp(opts: HttpAppOpts = {}) {
 
   // Internal oracle for credit-core's TTL sweep — has its own secret gate.
   // Mount before MCP/tenant auth so credit-core never hits a 401.
+  // FAIL CLOSED: only mount when a strong secret (>=32 chars) is configured.
+  // An unset/weak secret leaves the route absent entirely (404) rather than
+  // open — credit-core's probe then falls back to RELEASE (safe), never capture.
   {
     const statusSecret = env['MEDIA_FORGE_STATUS_SECRET'] ?? '';
-    const projectDir = env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
-    const dbPath = join(projectDir, 'cost.db');
-    app.route('/job-status', buildJobStatusRoute({
-      secret: statusSecret,
-      getJobRecord: (jobId) => getJobRecord({ dbPath, jobId }),
-    }));
+    if (statusSecret.length >= 32) {
+      const projectDir = env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
+      const dbPath = join(projectDir, 'cost.db');
+      app.route('/job-status', buildJobStatusRoute({
+        secret: statusSecret,
+        getJobRecord: (jobId) => getJobRecord({ dbPath, jobId }),
+      }));
+    } else if (statusSecret.length > 0) {
+      // Misconfiguration (weak secret) — log so it surfaces, but never mount open.
+      process.stderr.write('[job-status] MEDIA_FORGE_STATUS_SECRET too short (<32); oracle route NOT mounted\n');
+    }
   }
 
   // F-I: /metrics — Prometheus gauges including margin observability (24h window).
