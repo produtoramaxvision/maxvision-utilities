@@ -27,7 +27,16 @@ export function buildJobStatusRoute(deps: JobStatusDeps) {
   app.get('/:jobId', (c) => {
     const provided = c.req.header('x-mf-status-secret') ?? '';
     if (!secretMatches(provided, deps.secret)) return c.json({ error: 'unauthorized' }, 401);
-    const rec = deps.getJobRecord(c.req.param('jobId'));
+    // Robust: a missing/unopenable cost.db (fresh container with no jobs yet) must
+    // degrade to 'unknown' (→ credit-core RELEASES, safe), never a 500 that looks
+    // like an outage. getJobRecord throws ERR_SQLITE_ERROR when the db file/dir
+    // is absent — treat any lookup failure as "job not known".
+    let rec: JobRecord | null;
+    try {
+      rec = deps.getJobRecord(c.req.param('jobId'));
+    } catch {
+      return c.json({ status: 'unknown' });
+    }
     if (!rec) return c.json({ status: 'unknown' });
     if (rec.status === 'completed') return c.json(rec.actualCredits != null ? { status: 'completed', actualCredits: rec.actualCredits } : { status: 'completed' });
     if (rec.status === 'failed') return c.json({ status: 'failed' });
