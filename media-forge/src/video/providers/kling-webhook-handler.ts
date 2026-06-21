@@ -8,6 +8,9 @@ import { openDb, runMigrations } from '../../core/db.js';
 import { getKlingAuthHeader, type KlingEnvSubset } from './auth/kling-jwt.js';
 import type { OutputStorageClient } from '../../output/storage.js';
 import { storeArtifact } from '../../output/output-storage.js';
+import type { GalleryStore } from '../../gallery/gallery-store.js';
+import { recordGalleryFromJob } from '../../gallery/record-from-job.js';
+import { logger } from '../../core/logger.js';
 
 export interface CreateKlingWebhookHandlerOpts {
   readonly dbPath: string;
@@ -23,6 +26,10 @@ export interface CreateKlingWebhookHandlerOpts {
    * (deferred to F-I where per-shot keys land).
    */
   readonly storage?: OutputStorageClient;
+  /** SE2: when present, a completed job is written to the gallery (tenant-attributed). */
+  readonly galleryStore?: GalleryStore;
+  /** SE2: logger for gallery skip events. Defaults to module logger. */
+  readonly logger?: typeof logger;
 }
 
 interface KlingWebhookPayload {
@@ -187,6 +194,16 @@ export function createKlingWebhookHandler(opts: CreateKlingWebhookHandlerOpts): 
       jobId: internalJobId,
       actualUsd,
       actualCredits: videoActualCredits(actualUsd),
+    });
+
+    // SE2: record the completed generation in the gallery (tenant-attributed, idempotent).
+    // minio_key = outputs/{jobId}.mp4 (canonical single/first-shot key, mirrors storeArtifact).
+    await recordGalleryFromJob({
+      galleryStore: opts.galleryStore,
+      dbPath: opts.dbPath,
+      jobId: internalJobId,
+      minioKey: `outputs/${internalJobId}.mp4`,
+      logger: opts.logger ?? logger,
     });
   };
 }
