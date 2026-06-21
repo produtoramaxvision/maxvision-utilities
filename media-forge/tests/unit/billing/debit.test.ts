@@ -46,10 +46,10 @@ describe('debit', () => {
   });
 
   it('reserveForJob forwards statusUrl to the credit client', async () => {
-    const calls: any[] = [];
-    const client = { reserve: async (a: unknown) => { calls.push(a); } } as never;
+    const calls: Array<Record<string, unknown>> = [];
+    const client = { reserve: async (a: Record<string, unknown>) => { calls.push(a); } } as never;
     await reserveForJob({ client, tenantId: 't', jobId: 'J', estimateCredits: 10, ttlAt: '2030-01-01T00:00:00Z', statusUrl: 'http://mcp-server:3000/job-status/J' });
-    expect(calls[0].statusUrl).toBe('http://mcp-server:3000/job-status/J');
-    expect(calls[0].externalId).toBe('res-J');
+    expect(calls[0]['statusUrl']).toBe('http://mcp-server:3000/job-status/J');
+    expect(calls[0]['externalId']).toBe('res-J');
   });
 });
