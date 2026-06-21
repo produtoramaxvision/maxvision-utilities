@@ -23,7 +23,7 @@ Plugin retargeted to its native MCP server (`czlonkowski/n8n-mcp`); enforcement 
 
 ### Removed
 
-- (Conditional) `pre-tool-use/instances.sh` + its matcher, if `n8n_instances` is confirmed absent from the live tool surface (resolved during MCP migration).
+- `pre-tool-use/instances.sh` + its matcher — `n8n_instances` confirmed absent from the live `czlonkowski/n8n-mcp` v2.59.2 tool surface. The `n8n-multi-instance` skill is retained; the `manage-credentials.sh` reminder already references the tool defensively ("if present"), so it self-suppresses.
 
 ## [0.2.0] - 2026-06-20
 
