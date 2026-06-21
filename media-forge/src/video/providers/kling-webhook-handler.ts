@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { WebhookHandler, WebhookContext } from './webhook-router.js';
 import { recordActualCost } from '../../core/cost-tracker.js';
+import { videoActualCredits } from '../../billing/pricing.js';
 import { VIDEO_MODELS } from '../../core/models.js';
 import { openDb, runMigrations } from '../../core/db.js';
 import { getKlingAuthHeader, type KlingEnvSubset } from './auth/kling-jwt.js';
@@ -172,7 +173,21 @@ export function createKlingWebhookHandler(opts: CreateKlingWebhookHandlerOpts): 
     } else if (typeof row.est_usd === 'number' && Number.isFinite(row.est_usd)) {
       actualUsd = row.est_usd;
     }
-    recordActualCost({ dbPath: opts.dbPath, jobId: internalJobId, actualUsd });
+    // SEAM CLOSED (2026-06-21): persist actual_credits on the webhook-first path,
+    // identical to the live download-capture path (mcp/handlers). Before this, a
+    // Kling job completed via webhook BEFORE the live download capture left
+    // video_jobs.actual_credits = NULL → if the live capture was then lost AND the
+    // reservation was swept, credit-core's oracle read {status:'completed'} with no
+    // actualCredits and captured the ESTIMATE, not the real cost. Now both paths
+    // compute credits the same way (videoActualCredits), so the oracle always
+    // returns the real cost. Money-safe before (first-settle-wins, no overdraft);
+    // this removes the estimate-vs-real drift on the rare nested-failure path.
+    recordActualCost({
+      dbPath: opts.dbPath,
+      jobId: internalJobId,
+      actualUsd,
+      actualCredits: videoActualCredits(actualUsd),
+    });
   };
 }
 

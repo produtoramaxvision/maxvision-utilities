@@ -3,8 +3,9 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb, runMigrations, closeDb } from '../../../src/core/db.js';
-import { recordJob, queryReport } from '../../../src/core/cost-tracker.js';
+import { recordJob, queryReport, getJobRecord } from '../../../src/core/cost-tracker.js';
 import { createKlingWebhookHandler } from '../../../src/video/providers/kling-webhook-handler.js';
+import { videoActualCredits } from '../../../src/billing/pricing.js';
 
 describe('createKlingWebhookHandler', () => {
   let tmpDir: string;
@@ -69,6 +70,15 @@ describe('createKlingWebhookHandler', () => {
 
     const report = queryReport({ dbPath, periodDays: 30 });
     expect(report.byProvider.kling?.actualUsd).toBeCloseTo(0.126 * 5, 4);
+
+    // SEAM (2026-06-21): the webhook-first capture must persist actual_credits,
+    // not leave it NULL. credit-core's sweep oracle reads /job-status →
+    // {status:'completed', actualCredits}; a NULL here made it capture the
+    // ESTIMATE instead of the real cost. Must equal the live path's computation.
+    const rec = getJobRecord({ dbPath, jobId: 'internal-job-A' });
+    expect(rec?.status).toBe('completed');
+    expect(rec?.actualCredits).not.toBeNull();
+    expect(rec?.actualCredits).toBe(videoActualCredits(0.126 * 5));
   });
 
   it('F-B: uploads completed asset to MinIO under canonical key outputs/{jobId}.mp4', async () => {

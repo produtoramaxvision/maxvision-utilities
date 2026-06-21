@@ -132,7 +132,13 @@ import {
 import { openDb, runMigrations } from '../core/db.js';
 import { recordActualCost } from '../core/cost-tracker.js';
 import { runWithDebit, reserveForJob, captureJob, releaseJob } from '../billing/debit.js';
-import { priceCredits } from '../billing/pricing.js';
+import {
+  priceCredits,
+  videoActualCredits,
+  IMAGE_MARKUP,
+  VIDEO_MARKUP,
+  DEFAULT_CREDIT_VALUE_USD,
+} from '../billing/pricing.js';
 import type { CreditClient } from '../billing/credit-client.js';
 import {
   getBytedanceSeedanceProvider,
@@ -1262,9 +1268,7 @@ export async function handleKlingDownload(
       );
     }
     const actualCreditsForRecord =
-      typeof actualUsd === 'number'
-        ? priceCredits({ costUsd: actualUsd, markup: VIDEO_MARKUP, creditValueUsd: DEFAULT_CREDIT_VALUE_USD })
-        : undefined;
+      typeof actualUsd === 'number' ? videoActualCredits(actualUsd) : undefined;
     recordActualCost({ dbPath: defaultDbPath(), jobId: input.jobIdOrUrl, actualUsd, actualCredits: actualCreditsForRecord });
   }
 
@@ -1660,9 +1664,9 @@ export interface HandlersDeps {
 // débito roda DENTRO do callback de `wrap()`, o catch de wrap o converte no
 // tool-error estruturado padrão ({ isError: true, ... }) — nunca um 500 cru.
 // ---------------------------------------------------------------------------
-const IMAGE_MARKUP = 10;
-const VIDEO_MARKUP = 4;
-const DEFAULT_CREDIT_VALUE_USD = 0.01;
+// IMAGE_MARKUP / VIDEO_MARKUP / DEFAULT_CREDIT_VALUE_USD now live in billing/pricing.ts
+// so the webhook-first capture path (kling-webhook-handler) bills identically to this
+// live path. Imported at the top of this file.
 /** Imagem: ciclo síncrono curto → TTL de 2 min para o sweep liberar reserva presa. */
 const IMAGE_TTL_MS = 120_000;
 /** Vídeo: render assíncrono pode levar minutos → TTL folgado (2h) cobre o pior caso
