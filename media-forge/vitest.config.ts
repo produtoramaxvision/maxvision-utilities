@@ -69,6 +69,8 @@ export default defineConfig({
       'tests/integration/gallery/**/*.test.ts',
       // F-E: billing integration tests (payments-store, reconcile — embedded-postgres)
       'tests/integration/billing/**/*.test.ts',
+      // OPS3: pg migration runner integration test (embedded-postgres)
+      'tests/integration/pg-migrate.int.test.ts',
     ],
     exclude: ['tests/integration/live-smoke.test.ts', 'tests/golden/**', 'tests/evals/**'],
     // F-I: globalSetup launches embedded-postgres for gallery integration tests.

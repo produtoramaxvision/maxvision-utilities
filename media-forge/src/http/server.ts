@@ -46,6 +46,10 @@ export async function startHttpServer(): Promise<void> {
     }
     // F-I: reuse the same pool for GalleryStore — single connection pool per Postgres.
     const pool = new Pool({ connectionString: databaseUrl });
+    // OPS3: apply pending pg migrations before any store reads tenants/api_keys.
+    const { runPgMigrations } = await import('../core/pg-migrate.js');
+    const pgApplied = await runPgMigrations(pool);
+    if (pgApplied.length) logger.info('pg migrations applied', { applied: pgApplied });
     store = new KeyStore(pool, pepper);
     galleryStore = new GalleryStore(pool);
     logger.info('media-forge: using Postgres KeyStore (F-C tenancy) + GalleryStore (F-I)');
