@@ -37,7 +37,7 @@ services:
       SWEEP_INTERVAL_MS: ${SWEEP_INTERVAL_MS:-60000}
       # SSRF guard: the shared secret is sent ONLY to these exact hosts. Empty =
       # deny-all (oracle off, sweep falls back to safe release).
-      SWEEP_PROBE_ALLOWED_HOSTS: ${SWEEP_PROBE_ALLOWED_HOSTS:-mcp-server}
+      SWEEP_PROBE_ALLOWED_HOSTS: ${SWEEP_PROBE_ALLOWED_HOSTS:-media-forge-mcp_mcp-server}
       MEDIA_FORGE_STATUS_SECRET: ${MEDIA_FORGE_STATUS_SECRET:-}
     deploy:
       replicas: 1

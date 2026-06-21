@@ -93,7 +93,7 @@ services:
       # F-E sweep oracle — credit-core probes /job-status back over the shared net
       # using this secret; INTERNAL_URL is registered on each reservation's status_url.
       MEDIA_FORGE_STATUS_SECRET: ${MEDIA_FORGE_STATUS_SECRET:-}
-      MEDIA_FORGE_INTERNAL_URL: ${MEDIA_FORGE_INTERNAL_URL:-http://mcp-server:3000}
+      MEDIA_FORGE_INTERNAL_URL: ${MEDIA_FORGE_INTERNAL_URL:-http://media-forge-mcp_mcp-server:3000}
     volumes:
       - mcp-data:/data
     deploy:
