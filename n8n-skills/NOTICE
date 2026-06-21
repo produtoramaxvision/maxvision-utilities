@@ -9,20 +9,41 @@ under the MIT License.
 
 Derivation:
   - Source: https://github.com/czlonkowski/n8n-skills
-  - Version: v1.6.0 (commit 1530f09, released 2026-04-19)
+  - Version: v1.21.0 (commit 29d3c31, 2026-06-18)
   - Skills included (verbatim from upstream):
+      * n8n-agents/
+      * n8n-binary-and-data/
       * n8n-code-javascript/
       * n8n-code-python/
+      * n8n-code-tool/
+      * n8n-error-handling/
       * n8n-expression-syntax/
       * n8n-mcp-tools-expert/
+      * n8n-multi-instance/
       * n8n-node-configuration/
+      * n8n-self-hosting/
+      * n8n-subworkflows/
       * n8n-validation-expert/
       * n8n-workflow-patterns/
+      * using-n8n-mcp-skills/  (router / entry-point skill)
+  - Hooks enforcement layer included (verbatim from upstream):
+      * hooks/hooks.json (SessionStart + PreToolUse + PostToolUse)
+      * hooks/session-start.sh
+      * hooks/pre-tool-use/*.sh
+      * hooks/post-tool-use/*.sh
+
+================================================================================
+Portions of the upstream skill content are adapted from n8n-io/skills
+(https://github.com/n8n-io/skills), Copyright n8n GmbH and contributors,
+licensed under the Apache License, Version 2.0. A copy of that license is
+included at NOTICES-APACHE-2.0.txt. See the upstream NOTICES file (mirrored at
+NOTICES-UPSTREAM) for the per-file list of adapted material.
+================================================================================
 
 Modifications by Produtora MaxVision:
   - Packaging as a Claude Code plugin (.claude-plugin/plugin.json)
   - Self-hosted marketplace manifest (.claude-plugin/marketplace.json)
   - Professional repository structure (CI, issue templates, contribution docs)
 
-No upstream skill content is modified. Updates from upstream are tracked via
-the sync mechanism documented in the workspace README (outside this repo).
+No upstream skill or hook content is modified. Updates from upstream are tracked
+via the sync mechanism documented in the workspace README (outside this repo).

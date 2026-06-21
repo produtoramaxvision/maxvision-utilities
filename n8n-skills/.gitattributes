@@ -1,0 +1,4 @@
+# Shell scripts (hooks + scripts) MUST stay LF — a CRLF shebang breaks
+# `#!/usr/bin/env bash` on Linux/macOS and under Git Bash invocation.
+*.sh text eol=lf
+.upstream-pin text eol=lf
