@@ -84,7 +84,7 @@ export async function startHttpServer(): Promise<void> {
         ...(asaasWebhookToken ? { asaasWebhookToken } : {}),
         ...(stripeConstructEvent ? { stripeConstructEvent } : {}),
       };
-      const stopReconcile = startReconcileLoop({ store: paymentsStore, credit });
+      const stopReconcile = startReconcileLoop({ store: paymentsStore, credit, logger });
       process.once('SIGTERM', stopReconcile);
       process.once('SIGINT', stopReconcile);
       logger.info('billing enabled (F-E)', {
