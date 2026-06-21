@@ -4,6 +4,38 @@ All notable changes to `media-forge` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-06-21
+
+### Fixed
+
+- **cost-tracker SQLite crashed on first write in the hosted container.** `openDb()`
+  opened the db file without creating its parent dir, so when `MEDIA_FORGE_PROJECT_DIR`
+  was unset (resolving to a non-existent `/app/.media-forge`), `recordJob` /
+  `getJobRecord` / gallery / refs threw `unable to open database file`. `openDb` now
+  `mkdir`s the parent dir first. Unblocks video-job tracking, billing capture accuracy,
+  gallery, cost reports, and the F-E sweep oracle's `actual_credits` source.
+- **Deploy:** the stack now mounts a `mcp-data` volume at `/data` and sets
+  `MEDIA_FORGE_PROJECT_DIR=/data/media-forge`, so `cost.db` (`video_jobs`) survives
+  redeploys instead of living on the ephemeral container fs.
+
+## [0.2.2] - 2026-06-20
+
+### Fixed
+
+- **Job-status oracle robustness + auth.** `/job-status` degrades to `{status:'unknown'}`
+  on a missing/unopenable db (no 500), and fails closed: the route only mounts when a
+  `MEDIA_FORGE_STATUS_SECRET` >= 32 chars is set, with constant-time secret compare.
+
+## [0.2.1] - 2026-06-20
+
+### Added
+
+- **F-E sweep oracle.** Internal `/job-status/:jobId` endpoint (sourced from
+  `video_jobs`, secret-gated) lets credit-core's TTL sweep settle expired Kling
+  reservations with the real captured cost. `video_jobs.actual_credits` persists the
+  already-computed credits at live capture; `reserveForJob` registers each
+  reservation's `status_url` pointing back at this service.
+
 ## [0.2.0] - 2026-06-02
 
 ### Fixed

@@ -18,6 +18,17 @@ describe('db helper', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it('creates a missing parent directory before opening (no "unable to open database file")', () => {
+    // hosted container: MEDIA_FORGE_PROJECT_DIR resolves to a dir that does not exist yet
+    const nestedPath = join(tmpDir, 'does', 'not', 'exist', 'cost.db');
+    expect(() => {
+      const db = openDb(nestedPath);
+      runMigrations(db);
+      db.prepare("SELECT 1").get();
+      closeDb(nestedPath);
+    }).not.toThrow();
+  });
+
   it('creates the database file and applies migrations', () => {
     const db = openDb(dbPath);
     runMigrations(db);
