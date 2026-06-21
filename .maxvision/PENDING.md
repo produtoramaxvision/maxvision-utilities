@@ -76,9 +76,9 @@ Tasks 1–10 implementadas, testadas e commitadas na `homolog` (10 commits `feat
 ## 🧩 Seams a fechar (a maioria no F-E)
 
 - **SE1** — Observabilidade de margem usa créditos placeholder (`0`/`$0.01`) até o credit-core ser ligado ao fluxo de geração (F-E).
-- **SE2** — Galeria grava só no `kling_download`; outros providers/webhooks não têm `tenantId` no contexto. Precisa propagar `galleryStore`+`tenantId` aos webhook handlers.
+- **SE2 — feature (precisa plano próprio, NÃO é quick fix).** Galeria grava só no `kling_download`. Investigação 2026-06-21 mostrou: (1) `handleHiggsfieldDownload` retorna `{bytes,contentType,cdnUrl?}` — **sem `actualUsd`/jobId**, então o bloco do kling NÃO é copy-paste (cada provider tem cost-shape diferente); (2) o path principal de conclusão de vídeo é o **webhook async**, e o `video_jobs` (sqlite cost-tracker) **não tem coluna `tenant_id`** → o webhook não consegue recuperar o tenant. Escopo real: migration `video_jobs.tenant_id` (008) + popular no submit + injetar `galleryStore` no webhook router + insert por-provider. Planejar à parte.
 - **SE3** — Vídeo parcial: Kling exige `MEDIA_FORGE_KLING_WEBHOOK_INSECURE=true` (sem HMAC); Higgsfield nunca usa MinIO (stub sem buffer); Seedance sobe pro MinIO mas não há tool de poll que devolva a signed URL.
-- **SE4** — `buildServer` cria o client Google eagerly → handshake 500 sem `GOOGLE_API_KEY`. Poderia ser lazy (handshake OK, tool falha só na chamada). Melhoria de UX, não bloqueia.
+- **SE4 — ✅ FEITO (2026-06-21, media-forge v0.2.7, no main):** `createClient` agora cria o `GoogleGenAI` lazy (`get ai()` no 1º acesso); `mode`/`dryRun` ficam eager-puros (sem throw). `buildServer`/handshake MCP funcionam sem `GOOGLE_API_KEY` — só a tool que usa o SDK falha (`ConfigError`), não a sessão. Só `core/client.ts` + tests (10/10). Validado local (typecheck/lint/1562 testes). **Não deployado ainda** (defensivo; ativa no próximo deploy do media-forge).
 
 ## 🛠️ Follow-ups de infra/ops
 

@@ -73,27 +73,37 @@ export function createClient(opts: CreateClientOpts): MediaForgeClient {
   const { config, dryRun = false } = opts;
   const Ctor = opts._GoogleGenAIClass ?? GoogleGenAI;
 
-  let mode: ClientMode;
-  let ai: GoogleGenAI;
+  // SE4: `mode` is pure config inspection — compute it eagerly (no creds needed,
+  // never throws). The actual GoogleGenAI construction (which REQUIRES creds and
+  // throws ConfigError when absent) is deferred to the first `.ai` access. This
+  // keeps `buildServer()` / the MCP handshake working without GOOGLE_API_KEY — only
+  // a tool call that actually needs the SDK fails, instead of the whole session.
+  const mode: ClientMode = config.useVertex && config.project ? 'vertex' : 'gemini';
 
-  if (config.useVertex && config.project) {
-    mode = 'vertex';
-    ai = new Ctor({ vertexai: true, project: config.project, location: config.location });
-  } else if (config.apiKey) {
-    mode = 'gemini';
-    ai = new Ctor({ apiKey: config.apiKey });
-  } else if (dryRun) {
-    // Dry-run with no creds: instantiate a stub client. The proxy below intercepts
-    // every SDK call before it can hit the network, so a placeholder apiKey is safe.
-    mode = 'gemini';
-    ai = new Ctor({ apiKey: 'dry-run-stub' });
-  } else {
-    throw new ConfigError(
-      'No Google credentials configured: set GOOGLE_API_KEY or GOOGLE_PROJECT_ID+GOOGLE_LOCATION',
-    );
+  let cachedAi: GoogleGenAI | undefined;
+  function buildAi(): GoogleGenAI {
+    let ai: GoogleGenAI;
+    if (config.useVertex && config.project) {
+      ai = new Ctor({ vertexai: true, project: config.project, location: config.location });
+    } else if (config.apiKey) {
+      ai = new Ctor({ apiKey: config.apiKey });
+    } else if (dryRun) {
+      // Dry-run with no creds: instantiate a stub client. The proxy below intercepts
+      // every SDK call before it can hit the network, so a placeholder apiKey is safe.
+      ai = new Ctor({ apiKey: 'dry-run-stub' });
+    } else {
+      throw new ConfigError(
+        'No Google credentials configured: set GOOGLE_API_KEY or GOOGLE_PROJECT_ID+GOOGLE_LOCATION',
+      );
+    }
+    return dryRun ? buildDryRunProxy(ai) : ai;
   }
 
-  const resolvedAi = dryRun ? buildDryRunProxy(ai) : ai;
-
-  return Object.freeze({ mode, dryRun, ai: resolvedAi });
+  return Object.freeze({
+    mode,
+    dryRun,
+    get ai(): GoogleGenAI {
+      return (cachedAi ??= buildAi());
+    },
+  });
 }
