@@ -3,6 +3,7 @@
 // /webhooks/:provider/:jobId monta o webhook Hono sub-app quando o secret esta presente (F-B).
 // F-I: galleryStore injetado para list_my_generations + /metrics margin gauges.
 // F-F: licenseState injetado para gate de licença C1 self-host (403 quando revogada).
+import { join } from 'node:path';
 import { Hono } from 'hono';
 import { resolveAuth } from './auth.js';
 import { handleMcpRequest } from './app-internal.js';
@@ -20,6 +21,8 @@ import { handleStripeWebhook } from '../billing/stripe-webhook.js';
 import type { StripeWebhookDeps } from '../billing/stripe-webhook.js';
 import type { PaymentsStore } from '../billing/payments-store.js';
 import type { CreditClient } from '../billing/credit-client.js';
+import { buildJobStatusRoute } from './job-status.js';
+import { getJobRecord } from '../core/cost-tracker.js';
 
 /** F-E: deps de billing pra rotas de webhook de pagamento. Cada rota é montada
  *  só quando sua config existe — um deploy pode usar só Asaas, só Stripe, ou ambos. */
@@ -52,6 +55,18 @@ export function buildHttpApp(opts: HttpAppOpts = {}) {
   const app = new Hono();
 
   app.get('/health', (c) => c.json({ ok: true }));
+
+  // Internal oracle for credit-core's TTL sweep — has its own secret gate.
+  // Mount before MCP/tenant auth so credit-core never hits a 401.
+  {
+    const statusSecret = env['MEDIA_FORGE_STATUS_SECRET'] ?? '';
+    const projectDir = env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
+    const dbPath = join(projectDir, 'cost.db');
+    app.route('/job-status', buildJobStatusRoute({
+      secret: statusSecret,
+      getJobRecord: (jobId) => getJobRecord({ dbPath, jobId }),
+    }));
+  }
 
   // F-I: /metrics — Prometheus gauges including margin observability (24h window).
   app.get('/metrics', async (c) => {

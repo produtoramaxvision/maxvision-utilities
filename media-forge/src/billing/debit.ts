@@ -4,7 +4,7 @@
 import type { CreditClient } from './credit-client.js';
 
 export interface ReserveForJobArgs {
-  client: CreditClient; tenantId: string; jobId: string; estimateCredits: number; ttlAt: string;
+  client: CreditClient; tenantId: string; jobId: string; estimateCredits: number; ttlAt: string; statusUrl?: string;
 }
 export interface SettleForJobArgs {
   client: CreditClient; tenantId: string; jobId: string;
@@ -14,6 +14,7 @@ export async function reserveForJob(a: ReserveForJobArgs): Promise<void> {
   await a.client.reserve({
     tenantId: a.tenantId, amount: a.estimateCredits, reservationId: a.jobId,
     ttlAt: a.ttlAt, externalId: `res-${a.jobId}`,
+    ...(a.statusUrl !== undefined ? { statusUrl: a.statusUrl } : {}),
   });
 }
 

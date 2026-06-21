@@ -44,4 +44,12 @@ describe('debit', () => {
     expect(client.reserve).toHaveBeenCalledWith(expect.objectContaining({ externalId: 'res-J3' }));
     expect(client.capture).toHaveBeenCalledWith(expect.objectContaining({ externalId: 'cap-J3', amount: 4 }));
   });
+
+  it('reserveForJob forwards statusUrl to the credit client', async () => {
+    const calls: any[] = [];
+    const client = { reserve: async (a: unknown) => { calls.push(a); } } as never;
+    await reserveForJob({ client, tenantId: 't', jobId: 'J', estimateCredits: 10, ttlAt: '2030-01-01T00:00:00Z', statusUrl: 'http://mcp-server:3000/job-status/J' });
+    expect(calls[0].statusUrl).toBe('http://mcp-server:3000/job-status/J');
+    expect(calls[0].externalId).toBe('res-J');
+  });
 });

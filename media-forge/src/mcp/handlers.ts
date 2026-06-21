@@ -1261,7 +1261,11 @@ export async function handleKlingDownload(
           `recording actualUsd=0 to flip terminal status. Cost ledger may underreport.\n`,
       );
     }
-    recordActualCost({ dbPath: defaultDbPath(), jobId: input.jobIdOrUrl, actualUsd });
+    const actualCreditsForRecord =
+      typeof actualUsd === 'number'
+        ? priceCredits({ costUsd: actualUsd, markup: VIDEO_MARKUP, creditValueUsd: DEFAULT_CREDIT_VALUE_USD })
+        : undefined;
+    recordActualCost({ dbPath: defaultDbPath(), jobId: input.jobIdOrUrl, actualUsd, actualCredits: actualCreditsForRecord });
   }
 
   return {
@@ -1719,7 +1723,11 @@ export async function reserveVideoSubmit(
     creditValueUsd: DEFAULT_CREDIT_VALUE_USD,
   });
   const ttlAt = new Date(Date.now() + VIDEO_TTL_MS).toISOString();
-  await reserveForJob({ client: deps.creditClient, tenantId: deps.tenantId, jobId, estimateCredits, ttlAt });
+  // Task 10: derive statusUrl from MEDIA_FORGE_INTERNAL_URL so credit-core sweep
+  // can query the oracle endpoint without an explicit caller parameter.
+  const internalUrl = process.env['MEDIA_FORGE_INTERNAL_URL'];
+  const statusUrl = internalUrl ? `${internalUrl}/job-status/${jobId}` : undefined;
+  await reserveForJob({ client: deps.creditClient, tenantId: deps.tenantId, jobId, estimateCredits, ttlAt, statusUrl });
 }
 
 /** Captura o custo REAL de um vídeo concluído. Idempotente via external_id cap-{jobId}

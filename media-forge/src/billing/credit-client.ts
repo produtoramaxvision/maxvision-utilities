@@ -12,7 +12,7 @@ export interface CreditClientOpts {
 }
 
 export interface ReserveArgs {
-  tenantId: string; amount: number; reservationId: string; ttlAt: string; externalId: string;
+  tenantId: string; amount: number; reservationId: string; ttlAt: string; externalId: string; statusUrl?: string;
 }
 export interface SettleArgs {
   tenantId: string; reservationId: string; amount: number; externalId: string;
