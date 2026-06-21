@@ -46,6 +46,7 @@ export interface JobRecord {
   readonly completedAt: string | null;
   readonly nativeTaskId: string | null;
   readonly actualCredits: number | null;
+  readonly tenantId: string | null;
 }
 
 export interface ProviderRollup {
@@ -108,7 +109,7 @@ export function getJobRecord(opts: {
   const row = db
     .prepare(
       `SELECT id, provider, model, mode, status, est_usd, actual_usd, duration_ms,
-              created_at, completed_at, native_task_id, actual_credits
+              created_at, completed_at, native_task_id, actual_credits, tenant_id
          FROM video_jobs
         WHERE id = ?`,
     )
@@ -126,6 +127,7 @@ export function getJobRecord(opts: {
         completed_at: string | null;
         native_task_id: string | null;
         actual_credits: number | null;
+        tenant_id: string | null;
       }
     | undefined;
   if (!row) return null;
@@ -142,7 +144,17 @@ export function getJobRecord(opts: {
     completedAt: row.completed_at,
     nativeTaskId: row.native_task_id,
     actualCredits: row.actual_credits,
+    tenantId: row.tenant_id,
   };
+}
+
+export function setJobTenant(opts: {
+  readonly dbPath: string;
+  readonly jobId: string;
+  readonly tenantId: string;
+}): void {
+  const db = ensureDb(opts.dbPath);
+  db.prepare(`UPDATE video_jobs SET tenant_id = ? WHERE id = ?`).run(opts.tenantId, opts.jobId);
 }
 
 export function queryReport(opts: { dbPath: string; periodDays: number }): CostReport {
