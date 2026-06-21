@@ -8,6 +8,8 @@ function deps() {
       tenantForCustomer: vi.fn(async () => 't1'),
       recordPaymentOnce: vi.fn(async () => true),
       markGranted: vi.fn(async () => {}),
+      upsertSubscriptionTier: vi.fn(async () => {}),
+      setTenantTier: vi.fn(async () => {}),
     },
     credit: { grant: vi.fn(async () => {}) },
     webhookToken: 'secret-token',
@@ -17,6 +19,11 @@ function deps() {
 const packEvent = {
   event: 'PAYMENT_CONFIRMED',
   payment: { id: 'pay_1', value: 19.9, billingType: 'PIX', customer: 'cus_1' },
+};
+
+const subPayment = {
+  event: 'PAYMENT_CONFIRMED',
+  payment: { id: 'pay_sub_1', value: 19.9, billingType: 'PIX', customer: 'cus_1', subscription: 'sub_asaas_1' },
 };
 
 describe('handleAsaasWebhook', () => {
@@ -49,4 +56,26 @@ describe('handleAsaasWebhook', () => {
     expect(d.credit.grant).not.toHaveBeenCalled();
     expect(r.status).toBe(200);
   });
+
+  it('pagamento de assinatura → grant + upsert active + setTenantTier creator', async () => {
+    const d = deps();
+    const r = await handleAsaasWebhook({ token: 'secret-token', body: subPayment }, d as never);
+    expect(r.status).toBe(200);
+    expect(d.credit.grant).toHaveBeenCalled();
+    expect(d.store.upsertSubscriptionTier).toHaveBeenCalledWith('t1', 'asaas', 'sub_asaas_1', 'active', 'creator');
+    expect(d.store.setTenantTier).toHaveBeenCalledWith('t1', 'creator', 'asaas:PAYMENT_CONFIRMED');
+  });
+
+  it.each(['SUBSCRIPTION_DELETED', 'SUBSCRIPTION_INACTIVATED'])(
+    '%s → upsert canceled + setTenantTier free, sem grant',
+    async (event) => {
+      const d = deps();
+      const body = { event, subscription: { id: 'sub_asaas_1', customer: 'cus_1', status: 'INACTIVE' } };
+      const r = await handleAsaasWebhook({ token: 'secret-token', body }, d as never);
+      expect(r.status).toBe(200);
+      expect(d.store.upsertSubscriptionTier).toHaveBeenCalledWith('t1', 'asaas', 'sub_asaas_1', 'canceled', 'creator');
+      expect(d.store.setTenantTier).toHaveBeenCalledWith('t1', 'free', `asaas:${event}`);
+      expect(d.credit.grant).not.toHaveBeenCalled();
+    },
+  );
 });

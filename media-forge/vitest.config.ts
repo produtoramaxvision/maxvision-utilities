@@ -67,8 +67,6 @@ export default defineConfig({
       'tests/integration/http-mcp-tier.test.ts',
       // F-I: gallery integration tests (embedded-postgres)
       'tests/integration/gallery/**/*.test.ts',
-      // F-F: license gate integration test (exit criteria proof)
-      'tests/integration/license-gate.test.ts',
       // F-E: billing integration tests (payments-store, reconcile — embedded-postgres)
       'tests/integration/billing/**/*.test.ts',
     ],

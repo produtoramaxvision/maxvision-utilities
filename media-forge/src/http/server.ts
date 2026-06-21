@@ -1,6 +1,5 @@
 import { serve } from '@hono/node-server';
 import { join } from 'node:path';
-import { hostname } from 'node:os';
 import pg from 'pg';
 import { buildHttpApp } from './app.js';
 import { KeyStore, FlatKeyStore } from './key-store.js';
@@ -17,7 +16,6 @@ import type { WebhookHonoApp } from './webhook-hono.js';
 import { GalleryStore } from '../gallery/gallery-store.js';
 import { startMarginCron } from '../gallery/margin-cron.js';
 import { createTelegramNotifier } from '../gallery/gallery-notifier.js';
-import { LicenseCache } from '../license/cache.js';
 import Stripe from 'stripe';
 import type { BillingWebhookDeps } from './app.js';
 import { PaymentsStore } from '../billing/payments-store.js';
@@ -30,25 +28,6 @@ export async function startHttpServer(): Promise<void> {
   const port = Number(process.env['MEDIA_FORGE_HTTP_PORT'] ?? 8787);
   const env = process.env;
   const config = loadConfig(env);
-  // F-F: License cache (self-host C1). Inicia antes do serve para que o boot check
-  // ocorra antes de aceitar requests. No modo hosted (LICENSE_CHECK_ENABLED=false),
-  // o bloco é um no-op total — zero rede, zero overhead.
-  let licenseCache: LicenseCache | undefined;
-  if (config.licenseCheckEnabled) {
-    if (!config.licenseServerUrl || !config.licenseKey) {
-      logger.error('LICENSE_CHECK_ENABLED=true but MAXVISION_LICENSE_SERVER_URL or MEDIA_FORGE_LICENSE_KEY missing');
-      process.exit(2);
-    }
-    licenseCache = new LicenseCache({
-      url: config.licenseServerUrl,
-      licenseKey: config.licenseKey,
-      instanceId: config.licenseInstanceId ?? hostname(),
-      revalidateMs: config.licenseRevalidateMs,
-      graceMs: config.licenseGraceMs,
-    });
-    await licenseCache.start();
-    logger.info('license check enabled (self-host C1)', { allowed: licenseCache.getState().allowed });
-  }
 
   // F-B: storage de artefato. Injetado nos webhook handlers de provider abaixo.
   const storage = outputStorageFromConfig(config) ?? undefined;
@@ -105,7 +84,7 @@ export async function startHttpServer(): Promise<void> {
         ...(asaasWebhookToken ? { asaasWebhookToken } : {}),
         ...(stripeConstructEvent ? { stripeConstructEvent } : {}),
       };
-      const stopReconcile = startReconcileLoop({ store: paymentsStore, credit });
+      const stopReconcile = startReconcileLoop({ store: paymentsStore, credit, logger });
       process.once('SIGTERM', stopReconcile);
       process.once('SIGINT', stopReconcile);
       logger.info('billing enabled (F-E)', {
@@ -136,7 +115,6 @@ export async function startHttpServer(): Promise<void> {
     limiter,
     galleryStore,
     ...(billing ? { billing } : {}),
-    ...(licenseCache ? { licenseState: () => licenseCache!.getState() } : {}),
   });
   const appRec = app as unknown as Record<string, unknown>;
 
@@ -188,10 +166,9 @@ export async function startHttpServer(): Promise<void> {
   }
 
   const server = serve({ fetch: app.fetch, port, hostname: '0.0.0.0' });
-  logger.info('media-forge MCP HTTP server ready', { port, tenancy: !!databaseUrl, licenseGated: Boolean(licenseCache) });
+  logger.info('media-forge MCP HTTP server ready', { port, tenancy: !!databaseUrl });
 
   const shutdown = (): void => {
-    licenseCache?.stop();
     server.close();
     process.exit(0);
   };

@@ -4,7 +4,7 @@ Production-grade Claude Code plugin for image and video generation using Google'
 
 ![version](https://img.shields.io/badge/version-0.1.1-blue)
 ![node](https://img.shields.io/badge/node-%3E%3D20-green)
-![license](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)
+![license](https://img.shields.io/badge/license-MIT-green)
 
 ---
 
@@ -272,22 +272,3 @@ startup and is not hot-reloaded — restart the server after flipping it.
 This Legal Note exists so future operators can locate the emergency-removal
 mechanism without source-diving and so the IP context is preserved alongside
 the integration's documentation.
-
----
-
-## License
-
-**Dual-licensed.** Copyright © 2026 Produtora MaxVision.
-
-- **Open source:** [GNU AGPL-3.0-or-later](LICENSE). You may use, modify, and
-  redistribute media-forge under the AGPL. The AGPL's network clause (§13)
-  requires that if you run a modified version as a network service, you offer
-  its complete source to your users. This is the default license for the core.
-- **Commercial self-host:** if the AGPL does not fit your deployment (e.g. you
-  run a modified version as a service and cannot publish your changes, or you
-  want to embed media-forge in a closed product), a separate commercial license
-  is available — see [`LICENSE-COMMERCIAL/EULA.md`](LICENSE-COMMERCIAL/EULA.md).
-  Commercial keys are issued by Produtora MaxVision and gated by the license
-  validation layer (`src/license/`).
-
-Contact: produtoramaxvision@gmail.com
