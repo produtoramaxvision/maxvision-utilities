@@ -2,7 +2,6 @@
 // Hono app do transporte HTTP. F-C: resolveAuth async + rate-limit + store/limiter injetaveis.
 // /webhooks/:provider/:jobId monta o webhook Hono sub-app quando o secret esta presente (F-B).
 // F-I: galleryStore injetado para list_my_generations + /metrics margin gauges.
-// F-F: licenseState injetado para gate de licença C1 self-host (403 quando revogada).
 import { join } from 'node:path';
 import { Hono } from 'hono';
 import { resolveAuth } from './auth.js';
@@ -14,7 +13,6 @@ import type { RateLimiter } from './rate-limiter.js';
 import { NullRateLimiter } from './rate-limiter.js';
 import type { GalleryStore } from '../gallery/gallery-store.js';
 import { computeMargin } from '../gallery/margin.js';
-import type { LicenseState } from '../license/types.js';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { handleAsaasWebhook } from '../billing/asaas-webhook.js';
 import { handleStripeWebhook } from '../billing/stripe-webhook.js';
@@ -39,8 +37,6 @@ export interface HttpAppOpts {
   limiter?: RateLimiter;
   /** F-I: gallery store for list_my_generations + /metrics margin gauges. */
   galleryStore?: GalleryStore;
-  /** F-F: presente só quando LICENSE_CHECK_ENABLED=true (self-host C1). No-op quando ausente. */
-  licenseState?: () => LicenseState;
   /** F-E: webhooks de pagamento (Asaas/Stripe). Ausente = billing off (hosted sem envs). */
   billing?: BillingWebhookDeps;
 }
@@ -51,7 +47,6 @@ export function buildHttpApp(opts: HttpAppOpts = {}) {
     opts.store ?? new FlatKeyStore(env['MEDIA_FORGE_API_KEYS'] ?? '');
   const limiter: RateLimiter = opts.limiter ?? new NullRateLimiter();
   const galleryStore = opts.galleryStore;
-  const licenseState = opts.licenseState;
   const app = new Hono();
 
   app.get('/health', (c) => c.json({ ok: true }));
@@ -125,12 +120,6 @@ export function buildHttpApp(opts: HttpAppOpts = {}) {
     const auth = await resolveAuth(c.req.header('Authorization'), store);
     if (!auth.ok) return c.json({ error: 'unauthorized', reason: auth.reason }, 401);
 
-    // 2. Gate de licença (F-F self-host C1): 403 quando revogada. No-op no modo hosted.
-    // Auth (401) roda ANTES do gate de licença (403) para não vazar estado a anônimos.
-    if (licenseState) {
-      const state = licenseState();
-      if (!state.allowed) return c.json({ error: 'license_invalid', reason: state.reason }, 403);
-    }
 
     // 3. Rate-limit por tenant
     const rl = await limiter.check(auth.ctx.tenantId, auth.ctx.tier);
