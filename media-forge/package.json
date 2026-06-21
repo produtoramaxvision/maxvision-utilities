@@ -120,7 +120,7 @@
     "google-ai",
     "mcp"
   ],
-  "license": "AGPL-3.0-or-later",
+  "license": "MIT",
   "author": {
     "name": "Produtora MaxVision",
     "email": "produtoramaxvision@gmail.com",
