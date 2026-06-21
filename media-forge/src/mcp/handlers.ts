@@ -2968,6 +2968,10 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
               costUsd: (result as Record<string, unknown>).actualUsd as number,
               creditsDebited: 0,      // SEAM F-D: fill from credit-core capture
               creditValueUsd: 0.01,   // SEAM F-D: fill from credit-core capture
+              // SE2 Task 4c (eng review D1): include minio_key so both sync and webhook writers
+              // produce equivalent rows — ON CONFLICT(generation_id) DO NOTHING is first-writer-wins,
+              // but whichever wins now carries the artifact link. Mirrors the webhook key expression.
+              minioKey: `outputs/${parsed.data.jobIdOrUrl}.mp4`,
               status: 'completed',
             }).catch((err: unknown) => {
               process.stderr.write(
