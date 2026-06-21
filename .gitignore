@@ -62,3 +62,4 @@ tmp/
 .upstream-cache/
 .upstream/
 .claude/worktrees/
+.fallow/
