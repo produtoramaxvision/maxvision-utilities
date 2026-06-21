@@ -1,5 +1,8 @@
 // src/billing/payments-store.ts
 import type { Pool } from 'pg';
+import type { Tier } from '../http/auth.js';
+
+const VALID_TIERS: ReadonlySet<string> = new Set(['free', 'creator', 'pro']);
 
 export interface PaymentRow {
   paymentId: string; provider: 'asaas' | 'stripe'; tenantId: string;
@@ -64,5 +67,66 @@ export class PaymentsStore {
       `SELECT provider, payment_id, tenant_id, credits, external_grant_id FROM payments WHERE status='confirmed'`,
     );
     return r.rows.map((x) => ({ provider: x.provider, paymentId: x.payment_id, tenantId: x.tenant_id, credits: Number(x.credits), externalGrantId: x.external_grant_id }));
+  }
+
+  /** Sets tenants.tier and writes an audit row, atomically in one tx.
+   *  No-op (no audit row) when the tenant is already at the target tier. */
+  async setTenantTier(tenantId: string, tier: Tier, reason: string): Promise<void> {
+    if (!VALID_TIERS.has(tier)) throw new Error(`invalid tier: ${tier}`);
+    const c = await this.pool.connect();
+    try {
+      await c.query('BEGIN');
+      const cur = await c.query(`SELECT tier FROM tenants WHERE id=$1 FOR UPDATE`, [tenantId]);
+      const from = cur.rows[0]?.tier as string | undefined;
+      if (from === undefined) { await c.query('ROLLBACK'); throw new Error(`unknown tenant: ${tenantId}`); }
+      if (from === tier) { await c.query('COMMIT'); return; } // no-op, no audit
+      await c.query(`UPDATE tenants SET tier=$1 WHERE id=$2`, [tier, tenantId]);
+      await c.query(
+        `INSERT INTO tier_changes (tenant_id, from_tier, to_tier, reason) VALUES ($1,$2,$3,$4)`,
+        [tenantId, from, tier, reason],
+      );
+      await c.query('COMMIT');
+    } catch (e) {
+      await c.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      c.release();
+    }
+  }
+
+  /** Upserts the local subscription source of truth (keyed by provider+sub_id). */
+  async upsertSubscriptionTier(
+    tenantId: string,
+    provider: string,
+    subId: string,
+    status: 'active' | 'canceled',
+    tier: 'creator' | 'pro',
+  ): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO subscriptions (tenant_id, provider, sub_id, status, tier) VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (provider, sub_id) DO UPDATE SET status=EXCLUDED.status, tier=EXCLUDED.tier, updated_at=now()`,
+      [tenantId, provider, subId, status, tier],
+    );
+  }
+
+  /** Re-derive tenants.tier from the local subscription source of truth. Heals
+   *  partial-write drift (a tenants update missed after a subscription write).
+   *  Returns the number of tenants corrected. NOTE: this does NOT recover a fully
+   *  missed webhook — that needs provider polling (Phase 2). */
+  async reconcileTiers(): Promise<number> {
+    const rows = (await this.pool.query(`
+      SELECT t.id, t.tier AS current,
+        COALESCE((SELECT s.tier FROM subscriptions s
+                   WHERE s.tenant_id=t.id AND s.status='active'
+                   ORDER BY CASE s.tier WHEN 'pro' THEN 2 ELSE 1 END DESC LIMIT 1), 'free') AS derived
+      FROM tenants t`)).rows as Array<{ id: string; current: string; derived: string }>;
+    let fixed = 0;
+    for (const r of rows) {
+      if (r.current !== r.derived) {
+        await this.setTenantTier(r.id, r.derived as Tier, 'reconcile');
+        fixed++;
+      }
+    }
+    return fixed;
   }
 }
