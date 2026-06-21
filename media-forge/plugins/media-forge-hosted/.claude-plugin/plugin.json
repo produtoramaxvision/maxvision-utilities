@@ -9,7 +9,7 @@
   },
   "homepage": "https://media-forge.produtoramaxvision.com.br",
   "repository": "https://github.com/produtoramaxvision/maxvision-utilities/tree/main/media-forge/plugins/media-forge-hosted",
-  "license": "AGPL-3.0",
+  "license": "AGPL-3.0-or-later",
   "keywords": [
     "image-generation",
     "video-generation",

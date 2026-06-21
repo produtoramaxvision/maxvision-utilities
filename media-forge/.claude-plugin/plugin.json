@@ -9,7 +9,7 @@
   },
   "homepage": "https://github.com/produtoramaxvision/maxvision-utilities/tree/main/media-forge",
   "repository": "https://github.com/produtoramaxvision/maxvision-utilities",
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "keywords": [
     "image-generation",
     "video-generation",
