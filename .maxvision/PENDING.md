@@ -10,7 +10,7 @@ Single hosted MCP, acesso por tier (free/creator/pro). Self-host distribuído **
 - **D2 REVERSED** — licença AGPL-3.0 → **MIT** (repo vai privado). LICENSE + 3 manifests + README.
 - **F-F (Worker de licença) OBSOLETO** — seção abaixo não se aplica mais (camada removida). Mantida só como histórico.
 - **Tier engine (approach B): wired + audited + reconciled, mas INERTE até o checkout self-serve (Fase 2 / gate EXT abaixo).** `setTenantTier` (tx atômica + audit `tier_changes`), `reconcileTiers` (source of truth `subscriptions`), webhooks Stripe/Asaas dirigem tier (sub→creator/pro, cancel→free), loop de reconcile endurecido (log estruturado + guard anti-overlap).
-- **T12b — ✅ FEITO:** migrations `004_tier_changes.sql` + `005_subscriptions.sql` aplicadas manualmente no prod `media-forge-mcp_mcp-postgres` (db `media_forge`), em tx. Ambas tabelas confirmadas. **OPS3 segue aberto** (sem runner automático; 004/005 foram manuais como 001-003).
+- **T12b — ✅ FEITO:** migrations `004_tier_changes.sql` + `005_subscriptions.sql` aplicadas manualmente no prod `media-forge-mcp_mcp-postgres` (db `media_forge`), em tx. Ambas tabelas confirmadas. **OPS3 RESOLVIDO** (runner pg automático shipped — ver OPS3 abaixo; ativa no próximo deploy do media-forge).
 
 **Desvios do plano achados na execução (auditoria):**
 1. Task 3 do plano não listava `tests/unit/license/` (4 testes do módulo deletado) — removidos junto, senão typecheck/test quebravam.
@@ -26,7 +26,7 @@ Single hosted MCP, acesso por tier (free/creator/pro). Self-host distribuído **
 
 | # | Item | Por quê |
 |---|---|---|
-| S1 | **Rotacionar a senha admin do Portainer** | Vazou em texto plano no chat desta sessão. |
+| S1 | **Rotacionar a senha admin do Portainer + o token de API** | Senha e token (`ptr_…HQD0=`) vazaram em texto plano no chat. Rotacionar ambos: Portainer → Users/admin (senha) + Account → Access tokens (revogar/reemitir o token usado no deploy OPS2). |
 | S2 | Preencher `GOOGLE_API_KEY` no Portainer (stack 69) | Sem ela o handshake MCP autentica mas retorna 500 (`buildServer`→ConfigError). Com ela, a forja gera. Opcionais: `ANTHROPIC_API_KEY` (review), `FAL_KEY`/`HF_*`/`BYTEPLUS_ARK_API_KEY` (vídeo), `MEDIA_FORGE_OCR_GOOGLE_VISION_KEY` (OCR). |
 | S3 | Guardar a key creator `mfk_0e49…` com segurança | Primeira API key do produto (tier creator). Revogável/reemitível, não recuperável. |
 | S4 | **Rotacionar a `sk_live` do Stripe** (Dashboard → Developers → API keys → Roll) | A secret LIVE (`sk_live_…Tj4I4`) foi colada em texto plano no chat. Queimada. A CLI usa `sk_test`/`rk_live` próprios — F-E nunca usa a `sk_live` colada. |
@@ -85,8 +85,8 @@ Tasks 1–10 implementadas, testadas e commitadas na `homolog` (10 commits `feat
 ## 🛠️ Follow-ups de infra/ops
 
 - **OPS1** — credit-core Dockerfile healthcheck já corrigido no repo (`127.0.0.1`) mas imagem não re-publicada (roda ok via dual-stack); entra no próximo tag do credit-core.
-- **OPS2** — credit-core (ledger) ainda **sem serviço de backup**. F-I adicionou backup só ao stack do media-forge. Adicionar `postgres-backup-local` ao stack do credit-core.
-- **OPS3** — Migrations do media-forge (`001`, `002`) aplicadas **manualmente** (sem runner no startup). credit-core tem `scripts/migrate.mjs` + boot-migration. Considerar runner automático no media-forge.
+- **OPS2 — ✅ FEITO (2026-06-21):** `postgres-backup-local:16` adicionado ao stack credit-core (serviço `credit_postgres_backup`, vol `credit_pgbackups`, cron 6h, retenção 14d/8w/12m). Deployado via Portainer API (stack 68, env preservado → credit-core intacto em 0.1.3). Verificado: dump real `credit_core-*.sql.gz` criado com sucesso.
+- **OPS3 — ✅ SHIPPED (2026-06-21), deploy adiado:** runner pg automático no media-forge (`src/core/pg-migrate.ts` + boot wiring em server.ts + `scripts/migrate.mjs` + `db:migrate`). Aplica só migrations underscore `NNN_*.sql` (dash são track refs via psql var); idempotente + tracking `schema_migrations`. No main, validado local (typecheck/lint/test). **Ativa no próximo deploy do media-forge** (001-005 já aplicadas; runner é pras futuras).
 - **OPS4** — Actions Docker no CI usam Node 20 (deprecação jun/2026) — pinar/atualizar `docker/*-action`.
 - **OPS5** — Worktree leftover (`.claude/worktrees/agent-a439…`) fisicamente no disco (gitignored, node_modules travado no Windows) — `git worktree prune` + remover dir.
 - **OPS6** — F-G: confirmar que o loader tolera header `X-MaxVision-License` vazio (perfil B); smoke real de `claude plugin install` com a key; decidir hosting do marketplace (repo próprio vs atual).
