@@ -6,7 +6,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 **Note:** Skill content comes verbatim from upstream. Upstream version is tracked separately from plugin version.
 
-## [0.3.0] - 2026-06-20
+## [0.2.1] - 2026-06-20
 
 Plugin retargeted to its native MCP server (`czlonkowski/n8n-mcp`); enforcement layer completed.
 
