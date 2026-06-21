@@ -74,6 +74,24 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-tool-use/manage-credentials.sh"
           }
         ]
+      },
+      {
+        "matcher": "^mcp__.*__n8n_autofix_workflow$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-tool-use/autofix-workflow.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__.*__n8n_deploy_template$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-tool-use/deploy-template.sh"
+          }
+        ]
       }
     ],
     "PostToolUse": [
