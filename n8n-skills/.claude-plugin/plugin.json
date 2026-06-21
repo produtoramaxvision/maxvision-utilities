@@ -1,6 +1,6 @@
 {
   "name": "n8n-skills",
-  "version": "0.2.1",
+  "version": "0.1.1",
   "description": "14 expert skills + router + PreToolUse/SessionStart hooks enforcement layer for building flawless n8n workflows in Claude Code. Derived from czlonkowski/n8n-skills v1.21.0 (MIT).",
   "author": {
     "name": "Produtora MaxVision",
