@@ -4,7 +4,7 @@ import { Pool } from 'pg';
 import { readFileSync } from 'node:fs';
 import { Store } from '../src/store.js';
 import { CreditService } from '../src/service.js';
-import { runSweep } from '../src/sweep.js';
+import { runSweep, runSweepAllTenants } from '../src/sweep.js';
 
 const url = process.env.DATABASE_URL;
 const d = url ? describe : describe.skip;
@@ -18,6 +18,7 @@ d('runSweep (integração)', () => {
     pool = new Pool({ connectionString: url });
     await pool.query('DROP TABLE IF EXISTS ledger_entries');
     await pool.query(readFileSync('migrations/001_ledger.sql', 'utf8'));
+    await pool.query(readFileSync('migrations/002_sweep_oracle.sql', 'utf8'));
     store = new Store(pool);
     svc = new CreditService(store);
   });
@@ -88,5 +89,18 @@ d('runSweep (integração)', () => {
     // (2) Callback tardio: caminho live captura o custo real com o MESMO external_id.
     await svc.capture({ tenantId: 'sw4', reservationId: 'J4', amount: 30, externalId: 'cap-J4' });
     expect(await svc.balance('sw4')).toBe(70); // INALTERADO — sem débito dobrado
+  });
+
+  it('runSweepAllTenants: completed→capture(actualCredits), failed→release, across tenants', async () => {
+    await svc.grant({ tenantId: 'm1', amount: 100, externalId: 'g-m1' });
+    await svc.reserve({ tenantId: 'm1', amount: 30, reservationId: 'A', ttlAt: PAST_TTL, externalId: 'res-A' });
+    await svc.grant({ tenantId: 'm2', amount: 100, externalId: 'g-m2' });
+    await svc.reserve({ tenantId: 'm2', amount: 40, reservationId: 'B', ttlAt: PAST_TTL, externalId: 'res-B' });
+    const probe = async (_t: string, rid: string) => rid === 'A' ? { status: 'completed' as const, actualCredits: 25 } : { status: 'failed' as const };
+    const out = await runSweepAllTenants({ store, service: svc, nowIso: NOW, probe });
+    expect(out.captured).toContain('A');
+    expect(out.released).toContain('B');
+    expect(await svc.balance('m1')).toBe(75);
+    expect(await svc.balance('m2')).toBe(100);
   });
 });
