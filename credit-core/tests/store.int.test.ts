@@ -3,17 +3,20 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { Pool } from 'pg';
 import { readFileSync } from 'node:fs';
 import { Store, InsufficientBalanceError } from '../src/store.js';
+import { CreditService } from '../src/service.js';
 
 const url = process.env.DATABASE_URL;
 const d = url ? describe : describe.skip;
 
 d('Store (integração)', () => {
-  let pool: Pool; let store: Store;
+  let pool: Pool; let store: Store; let svc: CreditService;
   beforeAll(async () => {
     pool = new Pool({ connectionString: url });
     await pool.query('DROP TABLE IF EXISTS ledger_entries');
     await pool.query(readFileSync('migrations/001_ledger.sql', 'utf8'));
+    await pool.query(readFileSync('migrations/002_sweep_oracle.sql', 'utf8'));
     store = new Store(pool);
+    svc = new CreditService(store);
   });
 
   it('idempotência: mesmo external_id não duplica grant', async () => {
@@ -37,5 +40,23 @@ d('Store (integração)', () => {
     const { availableBalance } = await import('../src/accounting.js');
     const es = await store.entriesFor('b');
     expect(availableBalance(es)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('cross-kind: release then late capture stays RELEASED (no overdraft)', async () => {
+    await svc.grant({ tenantId: 'x1', amount: 100, externalId: 'g-x1' });
+    await svc.reserve({ tenantId: 'x1', amount: 30, reservationId: 'K1', ttlAt: '2026-06-02T00:00:00Z', externalId: 'res-K1' });
+    await svc.release({ tenantId: 'x1', reservationId: 'K1', amount: 30, externalId: 'rel-K1' });
+    expect(await svc.balance('x1')).toBe(100);
+    await svc.capture({ tenantId: 'x1', reservationId: 'K1', amount: 30, externalId: 'cap-K1' });
+    expect(await svc.balance('x1')).toBe(100);
+  });
+
+  it('cross-kind: capture then late release stays CAPTURED', async () => {
+    await svc.grant({ tenantId: 'x2', amount: 100, externalId: 'g-x2' });
+    await svc.reserve({ tenantId: 'x2', amount: 30, reservationId: 'K2', ttlAt: '2026-06-02T00:00:00Z', externalId: 'res-K2' });
+    await svc.capture({ tenantId: 'x2', reservationId: 'K2', amount: 30, externalId: 'cap-K2' });
+    expect(await svc.balance('x2')).toBe(70);
+    await svc.release({ tenantId: 'x2', reservationId: 'K2', amount: 30, externalId: 'rel-K2' });
+    expect(await svc.balance('x2')).toBe(70);
   });
 });

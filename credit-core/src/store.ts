@@ -45,12 +45,28 @@ export class Store {
   }
 
   /** Append idempotente: retorna a linha existente se external_id já visto. */
-  async append(e: { tenantId: string; kind: LedgerEntry['kind']; amount: number; reservationId?: string | null; ttlAt?: string | null; externalId: string }): Promise<void> {
-    await this.pool.query(
-      `INSERT INTO ledger_entries (tenant_id, kind, amount, reservation_id, ttl_at, external_id)
-       VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (kind, external_id) DO NOTHING`,
-      [e.tenantId, e.kind, e.amount, e.reservationId ?? null, e.ttlAt ?? null, e.externalId],
-    );
+  async append(e: { tenantId: string; kind: LedgerEntry['kind']; amount: number; reservationId?: string | null; ttlAt?: string | null; statusUrl?: string | null; externalId: string }): Promise<void> {
+    try {
+      await this.pool.query(
+        `INSERT INTO ledger_entries (tenant_id, kind, amount, reservation_id, ttl_at, status_url, external_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (kind, external_id) DO NOTHING`,
+        [e.tenantId, e.kind, e.amount, e.reservationId ?? null, e.ttlAt ?? null, e.statusUrl ?? null, e.externalId],
+      );
+    } catch (err) {
+      const code = typeof err === 'object' && err !== null ? (err as { code?: string }).code : undefined;
+      // 23505 = unique_violation (first-settle-wins partial index): swallow as no-op.
+      if (code === '23505') return;
+      // 42703 = undefined_column (status_url not yet in schema): retry without it.
+      if (code === '42703') {
+        await this.pool.query(
+          `INSERT INTO ledger_entries (tenant_id, kind, amount, reservation_id, ttl_at, external_id)
+           VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (kind, external_id) DO NOTHING`,
+          [e.tenantId, e.kind, e.amount, e.reservationId ?? null, e.ttlAt ?? null, e.externalId],
+        );
+        return;
+      }
+      throw err;
+    }
   }
 
   /**
