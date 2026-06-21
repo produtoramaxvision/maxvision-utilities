@@ -16,6 +16,11 @@ RUN corepack enable && corepack prepare pnpm@9.15.0 --activate \
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --ignore-workspace --prod
 COPY --from=build /app/dist ./dist
+# Ship the SQLite migrations: runMigrations resolves MIGRATIONS_DIR to
+# /app/migrations/sqlite at runtime (dist/http/server.js -> ../../migrations/sqlite).
+# Without this the runtime image lacks them, so video_jobs is never created and
+# cost-tracker/gallery/refs (+ the F-E sweep oracle) fail with "no such table".
+COPY --from=build /app/migrations ./migrations
 EXPOSE 3000
 # 127.0.0.1 (não localhost): server binda 0.0.0.0 IPv4; localhost resolve ::1 (IPv6) → refused
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \

@@ -4,6 +4,17 @@ All notable changes to `media-forge` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-06-21
+
+### Fixed
+
+- **Migrations were not shipped in the runtime image.** The Dockerfile runtime stage
+  copied only , so  () was absent ->
+   threw ->  (and all cost-tracker/gallery/refs tables) were
+  never created -> / failed with "no such table". The runtime
+  image now s . Completes the v0.2.3 cost.db fix so video-job
+  tracking, billing capture, and the sweep oracle's actual_credits actually work.
+
 ## [0.2.3] - 2026-06-21
 
 ### Fixed
