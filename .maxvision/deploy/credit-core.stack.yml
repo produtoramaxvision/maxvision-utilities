@@ -83,6 +83,38 @@ services:
       restart_policy:
         condition: on-failure
 
+  credit_postgres_backup:
+    image: prodrigestivill/postgres-backup-local:16
+    networks:
+      - internal
+    environment:
+      POSTGRES_HOST: credit_postgres
+      POSTGRES_DB: credit_core
+      POSTGRES_USER: credit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Same cadence/retention as the suite standard (meuagente / media-forge): every 6h, 14d/8w/12m.
+      SCHEDULE: "0 */6 * * *"
+      BACKUP_KEEP_DAYS: "14"
+      BACKUP_KEEP_WEEKS: "8"
+      BACKUP_KEEP_MONTHS: "12"
+      POSTGRES_EXTRA_OPTS: "--clean --if-exists"
+      HEALTHCHECK_PORT: "8080"
+    volumes:
+      - credit_pgbackups:/backups
+    depends_on:
+      - credit_postgres
+    # Cron daemon (no request port). The image's HEALTHCHECK stays "starting" in Swarm
+    # and never flips, so disable it → task converges 1/1; the cron runs every 6h.
+    healthcheck:
+      disable: true
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          memory: 128M
+
   credit_redis:
     image: redis:7-alpine
     command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
@@ -95,6 +127,7 @@ services:
 
 volumes:
   credit_pgdata:
+  credit_pgbackups:
 
 networks:
   net:
