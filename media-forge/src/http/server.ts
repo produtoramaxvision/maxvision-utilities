@@ -131,7 +131,7 @@ export async function startHttpServer(): Promise<void> {
     // Higgsfield HMAC handler (logging stub — sem buffer; entrega via fallback assetUrls).
     webhookApp.webhookHandlers.set(
       'higgsfield',
-      createHiggsfieldWebhookHandler({ dbPath, storage }),
+      createHiggsfieldWebhookHandler({ dbPath, storage, galleryStore, logger }),
     );
 
     // Kling HMAC handler — upload do asset para MinIO quando state=succeed.
@@ -142,6 +142,9 @@ export async function startHttpServer(): Promise<void> {
         outputsDir: join(projectDir, 'outputs', 'kling'),
         env: env as never,
         storage,
+        // SE2: inject galleryStore so the webhook writes a tenant-attributed gallery row on completion.
+        galleryStore,
+        logger,
       }),
     );
 
@@ -151,7 +154,7 @@ export async function startHttpServer(): Promise<void> {
     if (isSeedanceEnabled()) {
       webhookApp.webhookHandlers.set(
         'bytedance',
-        createBytedanceWebhookHandler({ dbPath, outputsDir: seedanceOutputsDir, storage }),
+        createBytedanceWebhookHandler({ dbPath, outputsDir: seedanceOutputsDir, storage, galleryStore, logger }),
       );
     } else {
       webhookApp.webhookHandlers.set('bytedance', async (ctx) => {

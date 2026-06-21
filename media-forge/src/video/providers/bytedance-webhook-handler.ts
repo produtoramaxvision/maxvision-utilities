@@ -35,6 +35,9 @@ import type { WebhookHandler, WebhookContext } from './webhook-router.js';
 import { openDb, runMigrations } from '../../core/db.js';
 import type { OutputStorageClient } from '../../output/storage.js';
 import { storeArtifact } from '../../output/output-storage.js';
+import type { GalleryStore } from '../../gallery/gallery-store.js';
+import { recordGalleryFromJob } from '../../gallery/record-from-job.js';
+import { logger } from '../../core/logger.js';
 
 export interface CreateBytedanceWebhookHandlerOpts {
   readonly dbPath: string;
@@ -52,6 +55,17 @@ export interface CreateBytedanceWebhookHandlerOpts {
    * Best-effort inside the (already non-blocking) background download.
    */
   readonly storage?: OutputStorageClient;
+  /**
+   * SE2: when present, a completed job is written to the gallery (tenant-attributed).
+   * NOTE: bytedance cost is reconciled via pollStatus, NOT in the webhook. At webhook time
+   * actual_usd is always NULL → recordGalleryFromJob emits a 'no-cost' skip-log and returns.
+   * Gallery write for bytedance happens only AFTER the first media_video_poll that calls
+   * pollStatus and sets actual_usd. This is a deliberate out-of-scope seam for SE2 — wiring
+   * it here is harmless (graceful skip) and makes the factory signature consistent.
+   */
+  readonly galleryStore?: GalleryStore;
+  /** SE2: logger for gallery skip events. Defaults to module logger. */
+  readonly logger?: typeof logger;
 }
 
 interface FalSeedanceVideo {
@@ -171,6 +185,18 @@ export function createBytedanceWebhookHandler(
     db.prepare(
       "UPDATE video_jobs SET status = 'completed' WHERE id = ? AND status != 'completed'",
     ).run(internalJobId);
+
+    // SE2: attempt gallery write. bytedance cost is reconciled by pollStatus (not the webhook),
+    // so actual_usd is NULL here → recordGalleryFromJob emits 'no-cost' skip-log and returns.
+    // This is a documented seam: the gallery row is written only after the first pollStatus
+    // settles actual_usd. Wired here for factory-signature parity; harmless (graceful skip).
+    await recordGalleryFromJob({
+      galleryStore: opts.galleryStore,
+      dbPath: opts.dbPath,
+      jobId: internalJobId,
+      minioKey: `outputs/${internalJobId}.mp4`,
+      logger: opts.logger ?? logger,
+    });
 
     const contentType = success?.video?.content_type ?? 'video/mp4';
     const downloadPromise = downloadAndPersistAsset(

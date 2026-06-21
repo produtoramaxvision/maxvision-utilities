@@ -130,7 +130,7 @@ import {
   deleteKlingElement,
 } from '../video/providers/kling-elements.js';
 import { openDb, runMigrations } from '../core/db.js';
-import { recordActualCost } from '../core/cost-tracker.js';
+import { recordActualCost, setJobTenant } from '../core/cost-tracker.js';
 import { runWithDebit, reserveForJob, captureJob, releaseJob } from '../billing/debit.js';
 import {
   priceCredits,
@@ -2777,7 +2777,12 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Higgsfield Generate', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleHiggsfieldGenerate(input))),
+      wrap(t.name, async (input) => {
+        const r = await handleHiggsfieldGenerate(input);
+        // SE2: attribute the job to the caller so the async webhook can record the gallery row.
+        if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
+        return asResult(r);
+      }),
     );
   }
 
@@ -2811,6 +2816,8 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
         // F-E: reserve AFTER submit, keyed on the returned jobId — the SAME id
         // media_kling_download captures with. No-op when billing off. 402 → wrap → tool error.
         await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        // SE2: attribute the job to the caller so the async webhook can record the gallery row.
+        if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
         return asResult(r);
       }),
     );
@@ -2855,6 +2862,8 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       wrap(t.name, async (input) => {
         const r = await handleKlingElements(input);
         await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        // SE2: attribute the job to the caller so the async webhook can record the gallery row.
+        if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
         return asResult(r);
       }),
     );
@@ -2870,6 +2879,8 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       wrap(t.name, async (input) => {
         const r = await handleKlingLipSync(input);
         await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        // SE2: attribute the job to the caller so the async webhook can record the gallery row.
+        if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
         return asResult(r);
       }),
     );
@@ -2885,6 +2896,8 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       wrap(t.name, async (input) => {
         const r = await handleKlingOmniMultiShot(input);
         await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        // SE2: attribute the job to the caller so the async webhook can record the gallery row.
+        if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
         return asResult(r);
       }),
     );
@@ -2900,6 +2913,8 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       wrap(t.name, async (input) => {
         const r = await handleKlingVideoExtend(input);
         await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        // SE2: attribute the job to the caller so the async webhook can record the gallery row.
+        if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
         return asResult(r);
       }),
     );
@@ -2953,6 +2968,10 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
               costUsd: (result as Record<string, unknown>).actualUsd as number,
               creditsDebited: 0,      // SEAM F-D: fill from credit-core capture
               creditValueUsd: 0.01,   // SEAM F-D: fill from credit-core capture
+              // SE2 Task 4c (eng review D1): include minio_key so both sync and webhook writers
+              // produce equivalent rows — ON CONFLICT(generation_id) DO NOTHING is first-writer-wins,
+              // but whichever wins now carries the artifact link. Mirrors the webhook key expression.
+              minioKey: `outputs/${parsed.data.jobIdOrUrl}.mp4`,
               status: 'completed',
             }).catch((err: unknown) => {
               process.stderr.write(
@@ -2982,7 +3001,12 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       regIfAllowed(
         t.name,
         { title: 'Seedance 2.0 Text-to-Video', description: t.description, inputSchema: t.inputSchema as never },
-        wrap(t.name, async (input) => asResult(await handleSeedanceTextToVideo(input))),
+        wrap(t.name, async (input) => {
+          const r = await handleSeedanceTextToVideo(input);
+          // SE2: attribute the job to the caller so the async webhook can record the gallery row.
+          if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
+          return asResult(r);
+        }),
       );
     }
 
@@ -2991,7 +3015,12 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       regIfAllowed(
         t.name,
         { title: 'Seedance 2.0 Image-to-Video', description: t.description, inputSchema: t.inputSchema as never },
-        wrap(t.name, async (input) => asResult(await handleSeedanceImageToVideo(input))),
+        wrap(t.name, async (input) => {
+          const r = await handleSeedanceImageToVideo(input);
+          // SE2: attribute the job to the caller so the async webhook can record the gallery row.
+          if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
+          return asResult(r);
+        }),
       );
     }
 
@@ -3000,7 +3029,12 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       regIfAllowed(
         t.name,
         { title: 'Seedance 2.0 Multi-Shot', description: t.description, inputSchema: t.inputSchema as never },
-        wrap(t.name, async (input) => asResult(await handleSeedanceMultishot(input))),
+        wrap(t.name, async (input) => {
+          const r = await handleSeedanceMultishot(input);
+          // SE2: attribute the job to the caller so the async webhook can record the gallery row.
+          if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
+          return asResult(r);
+        }),
       );
     }
 
@@ -3009,7 +3043,12 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       regIfAllowed(
         t.name,
         { title: 'Seedance 2.0 Reference Fusion', description: t.description, inputSchema: t.inputSchema as never },
-        wrap(t.name, async (input) => asResult(await handleSeedanceReferenceFusion(input))),
+        wrap(t.name, async (input) => {
+          const r = await handleSeedanceReferenceFusion(input);
+          // SE2: attribute the job to the caller so the async webhook can record the gallery row.
+          if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
+          return asResult(r);
+        }),
       );
     }
   }

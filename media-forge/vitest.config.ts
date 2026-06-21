@@ -71,6 +71,8 @@ export default defineConfig({
       'tests/integration/billing/**/*.test.ts',
       // OPS3: pg migration runner integration test (embedded-postgres)
       'tests/integration/pg-migrate.int.test.ts',
+      // SE2: gallery-webhook e2e (embedded-postgres + sqlite, tenant-attributed)
+      'tests/integration/se2-gallery-webhook.int.test.ts',
     ],
     exclude: ['tests/integration/live-smoke.test.ts', 'tests/golden/**', 'tests/evals/**'],
     // F-I: globalSetup launches embedded-postgres for gallery integration tests.
