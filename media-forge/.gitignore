@@ -36,3 +36,6 @@ prompts/_index.json
 
 # Eval run artifacts (generated on test execution, never commit)
 tests/evals/results.jsonl
+
+# fallow cache/local data
+.fallow/

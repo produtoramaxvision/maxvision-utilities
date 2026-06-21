@@ -148,12 +148,13 @@ async function extractFirstFrame(videoPath: string): Promise<Buffer> {
   const { mkdtemp, readFile, rm } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
-  const { default: ffmpegPath } = await import('ffmpeg-static');
+  const { resolveFfmpegPath } = await import('../core/ffmpeg.js');
+  const ffmpegPath = resolveFfmpegPath();
   const execFileP = promisify(execFile);
   const dir = await mkdtemp(join(tmpdir(), 'mf-rev-'));
   try {
     const out = join(dir, 'first.jpg');
-    await execFileP(ffmpegPath!, ['-y', '-i', videoPath, '-vframes', '1', '-q:v', '3', out]);
+    await execFileP(ffmpegPath, ['-y', '-i', videoPath, '-vframes', '1', '-q:v', '3', out]);
     return readFile(out);
   } finally {
     await rm(dir, { recursive: true, force: true });

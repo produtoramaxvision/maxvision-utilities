@@ -7,6 +7,7 @@ import {
   IMAGE_MODEL_IMAGEN_4_ULTRA,
   VIDEO_MODEL_VEO_3_1_PRO,
 } from '../../core/models.js';
+import { resolveFfmpegPathOrNull } from '../../core/ffmpeg.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
@@ -17,6 +18,7 @@ export interface DoctorResult {
     outputDir: { ok: boolean; path: string; writable: boolean; reason?: string };
     network: { ok: boolean; reachable?: boolean; reason?: string };
     models: { ok: boolean; checked: string[] };
+    ffmpeg: { ok: boolean; path?: string; hint?: string };
   };
 }
 
@@ -102,6 +104,15 @@ function checkModels(): DoctorResult['checks']['models'] {
   return { ok: true, checked: [...LOCKED_MODELS] };
 }
 
+function checkFfmpeg(env: Record<string, string | undefined>): DoctorResult['checks']['ffmpeg'] {
+  const p = resolveFfmpegPathOrNull(env as NodeJS.ProcessEnv);
+  if (p) return { ok: true, path: p };
+  return {
+    ok: false,
+    hint: 'Install ffmpeg (winget/brew/apt) or set MEDIA_FORGE_FFMPEG_PATH. Required for animated-ref fallback and video first-frame review.',
+  };
+}
+
 export async function runDoctor(opts: {
   env?: Record<string, string | undefined>;
   outputBaseDir?: string;
@@ -140,6 +151,9 @@ export async function runDoctor(opts: {
   // 4. Models check (static)
   const modelsCheck = checkModels();
 
+  // 5. ffmpeg check (advisory — does NOT affect allOk)
+  const ffmpegCheck = checkFfmpeg(env);
+
   const allOk =
     configCheck.ok && outputDirCheck.ok && networkCheck.ok && modelsCheck.ok;
 
@@ -152,6 +166,7 @@ export async function runDoctor(opts: {
       outputDir: outputDirCheck,
       network: networkCheck,
       models: modelsCheck,
+      ffmpeg: ffmpegCheck,
     },
   };
 }
@@ -192,6 +207,12 @@ function printDoctorHuman(result: DoctorResult): void {
   // Models
   const mdIcon = icon(checks.models.ok);
   process.stdout.write(`${mdIcon} models      ${checks.models.checked.join(', ')}\n`);
+
+  // ffmpeg (advisory — does not affect overall ok)
+  const ffmpegDetail = checks.ffmpeg.ok
+    ? checks.ffmpeg.path ?? 'found'
+    : `not found (advisory)${checks.ffmpeg.hint ? ` — ${checks.ffmpeg.hint}` : ''}`;
+  process.stdout.write(`~ ffmpeg     ${ffmpegDetail}\n`);
 
   process.stdout.write(`\n${result.ok ? 'All checks passed.' : 'Some checks failed.'}\n`);
 }

@@ -49,8 +49,35 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['tests/unit/**/*.test.ts', 'tests/core/**/*.test.ts', 'tests/video/**/*.test.ts', 'tests/cli/**/*.test.ts', 'tests/mcp/**/*.test.ts', 'src/**/*.test.ts', 'tests/integration/p13-regression.test.ts', 'tests/integration/p14-regression.test.ts', 'tests/integration/p15-kling-live.test.ts', 'tests/integration/p15-regression.test.ts', 'tests/integration/seedance-live.test.ts', 'tests/integration/p16-seedance-regression.test.ts'],
+    // F-I: gallery integration tests added; existing include list preserved.
+    include: [
+      'tests/unit/**/*.test.ts',
+      'tests/core/**/*.test.ts',
+      'tests/video/**/*.test.ts',
+      'tests/cli/**/*.test.ts',
+      'tests/mcp/**/*.test.ts',
+      'src/**/*.test.ts',
+      'tests/integration/p13-regression.test.ts',
+      'tests/integration/p14-regression.test.ts',
+      'tests/integration/p15-kling-live.test.ts',
+      'tests/integration/p15-regression.test.ts',
+      'tests/integration/seedance-live.test.ts',
+      'tests/integration/p16-seedance-regression.test.ts',
+      'tests/integration/http-mcp.test.ts',
+      'tests/integration/http-mcp-tier.test.ts',
+      // F-I: gallery integration tests (embedded-postgres)
+      'tests/integration/gallery/**/*.test.ts',
+      // F-F: license gate integration test (exit criteria proof)
+      'tests/integration/license-gate.test.ts',
+      // F-E: billing integration tests (payments-store, reconcile — embedded-postgres)
+      'tests/integration/billing/**/*.test.ts',
+    ],
     exclude: ['tests/integration/live-smoke.test.ts', 'tests/golden/**', 'tests/evals/**'],
+    // F-I: globalSetup launches embedded-postgres for gallery integration tests.
+    // pool:'forks' ensures process.env.GALLERY_DATABASE_URL set in globalSetup
+    // propagates to worker processes.
+    globalSetup: ['tests/global-setup.ts'],
+    pool: 'forks',
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'html'],
@@ -63,6 +90,6 @@ export default defineConfig({
         statements: 80,
       },
     },
-    testTimeout: 15000,
+    testTimeout: 30000,
   },
 });

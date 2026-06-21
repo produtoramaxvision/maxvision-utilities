@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "ignorePatterns": [
+    "**/playwright-report/**",
+    "**/test-results/**",
+    "**/*.generated.ts"
+  ],
+  "health": {
+    "ignore": [
+      "dist",
+      "__generated__"
+    ]
+  }
+}

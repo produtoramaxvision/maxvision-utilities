@@ -61,3 +61,5 @@ tmp/
 # --- Upstream cache (should never be inside repo, but defensive) ---
 .upstream-cache/
 .upstream/
+.claude/worktrees/
+.fallow/

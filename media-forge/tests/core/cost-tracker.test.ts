@@ -189,4 +189,10 @@ describe('cost-tracker', () => {
     const row = getJobRecord({ dbPath, jobId: 'nope' });
     expect(row).toBeNull();
   });
+
+  it('persists and returns actualCredits', () => {
+    recordJob({ dbPath, jobId: 'JC', provider: 'kling', model: 'm', mode: 'std', paramsHash: 'h', estUsd: 0.3 });
+    recordActualCost({ dbPath, jobId: 'JC', actualUsd: 0.22, actualCredits: 22 });
+    expect(getJobRecord({ dbPath, jobId: 'JC' })?.actualCredits).toBe(22);
+  });
 });

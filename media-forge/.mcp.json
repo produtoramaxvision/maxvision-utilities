@@ -2,7 +2,9 @@
   "mcpServers": {
     "media-forge": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js"],
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js"
+      ],
       "env": {
         "GOOGLE_API_KEY": "${GOOGLE_API_KEY}",
         "GEMINI_API_KEY": "${GEMINI_API_KEY}",
@@ -32,6 +34,15 @@
         "BYTEPLUS_ARK_API_KEY": "${BYTEPLUS_ARK_API_KEY}",
         "MEDIA_FORGE_SEEDANCE_ENABLED": "${MEDIA_FORGE_SEEDANCE_ENABLED:-true}"
       }
+    },
+    "fallow": {
+      "type": "stdio",
+      "command": "pnpm",
+      "args": [
+        "exec",
+        "fallow-mcp"
+      ],
+      "env": {}
     }
   }
 }

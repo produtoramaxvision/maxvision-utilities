@@ -2,9 +2,12 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { WebhookHandler, WebhookContext } from './webhook-router.js';
 import { recordActualCost } from '../../core/cost-tracker.js';
+import { videoActualCredits } from '../../billing/pricing.js';
 import { VIDEO_MODELS } from '../../core/models.js';
 import { openDb, runMigrations } from '../../core/db.js';
 import { getKlingAuthHeader, type KlingEnvSubset } from './auth/kling-jwt.js';
+import type { OutputStorageClient } from '../../output/storage.js';
+import { storeArtifact } from '../../output/output-storage.js';
 
 export interface CreateKlingWebhookHandlerOpts {
   readonly dbPath: string;
@@ -12,6 +15,14 @@ export interface CreateKlingWebhookHandlerOpts {
   readonly fetchImpl?: typeof fetch;
   /** Env subset for re-poll auth (TTL refresh path). Optional - if absent, no refresh attempted. */
   readonly env?: KlingEnvSubset;
+  /**
+   * F-B: when present, the completed asset is uploaded to MinIO under the
+   * deterministic key `outputs/{jobId}.mp4` so the poll handler can presign it.
+   * MULTI-SHOT LIMITATION: only the first shot (index 0) is uploaded under the
+   * canonical key — multi-shot artifacts beyond shot 0 stay on local disk
+   * (deferred to F-I where per-shot keys land).
+   */
+  readonly storage?: OutputStorageClient;
 }
 
 interface KlingWebhookPayload {
@@ -126,6 +137,23 @@ export function createKlingWebhookHandler(opts: CreateKlingWebhookHandlerOpts): 
           }
         }
         writeFileSync(join(opts.outputsDir, filename), buf);
+        // F-B: upload the canonical (single / first) shot to MinIO so the poll
+        // handler can presign it. Best-effort — the row is already destined to be
+        // marked completed; an upload failure must not throw.
+        if (opts.storage && i === 0) {
+          await storeArtifact({
+            storage: opts.storage,
+            jobId: internalJobId,
+            bytes: buf,
+            contentType: 'video/mp4',
+          }).catch((err: unknown) => {
+            process.stderr.write(
+              `[kling-webhook] MinIO upload failed for ${internalJobId}: ${
+                err instanceof Error ? err.message : String(err)
+              }\n`,
+            );
+          });
+        }
         const dur = parseFloat(video.duration ?? '0');
         return { dur: Number.isFinite(dur) && dur > 0 ? dur : 0 };
       }),
@@ -145,7 +173,21 @@ export function createKlingWebhookHandler(opts: CreateKlingWebhookHandlerOpts): 
     } else if (typeof row.est_usd === 'number' && Number.isFinite(row.est_usd)) {
       actualUsd = row.est_usd;
     }
-    recordActualCost({ dbPath: opts.dbPath, jobId: internalJobId, actualUsd });
+    // SEAM CLOSED (2026-06-21): persist actual_credits on the webhook-first path,
+    // identical to the live download-capture path (mcp/handlers). Before this, a
+    // Kling job completed via webhook BEFORE the live download capture left
+    // video_jobs.actual_credits = NULL → if the live capture was then lost AND the
+    // reservation was swept, credit-core's oracle read {status:'completed'} with no
+    // actualCredits and captured the ESTIMATE, not the real cost. Now both paths
+    // compute credits the same way (videoActualCredits), so the oracle always
+    // returns the real cost. Money-safe before (first-settle-wins, no overdraft);
+    // this removes the estimate-vs-real drift on the rare nested-failure path.
+    recordActualCost({
+      dbPath: opts.dbPath,
+      jobId: internalJobId,
+      actualUsd,
+      actualCredits: videoActualCredits(actualUsd),
+    });
   };
 }
 

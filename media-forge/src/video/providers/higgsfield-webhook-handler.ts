@@ -14,9 +14,18 @@
 //   P14.1+ can replace with a full payload parser + cost recorder once
 //   Higgsfield publishes a stable webhook schema.
 import type { WebhookHandler, WebhookContext } from './webhook-router.js';
+import type { OutputStorageClient } from '../../output/storage.js';
 
 export interface CreateHiggsfieldWebhookHandlerOpts {
   readonly dbPath: string;
+  /**
+   * F-B: accepted for signature symmetry with the Kling/Bytedance factories,
+   * but this handler is a logging stub with NO asset buffer — it cannot upload
+   * to MinIO. Higgsfield artifacts are delivered via the poll fallback
+   * (assetUrls from the provider), not via MinIO signed URL, until the
+   * Higgsfield webhook schema + asset download path lands (P14.1).
+   */
+  readonly storage?: OutputStorageClient;
 }
 
 export function createHiggsfieldWebhookHandler(

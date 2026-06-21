@@ -30,6 +30,7 @@ export interface RecordActualInput {
   readonly actualUsd: number;
   readonly durationMs?: number;
   readonly finalStatus?: JobState; // ADD — default 'completed' preserves backward compat
+  readonly actualCredits?: number;
 }
 
 export interface JobRecord {
@@ -44,6 +45,7 @@ export interface JobRecord {
   readonly createdAt: string;
   readonly completedAt: string | null;
   readonly nativeTaskId: string | null;
+  readonly actualCredits: number | null;
 }
 
 export interface ProviderRollup {
@@ -93,9 +95,9 @@ export function recordActualCost(input: RecordActualInput): void {
   // Idempotency: only update if actual_usd not yet set (handles webhook retry/duplicate delivery)
   db.prepare(
     `UPDATE video_jobs
-     SET actual_usd = ?, duration_ms = ?, status = ?, completed_at = ?
+     SET actual_usd = ?, duration_ms = ?, status = ?, completed_at = ?, actual_credits = ?
      WHERE id = ? AND actual_usd IS NULL`,
-  ).run(input.actualUsd, input.durationMs ?? null, status, completedAt, input.jobId);
+  ).run(input.actualUsd, input.durationMs ?? null, status, completedAt, input.actualCredits ?? null, input.jobId);
 }
 
 export function getJobRecord(opts: {
@@ -106,7 +108,7 @@ export function getJobRecord(opts: {
   const row = db
     .prepare(
       `SELECT id, provider, model, mode, status, est_usd, actual_usd, duration_ms,
-              created_at, completed_at, native_task_id
+              created_at, completed_at, native_task_id, actual_credits
          FROM video_jobs
         WHERE id = ?`,
     )
@@ -123,6 +125,7 @@ export function getJobRecord(opts: {
         created_at: string;
         completed_at: string | null;
         native_task_id: string | null;
+        actual_credits: number | null;
       }
     | undefined;
   if (!row) return null;
@@ -138,6 +141,7 @@ export function getJobRecord(opts: {
     createdAt: row.created_at,
     completedAt: row.completed_at,
     nativeTaskId: row.native_task_id,
+    actualCredits: row.actual_credits,
   };
 }
 

@@ -1,0 +1,209 @@
+# media-forge-mcp — Swarm stack (MCP HTTP hospedado da forja de midia)
+# F-C: reintroduz mcp-redis (rate-limit por tenant) + mcp-postgres (tenants/keys hasheadas).
+# F-F: reintroduz envs de licenca C1 (com consumidor real em src/license/*).
+#
+# Contrato de env = SOMENTE o que o codigo consome. Secrets via Portainer — nunca no arquivo.
+# Redeploy: Portainer (stack id 69) ou: docker stack deploy -c media-forge-mcp.stack.yml media-forge-mcp
+#
+# PREENCHER no Portainer (valores existentes — F-A/F-B):
+#   GOOGLE_API_KEY                    OBRIGATORIO p/ gerar (Google AI Studio).
+#   ANTHROPIC_API_KEY                 opcional — review de qualidade via Claude
+#   MEDIA_FORGE_OCR_GOOGLE_VISION_KEY opcional — OCR
+#   FAL_KEY                           opcional — Kling/Higgsfield/Seedance via fal.ai
+#   BYTEPLUS_ARK_API_KEY              opcional — Seedance fallback
+#   HF_API_KEY / HF_API_SECRET        opcional — Higgsfield direto
+#   MEDIA_FORGE_API_KEYS              mantido para self-host/bootstrap sem Postgres
+#   MINIO_* / MEDIA_FORGE_WEBHOOK_*   F-B (sem alteracao)
+#
+# NOVOS EM F-C (provisionar no Portainer — nunca commitar valores):
+#   DATABASE_URL          ex: postgres://media_forge:<POSTGRES_PASSWORD>@mcp-postgres:5432/media_forge
+#                         Quando presente, o servidor usa KeyStore (Postgres + HMAC-SHA256).
+#                         Quando ausente, cai em FlatKeyStore (MEDIA_FORGE_API_KEYS plana).
+#   MEDIA_FORGE_KEY_PEPPER  32+ chars aleatorios (openssl rand -hex 32). NUNCA commitar.
+#                           Pepper invalida todas as keys se rotacionado (operacao planejada).
+#   POSTGRES_PASSWORD     senha do usuario media_forge no mcp-postgres.
+#   REDIS_URL e configurado inline (redis://mcp-redis:6379) — nao precisa setar no Portainer.
+#
+#   --- Licenca C1 self-host (F-F) — usadas SO no modo self-host on-prem da agencia ---
+#   LICENSE_CHECK_ENABLED            ativa o gate de licenca (default false = hosted). config.ts:loadConfig.
+#   MAXVISION_LICENSE_SERVER_URL     URL do /validate do Worker de licenca. Obrigatoria se check=true.
+#   MEDIA_FORGE_LICENSE_KEY          chave emitida via Worker admin/issue. Obrigatoria se check=true.
+#   MEDIA_FORGE_LICENSE_INSTANCE_ID  id da instancia (default = hostname). Anti-compartilhamento.
+#   (No deploy HOSTED da VPS estas ficam AUSENTES → gate no-op. So a imagem on-prem da agencia as define.)
+#
+# Decisao D1: Postgres proprio (mcp-postgres) — nao compartilhado com credit-core.
+#   Rationale: concern de autenticacao do media-forge; fronteira de servico (eng review A3).
+#   Sub-volume: mcp-pg-data (isolado do ledger de dinheiro).
+
+version: "3.9"
+
+services:
+  mcp-server:
+    image: ghcr.io/produtoramaxvision/media-forge-mcp:${MEDIA_FORGE_TAG:-latest}
+    networks:
+      - net
+      - internal
+    depends_on:
+      - mcp-redis
+      - mcp-postgres
+    environment:
+      NODE_ENV: production
+      TZ: America/Sao_Paulo
+      MEDIA_FORGE_HTTP_PORT: "3000"
+      MEDIA_FORGE_LOG_LEVEL: info
+      MEDIA_FORGE_LOG_FORMAT: json
+      # refs (imagens de referencia) exigem MinIO+pgvector+Voyage, nao provisionados
+      MEDIA_FORGE_REFS_ENABLED: "false"
+      # F-A auth (mantida para self-host/bootstrap — se DATABASE_URL presente, KeyStore real assume)
+      MEDIA_FORGE_API_KEYS: ${MEDIA_FORGE_API_KEYS}
+      # F-C tenancy (Postgres proprio)
+      DATABASE_URL: ${DATABASE_URL}
+      MEDIA_FORGE_KEY_PEPPER: ${MEDIA_FORGE_KEY_PEPPER}
+      # F-C rate-limit (Redis interno — inline, nao exposto externamente)
+      REDIS_URL: redis://mcp-redis:6379
+      # Providers
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      MEDIA_FORGE_OCR_GOOGLE_VISION_KEY: ${MEDIA_FORGE_OCR_GOOGLE_VISION_KEY}
+      FAL_KEY: ${FAL_KEY}
+      BYTEPLUS_ARK_API_KEY: ${BYTEPLUS_ARK_API_KEY}
+      HF_API_KEY: ${HF_API_KEY}
+      HF_API_SECRET: ${HF_API_SECRET}
+      # F-B: entrega de artefato via MinIO/S3
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_BUCKET: ${MINIO_BUCKET:-media-forge-outputs}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-true}
+      # F-B: webhook endpoint publico para callbacks de provider
+      MEDIA_FORGE_WEBHOOK_SECRET: ${MEDIA_FORGE_WEBHOOK_SECRET}
+      MEDIA_FORGE_WEBHOOK_PUBLIC_URL: ${MEDIA_FORGE_WEBHOOK_PUBLIC_URL:-https://media-forge.produtoramaxvision.com.br}
+      MEDIA_FORGE_ARTIFACT_TTL_SECONDS: ${MEDIA_FORGE_ARTIFACT_TTL_SECONDS:-604800}
+      # Licenca C1: no hosted ficam vazias → LICENSE_CHECK_ENABLED default false → gate no-op.
+      # Na imagem on-prem da agencia, a agencia define estas (nao este arquivo da VPS).
+      LICENSE_CHECK_ENABLED: ${LICENSE_CHECK_ENABLED:-false}
+      MAXVISION_LICENSE_SERVER_URL: ${MAXVISION_LICENSE_SERVER_URL:-}
+      MEDIA_FORGE_LICENSE_KEY: ${MEDIA_FORGE_LICENSE_KEY:-}
+      MEDIA_FORGE_LICENSE_INSTANCE_ID: ${MEDIA_FORGE_LICENSE_INSTANCE_ID:-}
+      # cost-tracker / gallery SQLite lives here — on a named volume so video_jobs
+      # (billing capture, gallery, the F-E sweep oracle's actual_credits source)
+      # survive redeploys. openDb() mkdir's this dir, so first write never crashes.
+      MEDIA_FORGE_PROJECT_DIR: ${MEDIA_FORGE_PROJECT_DIR:-/data/media-forge}
+      # F-E sweep oracle — credit-core probes /job-status back over the shared net
+      # using this secret; INTERNAL_URL is registered on each reservation's status_url.
+      MEDIA_FORGE_STATUS_SECRET: ${MEDIA_FORGE_STATUS_SECRET:-}
+      MEDIA_FORGE_INTERNAL_URL: ${MEDIA_FORGE_INTERNAL_URL:-http://media-forge-mcp_mcp-server:3000}
+    volumes:
+      - mcp-data:/data
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      update_config:
+        # start-first: a nova task fica HEALTHY (image HEALTHCHECK -> /health) antes
+        # da antiga sair. monitor dá tempo ao healthcheck; failure_action reverte
+        # sozinho se a nova nao subir saudavel. Mitiga o stale-LB do IPVS no overlay
+        # `net` (residual de poucos segundos pos-converge e money-safe: 404 -> sweep
+        # release). Forcar reconvergencia imediata do LB se preciso:
+        # `docker service update --force media-forge-mcp_mcp-server`.
+        order: start-first
+        monitor: 30s
+        failure_action: rollback
+        delay: 10s
+      rollback_config:
+        order: start-first
+        monitor: 20s
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=net
+        - traefik.http.routers.media-forge.entrypoints=websecure
+        - traefik.http.routers.media-forge.rule=Host(`media-forge.produtoramaxvision.com.br`)
+        - traefik.http.routers.media-forge.tls=true
+        - traefik.http.routers.media-forge.tls.certresolver=letsencryptresolver
+        - traefik.http.services.media-forge.loadbalancer.server.port=3000
+
+  mcp-redis:
+    image: redis:7-alpine
+    networks:
+      - internal
+    command: redis-server --save "" --appendonly no --maxmemory 64mb --maxmemory-policy allkeys-lru
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          memory: 96M
+
+  mcp-postgres:
+    image: postgres:16-alpine
+    networks:
+      - internal
+    environment:
+      POSTGRES_DB: media_forge
+      POSTGRES_USER: media_forge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - mcp-pg-data:/var/lib/postgresql/data
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          memory: 256M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U media_forge -d media_forge"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # F-I: pg_dump cron backup for mcp-postgres (gallery + tenants/keys).
+  # Image: prodrigestivill/postgres-backup-local (mirrors meuagente-postgres_app_backup pattern).
+  # CONFIRM before deploy: SCHEDULE, BACKUP_KEEP_DAYS/WEEKS/MONTHS against meuagente stack values.
+  # NOTE: POSTGRES_PASSWORD_FILE not supported; inline var used (value from Portainer secret/env).
+  mcp-postgres-backup:
+    image: prodrigestivill/postgres-backup-local:16
+    networks:
+      - internal
+    environment:
+      POSTGRES_HOST: mcp-postgres
+      POSTGRES_DB: media_forge
+      POSTGRES_USER: media_forge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Alinhado ao padrão da suíte (meuagente-postgres_app_backup): a cada 6h, retenção 14d/8w/12m.
+      SCHEDULE: "0 */6 * * *"
+      BACKUP_KEEP_DAYS: "14"
+      BACKUP_KEEP_WEEKS: "8"
+      BACKUP_KEEP_MONTHS: "12"
+      # --clean --if-exists: dump restaurável (pg_restore/psql) sem schemas de outro app.
+      POSTGRES_EXTRA_OPTS: "--clean --if-exists"
+      HEALTHCHECK_PORT: "8080"
+    volumes:
+      - mcp-pg-backups:/backups
+    depends_on:
+      - mcp-postgres
+    # Cron de backup (daemon long-running). Healthcheck de orquestração desnecessário
+    # — o serviço não atende requests; a imagem traz um HEALTHCHECK que fica "starting"
+    # no Swarm sem flipar. Desabilitado → task converge 1/1; o cron roda a cada 6h.
+    healthcheck:
+      disable: true
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          memory: 128M
+
+volumes:
+  mcp-pg-data:
+  mcp-pg-backups:
+  mcp-data:
+
+networks:
+  net:
+    external: true
+  internal:
+    driver: overlay

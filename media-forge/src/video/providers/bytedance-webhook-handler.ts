@@ -33,6 +33,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { WebhookHandler, WebhookContext } from './webhook-router.js';
 import { openDb, runMigrations } from '../../core/db.js';
+import type { OutputStorageClient } from '../../output/storage.js';
+import { storeArtifact } from '../../output/output-storage.js';
 
 export interface CreateBytedanceWebhookHandlerOpts {
   readonly dbPath: string;
@@ -44,6 +46,12 @@ export interface CreateBytedanceWebhookHandlerOpts {
    * non-blocking and the router can ACK within fal.ai's 15s window.
    */
   readonly awaitBackgroundDownload?: boolean;
+  /**
+   * F-B: when present, the downloaded asset is uploaded to MinIO under the
+   * deterministic key `outputs/{jobId}.{ext}` so the poll path can presign it.
+   * Best-effort inside the (already non-blocking) background download.
+   */
+  readonly storage?: OutputStorageClient;
 }
 
 interface FalSeedanceVideo {
@@ -164,11 +172,14 @@ export function createBytedanceWebhookHandler(
       "UPDATE video_jobs SET status = 'completed' WHERE id = ? AND status != 'completed'",
     ).run(internalJobId);
 
+    const contentType = success?.video?.content_type ?? 'video/mp4';
     const downloadPromise = downloadAndPersistAsset(
       fetchImpl,
       videoUrl,
       opts.outputsDir,
       internalJobId,
+      contentType,
+      opts.storage,
     );
     if (awaitBackground) {
       await downloadPromise;
@@ -190,6 +201,8 @@ async function downloadAndPersistAsset(
   url: string,
   outputsDir: string,
   jobId: string,
+  contentType: string,
+  storage?: OutputStorageClient,
 ): Promise<void> {
   const res = await fetchImpl(url);
   if (!res.ok) {
@@ -201,4 +214,15 @@ async function downloadAndPersistAsset(
   process.stderr.write(
     `[bytedance-webhook] job ${jobId} asset downloaded (${buf.length} bytes), status=completed; cost via next pollStatus\n`,
   );
+  // F-B: upload to MinIO under outputs/{jobId}.{ext} so the poll path can presign.
+  // Best-effort — local disk write above is the durable fallback.
+  if (storage) {
+    await storeArtifact({ storage, jobId, bytes: buf, contentType }).catch((err: unknown) => {
+      process.stderr.write(
+        `[bytedance-webhook] MinIO upload failed for ${jobId}: ${
+          err instanceof Error ? err.message : String(err)
+        }\n`,
+      );
+    });
+  }
 }

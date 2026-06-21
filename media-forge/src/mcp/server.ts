@@ -12,6 +12,7 @@ import { createClient } from '../core/client.js';
 import { loadPricingOverridesFromEnv } from '../core/pricing.js';
 import { validateHiggsfieldPricingAtBoot } from '../core/higgsfield-pricing.js';
 import { registerAllTools, setWebhookRouter } from './handlers.js';
+import type { Tier } from '../http/auth.js';
 import {
   startWebhookRouter,
   stopWebhookRouter,
@@ -25,11 +26,24 @@ import { createBytedanceWebhookHandler } from '../video/providers/bytedance-webh
 import { verifyFalWebhookSignature } from '../video/providers/auth/fal-ed25519.js';
 import { isSeedanceEnabled } from '../core/feature-flags.js';
 import { join } from 'node:path';
+import type { OutputStorageClient } from '../output/storage.js';
+import type { GalleryStore } from '../gallery/gallery-store.js';
+import type { CreditClient } from '../billing/credit-client.js';
 
 export interface BuildServerOpts {
   // Injection point for tests — config + client come from outside in tests
   config?: ReturnType<typeof loadConfig>;
   client?: ReturnType<typeof createClient>;
+  /** F-B: artifact storage client. When undefined, handlers write to local disk (graceful degradation). */
+  storage?: OutputStorageClient;
+  /** F-C: tier do tenant — controla quais tools sao registradas. Default 'pro' (todos). */
+  tier?: Tier;
+  /** F-I: gallery store for list_my_generations. undefined = gallery disabled (self-host). */
+  galleryStore?: GalleryStore;
+  /** F-I: tenantId from AuthContext (F-C). undefined = 'default' (stdio / self-host). */
+  tenantId?: string;
+  /** F-E: credit-core client for billing debit. undefined = billing OFF (self-host / hosted-sem-billing). */
+  creditClient?: CreditClient;
 }
 
 export function buildServer(opts: BuildServerOpts = {}): McpServer {
@@ -57,8 +71,16 @@ export function buildServer(opts: BuildServerOpts = {}): McpServer {
   // registerAllTools — otherwise media_video_route + media_video_cost_estimate
   // silently report compiled-in public rates and the override env var is a no-op.
   loadPricingOverridesFromEnv(process.env);
-  const server = new McpServer({ name: 'media-forge', version: '0.1.1' });
-  registerAllTools(server, { client, config });
+  const server = new McpServer({ name: 'media-forge', version: '0.2.0' });
+  registerAllTools(server, {
+    client,
+    config,
+    storage: opts.storage,
+    tier: opts.tier,
+    galleryStore: opts.galleryStore,
+    tenantId: opts.tenantId,
+    creditClient: opts.creditClient,
+  });
   return server;
 }
 

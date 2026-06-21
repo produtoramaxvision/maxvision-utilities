@@ -1,7 +1,8 @@
 // src/mcp/handlers.ts
-// Registers all 22 MCP tools backed by service implementations.
+// Registers all MCP tools backed by service implementations.
 // Pattern: wrap each service call in wrap() for unified error handling and logging.
 // NEVER throw from a handler — always return {isError: true} with message.
+// F-C: registerAllTools receives optional tier and skips tools outside the tier gate.
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -9,11 +10,17 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { MediaForgeClient } from '../core/client.js';
 import type { MediaForgeConfig } from '../core/config.js';
 import type { OutputManager } from '../output/output-manager.js';
+import type { OutputStorageClient } from '../output/storage.js';
 import type { ZodTypeAny } from 'zod';
 import { logger } from '../core/logger.js';
-import { safeJoin } from '../utils/paths.js';
+import { safeJoin, jobId as generateJobId } from '../utils/paths.js';
+import { storeArtifact, presignExistingArtifact } from '../output/output-storage.js';
 import { ValidationError } from '../core/errors.js';
 import { MCP_TOOLS, type MCPTool } from './schemas.js';
+import { isToolAllowed } from '../http/tier-gates.js';
+import type { Tier } from '../http/auth.js';
+import type { GalleryStore } from '../gallery/gallery-store.js';
+import { ListMyGenerationsInput } from './schemas.js';
 
 // Strict jobId pattern: starts with alnum, only alnum + `_.-`, max 128 chars.
 // Mirrors the format emitted by OutputManager (YYYYMMDDTHHMMSSZ-<random6>-<slug>)
@@ -124,6 +131,15 @@ import {
 } from '../video/providers/kling-elements.js';
 import { openDb, runMigrations } from '../core/db.js';
 import { recordActualCost } from '../core/cost-tracker.js';
+import { runWithDebit, reserveForJob, captureJob, releaseJob } from '../billing/debit.js';
+import {
+  priceCredits,
+  videoActualCredits,
+  IMAGE_MARKUP,
+  VIDEO_MARKUP,
+  DEFAULT_CREDIT_VALUE_USD,
+} from '../billing/pricing.js';
+import type { CreditClient } from '../billing/credit-client.js';
 import {
   getBytedanceSeedanceProvider,
   type BytedanceSeedanceEnv,
@@ -229,25 +245,53 @@ export function _resetHiggsfieldProviderForTests(): void {
 // 7 Higgsfield generation tools (Codex P2 round 5 PR#10).
 // ---------------------------------------------------------------------------
 
-export async function handleHiggsfieldPoll(rawInput: unknown): Promise<{
+interface HiggsfieldPollResult {
   jobId: string;
   state: string;
   progress?: number;
   assetUrls?: ReadonlyArray<string>;
+  url?: string;
+  expires_at?: string;
   errorMessage?: string;
-}> {
+}
+
+export async function handleHiggsfieldPoll(
+  rawInput: unknown,
+  opts: { storage?: OutputStorageClient } = {},
+): Promise<HiggsfieldPollResult> {
   const input = rawInput as { jobId?: unknown };
   if (typeof input?.jobId !== 'string' || input.jobId.length === 0) {
     throw new Error('media_higgsfield_poll requires { jobId: string }');
   }
   const provider = higgsfieldProvider();
   const status = await provider.pollStatus(input.jobId);
+
+  // F-B: quando completed e storage configurado, tentar presign do objeto já no
+  // MinIO (uploaded pelo webhook handler). NOTA: o handler de webhook da
+  // Higgsfield é um logging stub sem buffer — na prática o objeto não existe e
+  // presignExistingArtifact retorna null, caindo no fallback assetUrls do
+  // provider. O branch fica aqui para simetria com Kling/Seedance.
+  let signedUrl: string | undefined;
+  let expiresAt: string | undefined;
+  if (status.state === 'completed' && opts.storage) {
+    const artifact = await presignExistingArtifact({
+      storage: opts.storage,
+      jobId: input.jobId,
+      contentType: 'video/mp4',
+    }).catch(() => null);
+    if (artifact) {
+      signedUrl = artifact.url;
+      expiresAt = artifact.expiresAt;
+    }
+  }
+
   return {
     jobId: status.jobId,
     state: status.state,
     ...(status.progress !== undefined ? { progress: status.progress } : {}),
     ...(status.assetUrls ? { assetUrls: status.assetUrls } : {}),
     ...(status.errorMessage ? { errorMessage: status.errorMessage } : {}),
+    ...(signedUrl !== undefined ? { url: signedUrl, expires_at: expiresAt } : {}),
   };
 }
 
@@ -751,6 +795,8 @@ export async function handleHiggsfieldSoulId(rawInput: unknown): Promise<
 
 export interface KlingHandlerExecOpts {
   readonly fetchImpl?: typeof fetch;
+  /** F-B: when present, handleKlingPoll presigns the MinIO artifact uploaded by the webhook handler. */
+  readonly storage?: OutputStorageClient;
 }
 
 export async function handleKlingMotionBrush(
@@ -1097,16 +1143,20 @@ export async function handleKlingVideoExtend(
 // completion without depending on a registered webhook.
 // ---------------------------------------------------------------------------
 
-export async function handleKlingPoll(
-  rawInput: unknown,
-  opts: KlingHandlerExecOpts = {},
-): Promise<{
+interface KlingPollResult {
   jobId: string;
   state: string;
   assetUrls?: readonly string[];
+  url?: string;
+  expires_at?: string;
   errorMessage?: string;
   progress?: number;
-}> {
+}
+
+export async function handleKlingPoll(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<KlingPollResult> {
   const input: KlingPollInputT = KlingPollInput.parse(rawInput);
   const provider = new KlingProvider({
     dbPath: defaultDbPath(),
@@ -1127,12 +1177,31 @@ export async function handleKlingPoll(
       "UPDATE video_jobs SET status = 'failed', actual_usd = COALESCE(actual_usd, 0), completed_at = ? WHERE id = ? AND status != 'completed'",
     ).run(new Date().toISOString(), input.jobId);
   }
+
+  // F-B: quando completed e storage configurado, presign do artefato já no MinIO
+  // (uploaded pelo webhook handler). Se o objeto não existir (webhook não chegou /
+  // callback suprimido no path manual), cair no fallback assetUrls do provider.
+  let signedUrl: string | undefined;
+  let expiresAt: string | undefined;
+  if (status.state === 'completed' && opts.storage) {
+    const artifact = await presignExistingArtifact({
+      storage: opts.storage,
+      jobId: input.jobId,
+      contentType: 'video/mp4',
+    }).catch(() => null);
+    if (artifact) {
+      signedUrl = artifact.url;
+      expiresAt = artifact.expiresAt;
+    }
+  }
+
   return {
     jobId: status.jobId,
     state: status.state,
     ...(status.assetUrls ? { assetUrls: status.assetUrls } : {}),
     ...(status.errorMessage ? { errorMessage: status.errorMessage } : {}),
     ...(typeof status.progress === 'number' ? { progress: status.progress } : {}),
+    ...(signedUrl !== undefined ? { url: signedUrl, expires_at: expiresAt } : {}),
   };
 }
 
@@ -1198,7 +1267,9 @@ export async function handleKlingDownload(
           `recording actualUsd=0 to flip terminal status. Cost ledger may underreport.\n`,
       );
     }
-    recordActualCost({ dbPath: defaultDbPath(), jobId: input.jobIdOrUrl, actualUsd });
+    const actualCreditsForRecord =
+      typeof actualUsd === 'number' ? videoActualCredits(actualUsd) : undefined;
+    recordActualCost({ dbPath: defaultDbPath(), jobId: input.jobIdOrUrl, actualUsd, actualCredits: actualCreditsForRecord });
   }
 
   return {
@@ -1569,6 +1640,130 @@ export interface HandlersDeps {
   client: MediaForgeClient;
   config: MediaForgeConfig;
   outputManager?: OutputManager;
+  /** F-B: quando presente, artefatos sao enviados para MinIO; resultado retorna url + expires_at. */
+  storage?: OutputStorageClient;
+  /** F-C: tier do tenant — controla quais tools sao registradas. undefined = 'pro' (backward compat). */
+  tier?: Tier;
+  /** F-I: gallery store para list_my_generations. undefined = gallery desabilitada (self-host sem Postgres). */
+  galleryStore?: GalleryStore;
+  /** F-I: tenantId do AuthContext (F-C). undefined = 'default' (self-host / stdio). */
+  tenantId?: string;
+  /** F-E: credit-core HTTP client para débito. undefined = billing OFF (self-host / hosted-sem-billing) → no-op. */
+  creditClient?: CreditClient;
+}
+
+// ---------------------------------------------------------------------------
+// F-E billing — débito de geração (imagem síncrona + vídeo assíncrono).
+//
+// Invariante no-op: TODA função de débito abaixo retorna o caminho original
+// inalterado quando `creditClient` ou `tenantId` é undefined (self-host /
+// hosted-sem-billing). Billing é OPCIONAL por construção — zero chamadas de
+// billing quando o client não foi injetado.
+//
+// 402 (InsufficientCreditError de reserve) propaga como exceção: como cada
+// débito roda DENTRO do callback de `wrap()`, o catch de wrap o converte no
+// tool-error estruturado padrão ({ isError: true, ... }) — nunca um 500 cru.
+// ---------------------------------------------------------------------------
+// IMAGE_MARKUP / VIDEO_MARKUP / DEFAULT_CREDIT_VALUE_USD now live in billing/pricing.ts
+// so the webhook-first capture path (kling-webhook-handler) bills identically to this
+// live path. Imported at the top of this file.
+/** Imagem: ciclo síncrono curto → TTL de 2 min para o sweep liberar reserva presa. */
+const IMAGE_TTL_MS = 120_000;
+/** Vídeo: render assíncrono pode levar minutos → TTL folgado (2h) cobre o pior caso
+ *  antes do sweep do credit-core liberar a reserva. O capture na conclusão é o caminho
+ *  primário; o TTL é só a rede de segurança caso o callback nunca chegue. */
+const VIDEO_TTL_MS = 2 * 60 * 60 * 1000;
+
+/** Embrulha uma geração de IMAGEM (síncrona) com reserve→capture. No-op se billing off.
+ *  `actualCostUSD` raramente vem do serviço de imagem (custo é determinístico por size);
+ *  o fallback para a estimativa é o caminho de produção e é exato. */
+export async function withImageDebit<T extends object>(
+  deps: HandlersDeps,
+  jobId: string,
+  estimateUsd: number,
+  exec: () => Promise<T>,
+): Promise<T> {
+  if (!deps.creditClient || !deps.tenantId) return exec(); // self-host / billing off
+  const estimateCredits = priceCredits({
+    costUsd: estimateUsd,
+    markup: IMAGE_MARKUP,
+    creditValueUsd: DEFAULT_CREDIT_VALUE_USD,
+  });
+  const ttlAt = new Date(Date.now() + IMAGE_TTL_MS).toISOString();
+  const out = await runWithDebit(
+    { client: deps.creditClient, tenantId: deps.tenantId, jobId, estimateCredits, ttlAt },
+    async () => {
+      const result = await exec();
+      // `actualCostUSD` is rarely present on image results (cost is deterministic per
+      // size). Read it defensively; fall back to the estimate (= exact in production).
+      const actualUsd = (result as { actualCostUSD?: number }).actualCostUSD ?? estimateUsd;
+      const actualCredits = priceCredits({
+        costUsd: actualUsd,
+        markup: IMAGE_MARKUP,
+        creditValueUsd: DEFAULT_CREDIT_VALUE_USD,
+      });
+      return { result, actualCredits };
+    },
+  );
+  return out.result;
+}
+
+/** Reserva crédito para um submit de VÍDEO (assíncrono) usando o jobId/operationName
+ *  retornado pelo submit. No-op se billing off. Chamada APÓS o submit obter o id —
+ *  reserve/capture só reconciliam quando ambos usam o MESMO id (res-{jobId}/cap-{jobId}).
+ *  402 propaga (convertido em tool-error pelo wrap). */
+export async function reserveVideoSubmit(
+  deps: HandlersDeps,
+  jobId: string,
+  estimateUsd: number,
+): Promise<void> {
+  if (!deps.creditClient || !deps.tenantId) return; // self-host / billing off
+  // TODO(F-E veo-cap): wire veoAllowance + effectiveVeoCreditValue (Redis counter +
+  // paidCreditValuesFor) when billing goes live (post-EXT1). As funções puras de
+  // veo-cap já existem + testadas; só a integração (PaymentsStore/Redis) está deferida.
+  const estimateCredits = priceCredits({
+    costUsd: estimateUsd,
+    markup: VIDEO_MARKUP,
+    creditValueUsd: DEFAULT_CREDIT_VALUE_USD,
+  });
+  const ttlAt = new Date(Date.now() + VIDEO_TTL_MS).toISOString();
+  // Task 10: derive statusUrl from MEDIA_FORGE_INTERNAL_URL so credit-core sweep
+  // can query the oracle endpoint without an explicit caller parameter.
+  const internalUrl = process.env['MEDIA_FORGE_INTERNAL_URL'];
+  const statusUrl = internalUrl ? `${internalUrl}/job-status/${jobId}` : undefined;
+  await reserveForJob({ client: deps.creditClient, tenantId: deps.tenantId, jobId, estimateCredits, ttlAt, statusUrl });
+}
+
+/** Captura o custo REAL de um vídeo concluído. Idempotente via external_id cap-{jobId}
+ *  (replay do callback não dobra). No-op se billing off ou actualUsd ausente. */
+export async function captureVideoComplete(
+  deps: HandlersDeps,
+  jobId: string,
+  actualUsd: number,
+): Promise<void> {
+  if (!deps.creditClient || !deps.tenantId) return; // self-host / billing off
+  const actualCredits = priceCredits({
+    costUsd: actualUsd,
+    markup: VIDEO_MARKUP,
+    creditValueUsd: DEFAULT_CREDIT_VALUE_USD,
+  });
+  await captureJob({ client: deps.creditClient, tenantId: deps.tenantId, jobId, actualCredits });
+}
+
+/** Libera a reserva de um vídeo que falhou terminalmente. Idempotente via rel-{jobId}.
+ *  No-op se billing off. */
+export async function releaseVideoFailed(
+  deps: HandlersDeps,
+  jobId: string,
+  estimateUsd: number,
+): Promise<void> {
+  if (!deps.creditClient || !deps.tenantId) return; // self-host / billing off
+  const reservedCredits = priceCredits({
+    costUsd: estimateUsd,
+    markup: VIDEO_MARKUP,
+    creditValueUsd: DEFAULT_CREDIT_VALUE_USD,
+  });
+  await releaseJob({ client: deps.creditClient, tenantId: deps.tenantId, jobId, reservedCredits });
 }
 
 // ---------------------------------------------------------------------------
@@ -1717,9 +1912,60 @@ function buildHelpText(topic: string | undefined): string {
 // registerAllTools — main export
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// F-B: image artifact upload helper
+// ---------------------------------------------------------------------------
+// The image services return { base64, mimeType, ... } (NOT a Buffer and NOT a
+// jobId). When storage is configured and the result carries real image bytes
+// (not a dry-run), decode base64 -> Buffer, mint a deterministic jobId via the
+// shared minter, upload to MinIO and return signed { url, expires_at } merged
+// into the result. Graceful degradation: no storage / dry-run / empty bytes ->
+// the original result passes through unchanged (F-A behaviour).
+type ImageGenResult = {
+  base64: string;
+  mimeType: string;
+  dryRun?: boolean;
+};
+
+async function maybeStoreImageArtifact(
+  result: ImageGenResult,
+  storage: OutputStorageClient | undefined,
+  prefix: string,
+): Promise<unknown> {
+  if (!storage || result.dryRun || !result.base64) {
+    return result;
+  }
+  try {
+    const id = generateJobId(prefix);
+    const bytes = Buffer.from(result.base64, 'base64');
+    const artifact = await storeArtifact({
+      storage,
+      jobId: id,
+      bytes,
+      contentType: result.mimeType,
+    });
+    return { ...result, job_id: id, url: artifact.url, expires_at: artifact.expiresAt };
+  } catch (err) {
+    // Best-effort: upload failure must not drop the generated image. Surface the
+    // base64 result (F-A path) so the caller still receives the artifact.
+    process.stderr.write(
+      `[image-storage] upload failed (${prefix}): ${(err as Error).message}\n`,
+    );
+    return result;
+  }
+}
+
 export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
-  const { client, config } = deps;
+  const { client, config, storage } = deps;
   const reg = looseRegister(server);
+
+  // F-C: tier gating — pula o registro de tools fora do gate do tier.
+  // undefined/missing tier = 'pro' (backward compat para stdio + testes existentes).
+  const effectiveTier = deps.tier ?? 'pro';
+  function regIfAllowed(name: string, cfg: Parameters<LooseRegisterTool>[1], cb: Parameters<LooseRegisterTool>[2]): void {
+    if (!isToolAllowed(effectiveTier, name)) return;
+    reg(name, cfg, cb);
+  }
 
   function getTool(name: string) {
     const t = MCP_TOOLS.find((tool) => tool.name === name);
@@ -1731,25 +1977,47 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_generate_image');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Generate Image (Nano Banana Pro)', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await generateImageNanoBananaPro(validateInput(t, input), client))),
+      wrap(t.name, async (input) => {
+        const parsed = validateInput<{ imageSize?: '1K' | '2K' | '4K' }>(t, input);
+        const estimateUsd = estimateImageCost({
+          model: IMAGE_MODEL_NANO_BANANA_PRO,
+          imageSize: parsed.imageSize ?? '4K',
+        }).usd;
+        const jobId = generateJobId('nano-banana-pro');
+        const result = await withImageDebit(deps, jobId, estimateUsd, () =>
+          generateImageNanoBananaPro(parsed as never, client),
+        );
+        return asResult(await maybeStoreImageArtifact(result, storage, 'nano-banana-pro'));
+      }),
     );
   }
 
   {
     const t = getTool('media_generate_imagen');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Generate Image (Imagen 4 Ultra)', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await generateImageImagen4Ultra(input as never, client))),
+      wrap(t.name, async (input) => {
+        const inp = input as { numberOfImages?: number };
+        const estimateUsd = estimateImageCost({
+          model: IMAGE_MODEL_IMAGEN_4_ULTRA,
+          numberOfImages: inp.numberOfImages ?? 1,
+        }).usd;
+        const jobId = generateJobId('imagen-4-ultra');
+        const result = await withImageDebit(deps, jobId, estimateUsd, () =>
+          generateImageImagen4Ultra(input as never, client),
+        );
+        return asResult(await maybeStoreImageArtifact(result, storage, 'imagen-4-ultra'));
+      }),
     );
   }
 
   {
     const t = getTool('media_edit_image');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Edit Image', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await editImage(validateInput(t, input), client))),
@@ -1758,7 +2026,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_compose_scene');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Compose Scene', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await composeScene(input as never, client))),
@@ -1767,7 +2035,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_describe_image');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Describe Image', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await describeImage(input as never, client))),
@@ -1776,7 +2044,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_extract_palette');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Extract Color Palette', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await extractPalette(input as never))),
@@ -1787,36 +2055,44 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_generate_video_t2v');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Generate Video (Text to Video)', description: t.description, inputSchema: t.inputSchema as never },
+      // TODO(F-E veo-billing): Veo reserve/capture is DEFERRED — not reconcilable in handlers.ts.
+      // Reserve would key on `operationName`, but completion runs through
+      // media_poll_video_operation / media_download_video (id = resolved URI, changes; no
+      // actualUsd; no recordActualCost). Reserving here without a matching capture would leak
+      // the reservation until TTL → free Veo. Same deferral class as the webhook-router path.
       wrap(t.name, async (input) => asResult(await generateVideoT2V(validateInput(t, input), client))),
     );
   }
 
   {
     const t = getTool('media_generate_video_i2v');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Generate Video (Image to Video)', description: t.description, inputSchema: t.inputSchema as never },
+      // TODO(F-E veo-billing): DEFERRED — see media_generate_video_t2v note above.
       wrap(t.name, async (input) => asResult(await generateVideoI2V(validateInput(t, input), client))),
     );
   }
 
   {
     const t = getTool('media_generate_video_interpolate');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Generate Video (Interpolate)', description: t.description, inputSchema: t.inputSchema as never },
+      // TODO(F-E veo-billing): DEFERRED — see media_generate_video_t2v note above.
       wrap(t.name, async (input) => asResult(await generateVideoInterpolate(validateInput(t, input), client))),
     );
   }
 
   {
     const t = getTool('media_generate_video_with_refs');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Generate Video With References', description: t.description, inputSchema: t.inputSchema as never },
+      // TODO(F-E veo-billing): DEFERRED — see media_generate_video_t2v note above.
       wrap(t.name, async (input) => asResult(await generateVideoWithRefs(validateInput(t, input), client))),
     );
   }
@@ -1826,7 +2102,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     // Adapter: ExtendVideoInput → ExtendOpts
     // v0.1.0 limitation: treats sourceVideoPath as sourceVideoUri, prompt as both
     // originalPrompt and extensionDirective (no separate directive field in schema).
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Extend Video', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -1852,7 +2128,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_poll_video_operation');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Poll Video Operation', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -1879,7 +2155,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     // v0.1.0: downloadVideo requires a direct videoUri (not an operationName).
     // If caller passes an operation name instead of a resolved URI, return a
     // structured error note rather than making a broken HTTP request.
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Download Video', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -1926,7 +2202,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_dry_run_payload');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Dry Run Payload', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -1938,7 +2214,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_estimate_cost');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Estimate Cost', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2020,7 +2296,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_validate_environment');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Validate Environment', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (_input) => {
@@ -2073,7 +2349,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_capability_matrix');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Capability Matrix', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2092,7 +2368,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_list_outputs');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'List Outputs', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2132,7 +2408,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_get_job_metadata');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Get Job Metadata', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2216,7 +2492,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_run_ocr');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Run OCR', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2243,7 +2519,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_check_brand_compliance');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Check Brand Compliance', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2267,7 +2543,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_help');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Help', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2299,7 +2575,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_refs_search');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Search reference assets in media-forge-refs', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2321,7 +2597,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_refs_compose_moodboard');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Compose a moodboard keyframe from refs + subject images', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2334,7 +2610,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_refs_presign');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Generate presigned URLs for ref objects', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2347,7 +2623,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_refs_index');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Index refs bucket into pgvector (Phase 2)', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
@@ -2369,7 +2645,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
   // reports `{ running: false, handlers: [] }`.
   {
     const t = getTool('media_video_webhook_status');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Webhook Router Status', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async () => asResult(await handleVideoWebhookStatus())),
@@ -2380,7 +2656,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_video_cost_estimate');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Video Cost Estimate', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleVideoCostEstimate(input))),
@@ -2389,7 +2665,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_video_cost_report');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Video Cost Report', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleVideoCostReport(input))),
@@ -2400,7 +2676,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_video_route');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Video Provider Routing', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleVideoRoute(input))),
@@ -2411,7 +2687,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_higgsfield_soul_id');
-    reg(
+    regIfAllowed(
       t.name,
       {
         title: 'Higgsfield Soul ID',
@@ -2422,11 +2698,18 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     );
   }
 
+  // TODO(F-E higgsfield-billing): all Higgsfield video submits below (DoP, Cinema Studio,
+  // Speak, Marketing Studio, Recast, Generate) are DEFERRED — same deferral class as Veo.
+  // Their capture point (recordActualCostUSD) lives in HiggsfieldProvider, not a handler tool,
+  // and completion runs through the webhook router (stdio entrypoint, no per-request
+  // creditClient). Reservable here, but not reconcilable → left unbilled until provider-level
+  // capture plumbing lands (post-EXT1). Kling is the only fully-reconcilable cycle in handlers.
+
   // ---- Higgsfield DoP (1 — P14 image-to-video with WAN Camera Control verbs) ----
 
   {
     const t = getTool('media_higgsfield_dop');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Higgsfield DoP', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldDop(input))),
@@ -2437,7 +2720,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_higgsfield_cinema_studio');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Higgsfield Cinema Studio', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldCinemaStudio(input))),
@@ -2448,7 +2731,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_higgsfield_speak');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Higgsfield Speak', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldSpeak(input))),
@@ -2459,7 +2742,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_higgsfield_marketing_studio');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Higgsfield Marketing Studio', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldMarketingStudio(input))),
@@ -2470,7 +2753,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_higgsfield_recast');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Higgsfield Recast', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldRecast(input))),
@@ -2481,7 +2764,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_higgsfield_virality_predictor');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Higgsfield Virality Predictor', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldViralityPredictor(input))),
@@ -2491,7 +2774,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
   // ---- Higgsfield Generate (Codex P2 round 7 PR#10 — generic Soul/Soul2 submit) ----
   {
     const t = getTool('media_higgsfield_generate');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Higgsfield Generate', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldGenerate(input))),
@@ -2501,15 +2784,15 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
   // ---- Higgsfield Poll + Download (Codex P2 round 5 PR#10 — async lifecycle) ----
   {
     const t = getTool('media_higgsfield_poll');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Higgsfield Poll', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleHiggsfieldPoll(input))),
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldPoll(input, { storage }))),
     );
   }
   {
     const t = getTool('media_higgsfield_download');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Higgsfield Download', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldDownload(input))),
@@ -2520,10 +2803,16 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_motion_brush');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Motion Brush', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleKlingMotionBrush(input))),
+      wrap(t.name, async (input) => {
+        const r = await handleKlingMotionBrush(input);
+        // F-E: reserve AFTER submit, keyed on the returned jobId — the SAME id
+        // media_kling_download captures with. No-op when billing off. 402 → wrap → tool error.
+        await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        return asResult(r);
+      }),
     );
   }
 
@@ -2531,7 +2820,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_element_create');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Element Create', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingElementCreate(input))),
@@ -2540,7 +2829,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_element_list');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Element List', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingElementList(input))),
@@ -2549,7 +2838,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_element_delete');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Element Delete', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingElementDelete(input))),
@@ -2560,10 +2849,14 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_elements');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Elements', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleKlingElements(input))),
+      wrap(t.name, async (input) => {
+        const r = await handleKlingElements(input);
+        await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        return asResult(r);
+      }),
     );
   }
 
@@ -2571,10 +2864,14 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_lip_sync');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Lip-Sync', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleKlingLipSync(input))),
+      wrap(t.name, async (input) => {
+        const r = await handleKlingLipSync(input);
+        await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        return asResult(r);
+      }),
     );
   }
 
@@ -2582,10 +2879,14 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_omni_multishot');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Omni Multi-Shot', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleKlingOmniMultiShot(input))),
+      wrap(t.name, async (input) => {
+        const r = await handleKlingOmniMultiShot(input);
+        await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        return asResult(r);
+      }),
     );
   }
 
@@ -2593,10 +2894,14 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_video_extend');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Video Extend', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleKlingVideoExtend(input))),
+      wrap(t.name, async (input) => {
+        const r = await handleKlingVideoExtend(input);
+        await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        return asResult(r);
+      }),
     );
   }
 
@@ -2604,21 +2909,67 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   {
     const t = getTool('media_kling_poll');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Poll', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleKlingPoll(input))),
+      // F-E: on terminal failure, the reservation is NOT explicitly released here — the poll
+      // input carries only jobId (no estimate to pass as reservedCredits). credit-core's TTL
+      // sweep releases the stuck reservation (no capture ever fires for a failed job → no
+      // double-charge). `releaseVideoFailed` is available for callers that DO have the estimate.
+      wrap(t.name, async (input) => asResult(await handleKlingPoll(input, { storage }))),
     );
   }
 
   {
     const t = getTool('media_kling_download');
-    reg(
+    regIfAllowed(
       t.name,
       { title: 'Kling Download', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleKlingDownload(input))),
+      wrap(t.name, async (input) => {
+        const result = await handleKlingDownload(input, { storage });
+        // F-E: capture the REAL cost on completion. jobId = the kling job id (NOT a raw URL,
+        // which has no reservation to settle). Idempotent via cap-{jobId}. No-op when billing
+        // off. This is the PRIMARY capture path for video; credit-core's TTL sweep is the
+        // safety net for the webhook-router path (stdio entrypoint, no per-request creditClient).
+        {
+          const r = result as { jobIdOrUrl: string; actualUsd?: number };
+          if (typeof r.actualUsd === 'number' && !r.jobIdOrUrl.startsWith('http')) {
+            await captureVideoComplete(deps, r.jobIdOrUrl, r.actualUsd);
+          }
+        }
+        // F-I: record the completed generation in the gallery.
+        // credits_debited + credit_value_usd are set to 0 as a documented placeholder —
+        // they require F-D capture-call integration (credit-core not yet wired into media-forge).
+        // SEAM F-D: replace 0/0 with actual credits/creditValue from capture response when
+        // http://credit-core:8080 capture is integrated.
+        if (deps.galleryStore && typeof (result as Record<string, unknown>).actualUsd === 'number') {
+          const parsed = KlingDownloadInput.safeParse(input);
+          if (parsed.success && !parsed.data.jobIdOrUrl.startsWith('http')) {
+            await deps.galleryStore.insertGeneration({
+              generationId: parsed.data.jobIdOrUrl,
+              tenantId: deps.tenantId ?? 'default',
+              model: 'kling',
+              provider: 'kling',
+              costUsd: (result as Record<string, unknown>).actualUsd as number,
+              creditsDebited: 0,      // SEAM F-D: fill from credit-core capture
+              creditValueUsd: 0.01,   // SEAM F-D: fill from credit-core capture
+              status: 'completed',
+            }).catch((err: unknown) => {
+              process.stderr.write(
+                `[gallery] insertGeneration failed for ${parsed.data.jobIdOrUrl}: ${(err as Error).message}\n`,
+              );
+            });
+          }
+        }
+        return asResult(result);
+      }),
     );
   }
+
+  // TODO(F-E seedance-billing): all 4 Seedance submits below are DEFERRED — same deferral class
+  // as Veo/Higgsfield. Capture (recordActualCostUSD) lives in BytedanceSeedanceProvider on
+  // webhook/poll completion, not a handler tool with deps + matching id → not reconcilable here.
+  // Left unbilled until provider-level capture plumbing lands (post-EXT1).
 
   // ---- Seedance 2.0 (ByteDance) — P16 Task 7 (4 tools: t2v / i2v / multishot / reference-fusion) ----
   // Task 8.5: all 4 tools are conditionally registered based on MEDIA_FORGE_SEEDANCE_ENABLED flag.
@@ -2628,7 +2979,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
   if (isSeedanceEnabled()) {
     {
       const t = getTool('media_seedance_text_to_video');
-      reg(
+      regIfAllowed(
         t.name,
         { title: 'Seedance 2.0 Text-to-Video', description: t.description, inputSchema: t.inputSchema as never },
         wrap(t.name, async (input) => asResult(await handleSeedanceTextToVideo(input))),
@@ -2637,7 +2988,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
     {
       const t = getTool('media_seedance_image_to_video');
-      reg(
+      regIfAllowed(
         t.name,
         { title: 'Seedance 2.0 Image-to-Video', description: t.description, inputSchema: t.inputSchema as never },
         wrap(t.name, async (input) => asResult(await handleSeedanceImageToVideo(input))),
@@ -2646,7 +2997,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
     {
       const t = getTool('media_seedance_multishot');
-      reg(
+      regIfAllowed(
         t.name,
         { title: 'Seedance 2.0 Multi-Shot', description: t.description, inputSchema: t.inputSchema as never },
         wrap(t.name, async (input) => asResult(await handleSeedanceMultishot(input))),
@@ -2655,11 +3006,48 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
     {
       const t = getTool('media_seedance_reference_fusion');
-      reg(
+      regIfAllowed(
         t.name,
         { title: 'Seedance 2.0 Reference Fusion', description: t.description, inputSchema: t.inputSchema as never },
         wrap(t.name, async (input) => asResult(await handleSeedanceReferenceFusion(input))),
       );
     }
+  }
+
+  // ---- Gallery (F-I) — list_my_generations: tenant from AuthContext, never from client ----
+  {
+    const t = getTool('list_my_generations');
+    regIfAllowed(
+      t.name,
+      {
+        title: 'List My Generations',
+        description: t.description,
+        inputSchema: t.inputSchema as never,
+      },
+      wrap(t.name, async (input) => {
+        const parsed = ListMyGenerationsInput.safeParse(input);
+        if (!parsed.success) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: 'invalid_input', issues: parsed.error.issues }) }],
+            isError: true,
+          };
+        }
+        // tenantId comes from AuthContext (F-C seam). Falls back to 'default' for self-host (no DATABASE_URL).
+        const tenantId = deps.tenantId ?? 'default';
+        const galleryStore = deps.galleryStore;
+        if (!galleryStore) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: 'gallery_not_configured' }) }],
+            isError: true,
+          };
+        }
+        const page = await galleryStore.listGenerations({
+          tenantId,
+          page: parsed.data.page,
+          pageSize: parsed.data.page_size,
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(page) }] };
+      }),
+    );
   }
 }

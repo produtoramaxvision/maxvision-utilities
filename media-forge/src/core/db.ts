@@ -3,7 +3,7 @@ import type * as NodeSqlite from 'node:sqlite';
 const _require = createRequire(import.meta.url);
 const { DatabaseSync } = _require('node:sqlite') as typeof NodeSqlite;
 type DSInstance = InstanceType<typeof DatabaseSync>;
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,6 +17,11 @@ const MIGRATED = new Set<string>();
 export function openDb(path: string): DSInstance {
   const existing = POOL.get(path);
   if (existing && existing.open) return existing.db;
+  // DatabaseSync creates the FILE but not its parent dir — a missing dir throws
+  // "unable to open database file". In the hosted container MEDIA_FORGE_PROJECT_DIR
+  // resolves to a dir that doesn't exist yet, so recordJob/getJobRecord (cost-tracker,
+  // gallery, refs) crashed on first use. Ensure the dir exists first.
+  if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');

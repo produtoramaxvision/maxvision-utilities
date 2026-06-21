@@ -4,9 +4,67 @@ All notable changes to `media-forge` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.4] - 2026-06-21
 
-> Targets patch v0.1.2 (docs/metadata only; no code change). `0.1.1` is already tagged; these entries are a retroactive sync that ships in the next patch.
+### Fixed
+
+- **Migrations were not shipped in the runtime image.** The Dockerfile runtime stage
+  copied only , so  () was absent ->
+   threw ->  (and all cost-tracker/gallery/refs tables) were
+  never created -> / failed with "no such table". The runtime
+  image now s . Completes the v0.2.3 cost.db fix so video-job
+  tracking, billing capture, and the sweep oracle's actual_credits actually work.
+
+## [0.2.3] - 2026-06-21
+
+### Fixed
+
+- **cost-tracker SQLite crashed on first write in the hosted container.** `openDb()`
+  opened the db file without creating its parent dir, so when `MEDIA_FORGE_PROJECT_DIR`
+  was unset (resolving to a non-existent `/app/.media-forge`), `recordJob` /
+  `getJobRecord` / gallery / refs threw `unable to open database file`. `openDb` now
+  `mkdir`s the parent dir first. Unblocks video-job tracking, billing capture accuracy,
+  gallery, cost reports, and the F-E sweep oracle's `actual_credits` source.
+- **Deploy:** the stack now mounts a `mcp-data` volume at `/data` and sets
+  `MEDIA_FORGE_PROJECT_DIR=/data/media-forge`, so `cost.db` (`video_jobs`) survives
+  redeploys instead of living on the ephemeral container fs.
+
+## [0.2.2] - 2026-06-20
+
+### Fixed
+
+- **Job-status oracle robustness + auth.** `/job-status` degrades to `{status:'unknown'}`
+  on a missing/unopenable db (no 500), and fails closed: the route only mounts when a
+  `MEDIA_FORGE_STATUS_SECRET` >= 32 chars is set, with constant-time secret compare.
+
+## [0.2.1] - 2026-06-20
+
+### Added
+
+- **F-E sweep oracle.** Internal `/job-status/:jobId` endpoint (sourced from
+  `video_jobs`, secret-gated) lets credit-core's TTL sweep settle expired Kling
+  reservations with the real captured cost. `video_jobs.actual_credits` persists the
+  already-computed credits at live capture; `reserveForJob` registers each
+  reservation's `status_url` pointing back at this service.
+
+## [0.2.0] - 2026-06-02
+
+### Fixed
+
+- **Docker HEALTHCHECK:** use `127.0.0.1` instead of `localhost`. The HTTP server
+  binds `0.0.0.0` (IPv4); `localhost` resolves to `::1` (IPv6) first inside the
+  container, so the healthcheck got `connection refused` and Swarm SIGKILLed the
+  task in a restart loop despite the server being healthy.
+
+### Added
+
+- **HTTP transport (F-A):** hosted MCP server over Hono + Streamable HTTP
+  (stateless, per-request `McpServer`) alongside the existing stdio path. New
+  `src/http/` (`auth.ts` Bearer resolver, `app.ts` with `/health` `/metrics`
+  `/mcp`, `startHttpServer()`), pinned MCP SDK `^1.29`, `start:http` script.
+- **Docker image + publish:** multi-stage arm64 `Dockerfile` (system ffmpeg,
+  `/health` healthcheck); `release.yml` builds + pushes
+  `ghcr.io/produtoramaxvision/media-forge-mcp` to ghcr on the release tag.
 
 ### Docs / Metadata sync (no code change)
 

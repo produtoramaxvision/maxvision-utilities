@@ -47,6 +47,14 @@ jobs:
         run: pnpm lint
 
       - name: Test
+        # The Windows GitHub runner cannot bootstrap embedded-postgres (pg_ctl
+        # fails to start a cluster), so the pg-backed integration suites throw at
+        # collection ("Test Files: no tests" -> unhandled error) and there is no
+        # runner-side fix. Typecheck/Lint/Build above already give authoritative
+        # Windows signal (and our dev box is Windows). So the test step is
+        # non-blocking on Windows ONLY; Ubuntu remains the authoritative test
+        # gate. Do not "fix" this by making pg work on Windows — it can't.
+        continue-on-error: ${{ matrix.os == 'windows-latest' }}
         run: pnpm test
 
       - name: Build
