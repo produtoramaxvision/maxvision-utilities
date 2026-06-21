@@ -6,32 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 **Note:** Skill content comes verbatim from upstream. Upstream version is tracked separately from plugin version.
 
-## [0.2.1] - 2026-06-20
+## [0.1.1] - 2026-06-21
 
-Plugin retargeted to its native MCP server (`czlonkowski/n8n-mcp`); enforcement layer completed.
-
-### Added
-
-- PreToolUse hooks `autofix-workflow.sh` and `deploy-template.sh` — close coverage gaps for `n8n_autofix_workflow` and `n8n_deploy_template` (original to this pack, not adapted from upstream).
-- `scripts/check-marketplace-sync.sh` — asserts `marketplace.json` skills[] matches `skills/` dirs.
-- `scripts/check-upstream-drift.sh` + `.upstream-pin` — detects when `czlonkowski/n8n-skills` advances past the pinned commit.
-- `.gitattributes` — enforces LF on `*.sh` so hook shebangs never break under CRLF.
-
-### Changed
-
-- Hook matchers verified 1:1 against `czlonkowski/n8n-mcp` v2.59.2 tool names.
-
-### Removed
-
-- `pre-tool-use/instances.sh` + its matcher — `n8n_instances` confirmed absent from the live `czlonkowski/n8n-mcp` v2.59.2 tool surface. The `n8n-multi-instance` skill is retained; the `manage-credentials.sh` reminder already references the tool defensively ("if present"), so it self-suppresses.
-
-## [0.2.0] - 2026-06-20
-
-Upstream sync to [czlonkowski/n8n-skills v1.21.0](https://github.com/czlonkowski/n8n-skills) (commit `29d3c31`, from v1.6.0).
+Upstream sync to [czlonkowski/n8n-skills v1.21.0](https://github.com/czlonkowski/n8n-skills) (commit `29d3c31`, from v1.6.0) and retarget to the native MCP server (`czlonkowski/n8n-mcp` v2.59.2) with a completed enforcement layer.
 
 ### Added
 
-- 7 new skills imported verbatim from upstream:
+- 7 new skills imported verbatim from upstream (total 14 specialist skills + router):
   - `n8n-agents` — AI Agent workflows (LangChain nodes, tools, memory)
   - `n8n-error-handling` — error handling, retries, `continueOnFail`, error workflows
   - `n8n-binary-and-data` — binary data, files, streams
@@ -41,13 +22,21 @@ Upstream sync to [czlonkowski/n8n-skills v1.21.0](https://github.com/czlonkowski
   - `n8n-self-hosting` — self-hosting, deployment, instance config
 - `using-n8n-mcp-skills` — router / entry-point skill with non-negotiable rules.
 - Hooks enforcement layer (`hooks/hooks.json` + `session-start.sh` + `pre-tool-use/*` + `post-tool-use/*`): SessionStart priming and PreToolUse/PostToolUse reminders on high-impact n8n-mcp calls.
+- PreToolUse hooks `autofix-workflow.sh` and `deploy-template.sh` — coverage for `n8n_autofix_workflow` and `n8n_deploy_template` (original to this pack, not adapted from upstream).
+- `scripts/check-marketplace-sync.sh` + `scripts/check-upstream-drift.sh` + `.upstream-pin` — anti-drift guards (marketplace array vs `skills/` dirs; upstream-commit drift).
+- `.gitattributes` — enforces LF on `*.sh` so hook shebangs never break under CRLF.
 - `NOTICES-UPSTREAM` and `NOTICES-APACHE-2.0.txt` — upstream attribution for material adapted from n8n-io/skills (Apache-2.0).
 
 ### Changed
 
-- All 7 existing skills updated verbatim to v1.21.0 (includes the `$helpers` → `this.helpers` correctness fix for Code-node skills, plus broad content improvements).
-- `plugin.json` version 0.1.0 → 0.2.0; description updated to 14 skills + router + hooks.
+- All 7 original skills updated verbatim to v1.21.0 (includes the `$helpers` → `this.helpers` correctness fix for Code-node skills, plus broad content improvements).
+- Hook matchers verified 1:1 against `czlonkowski/n8n-mcp` v2.59.2 tool names.
+- `plugin.json` version 0.1.0 → 0.1.1; description updated to 14 skills + router + hooks.
 - README and NOTICE updated for the new skill set, hooks layer, and Apache-2.0 sub-attribution.
+
+### Removed
+
+- `pre-tool-use/instances.sh` + its matcher — `n8n_instances` confirmed absent from the live `czlonkowski/n8n-mcp` v2.59.2 tool surface. The `n8n-multi-instance` skill is retained; the `manage-credentials.sh` reminder already references the tool defensively ("if present"), so it self-suppresses.
 
 ### Not included
 

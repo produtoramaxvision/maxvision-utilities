@@ -208,7 +208,7 @@ One extra API call per invocation; in exchange the sub-agent never returns "that
 | No bot-user-ID filter at the top of the shell | Bot's own messages re-trigger the workflow — infinite loop | Trigger-level exclusion (Slack `options.userIds`) or a Filter on `$json.user !== '<BOT_USER_ID>'` first |
 | Bot ID in Telegram's `userIds` expecting exclusion | It's an **allowlist** — only the bot would fire, so no human gets through; looks "fixed" but is silent | Telegram bots don't see their own messages; use `userIds` only to allowlist humans |
 | Loading indicator removed only on success | User sees the bot stuck "thinking" forever after any error | `onError: 'continueErrorOutput'` + remove on both branches |
-| User/channel/workspace ID as the session key | Conversations cross threads in the same channel | Use the thread primitive (Slack `thread_ts || ts`) |
+| User/channel/workspace ID as the session key | Conversations cross threads in the same channel | Use the thread primitive (Slack `thread_ts \|\| ts`) |
 | One workflow when multi-surface/sub-agent/reuse is already needed | Can't reuse, UX leaks into reasoning, hard to test in isolation | Split into shell + core + sub-agents (only once a need is real) |
 | Sub-agent that reads/writes shared memory | Caller can't reason about behavior, not safely retryable | Sub-agents are stateless — full context in `chatInput` |
 | Hardcoded domain schema in a sub-agent's prompt | Schema rots, sub-agent picks invalid options later | Re-fetch and template it at runtime |
