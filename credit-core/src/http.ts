@@ -9,7 +9,7 @@ const reserveSchema = z.object({ tenantId: z.string(), amount: z.number().int().
 const captureSchema = z.object({ tenantId: z.string(), reservationId: z.string(), amount: z.number().int().positive(), externalId: z.string() });
 const releaseSchema = captureSchema;
 
-export function buildCreditApp(svc: CreditService, opts: { apiKeys: string[] }) {
+export function buildCreditApp(svc: CreditService, opts: { apiKeys: string[]; runSweepNow?: () => Promise<{ captured: string[]; released: string[] }> }) {
   const app = new Hono();
 
   // Health check (sem auth — usado pelo HEALTHCHECK do Docker). Registrar ANTES do middleware.
@@ -54,6 +54,11 @@ export function buildCreditApp(svc: CreditService, opts: { apiKeys: string[] }) 
     return c.json({ ok: true });
   });
 
+  app.post('/sweep', async (c) => {
+    if (!opts.runSweepNow) return c.json({ error: 'sweep_disabled' }, 503);
+    return c.json(await opts.runSweepNow());
+  });
+
   return app;
 }
 
@@ -66,6 +71,11 @@ async function main(): Promise<void> {
   const { serve } = await import('@hono/node-server');
   const { Pool } = await import('pg');
   const { Store } = await import('./store.js');
+  const { Redis } = await import('ioredis');
+  const { makeRedisLock } = await import('./redis-lock.js');
+  const { httpStatusProbe } = await import('./probe.js');
+  const { startSweepScheduler } = await import('./scheduler.js');
+  const { runSweepAllTenants } = await import('./sweep.js');
 
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error('DATABASE_URL is required');
@@ -76,12 +86,43 @@ async function main(): Promise<void> {
   const { runMigrations } = await import('./migrate.js');
   const applied = await runMigrations(pool);
   if (applied.length) console.log(`migrations applied: ${applied.join(', ')}`); // eslint-disable-line no-console
-  const svc = new CreditService(new Store(pool));
-  const app = buildCreditApp(svc, { apiKeys });
+  const store = new Store(pool);
+  const svc = new CreditService(store);
+
+  const probe = httpStatusProbe({
+    statusUrlFor: (t, r) => store.statusUrlFor(t, r),
+    secret: process.env.MEDIA_FORGE_STATUS_SECRET ?? '',
+    timeoutMs: Number(process.env.SWEEP_PROBE_TIMEOUT_MS ?? 4000),
+  });
+  const runSweepNow = () => runSweepAllTenants({ store, service: svc, nowIso: new Date().toISOString(), probe });
+
+  const app = buildCreditApp(svc, { apiKeys, runSweepNow });
   const port = Number(process.env.PORT ?? 8080);
-  serve({ fetch: app.fetch, port });
-  // eslint-disable-next-line no-console
-  console.log(`credit-core listening on :${port}`);
+  const server = serve({ fetch: app.fetch, port });
+  console.log(`credit-core listening on :${port}`); // eslint-disable-line no-console
+
+  let scheduler: { stop: () => void } | undefined;
+  let redis: InstanceType<typeof Redis> | undefined;
+  if ((process.env.SWEEP_ENABLED ?? 'true') !== 'false') {
+    redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379', { maxRetriesPerRequest: 2 });
+    const withLock = makeRedisLock(redis);
+    scheduler = startSweepScheduler({
+      intervalMs: Number(process.env.SWEEP_INTERVAL_MS ?? 60_000),
+      lockTtlMs: Number(process.env.SWEEP_LOCK_TTL_MS ?? 300_000),
+      run: async () => { const r = await runSweepNow(); if (r.captured.length || r.released.length) console.log(`sweep: captured=${r.captured.length} released=${r.released.length}`); }, // eslint-disable-line no-console
+      withLock,
+      logger: (m) => console.log(`[sweep] ${m}`), // eslint-disable-line no-console
+    });
+  }
+
+  const shutdown = (sig: string) => {
+    console.log(`${sig} received, shutting down`); // eslint-disable-line no-console
+    scheduler?.stop();
+    server.close(async () => { await redis?.quit().catch(() => {}); await pool.end().catch(() => {}); process.exit(0); });
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 // import.meta.url === entrypoint → executar main (Node ESM idiom)

@@ -32,4 +32,16 @@ describe('credit http', () => {
     const res = await app.request('/reserve', { method: 'POST', headers: { Authorization: 'Bearer k', 'content-type': 'application/json' }, body: JSON.stringify({ tenantId: 't', amount: -5 }) });
     expect(res.status).toBe(400);
   });
+
+  it('POST /sweep (authed) returns {captured,released}', async () => {
+    const app = buildCreditApp(fakeSvc, { apiKeys: ['k'], runSweepNow: async () => ({ captured: ['A'], released: ['B'] }) });
+    const res = await app.request('/sweep', { method: 'POST', headers: { Authorization: 'Bearer k' } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ captured: ['A'], released: ['B'] });
+  });
+
+  it('POST /sweep without auth → 401', async () => {
+    const app = buildCreditApp(fakeSvc, { apiKeys: ['k'], runSweepNow: async () => ({ captured: [], released: [] }) });
+    expect((await app.request('/sweep', { method: 'POST' })).status).toBe(401);
+  });
 });
