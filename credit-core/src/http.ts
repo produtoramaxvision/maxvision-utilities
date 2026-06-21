@@ -93,6 +93,9 @@ async function main(): Promise<void> {
     statusUrlFor: (t, r) => store.statusUrlFor(t, r),
     secret: process.env.MEDIA_FORGE_STATUS_SECRET ?? '',
     timeoutMs: Number(process.env.SWEEP_PROBE_TIMEOUT_MS ?? 4000),
+    // SSRF/secret-exfil guard: only attach the secret to these exact hosts.
+    // Empty (unset) = deny all → probe returns unknown → sweep RELEASES (fail safe).
+    allowedHosts: (process.env.SWEEP_PROBE_ALLOWED_HOSTS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
   });
   const runSweepNow = () => runSweepAllTenants({ store, service: svc, nowIso: new Date().toISOString(), probe });
 
