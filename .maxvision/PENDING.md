@@ -17,9 +17,9 @@
 
 | # | Decisão | Contexto |
 |---|---|---|
-| D1 | **F-F licença: Cloudflare Worker (recomendado) vs Keygen** | Cliente de licença é agnóstico → escrevo o código já; o deploy do Worker precisa das creds CF (Account ID, Wrangler token, KV). |
-| D2 | **Relicenciar o core MIT → AGPL-3.0?** | Spec §5 pede AGPL+EULA; o core hoje é MIT. O EULA do F-F cobre só a licença comercial self-host, NÃO relicencia o core sozinho. Decisão do dono. |
-| D3 | **F-E catálogo: moeda do Stripe (intl) + fluxo de metadata** | CÓDIGO F-E PRONTO (ver bloco abaixo). Falta criar os produtos/planos. O webhook do Stripe concede créditos lendo `event.data.object.metadata.credits` + `creditValueUsd` → a iniciação do checkout (Payment Link/Session) PRECISA carregar esses metadados. Decisão: prices intl em USD ou BRL? Asaas sandbox já tem a chave (`$aact_hmlg_`). |
+| D1 | ⏳ **AGUARDANDO sua escolha: Cloudflare Worker (recomendado) vs Keygen** | Explicado didaticamente em 2026-06-21. Cliente de licença é agnóstico → escrevo o código assim que decidir; só o transporte/deploy muda. CF Worker: ~R$0 free tier, dados seus, precisa creds CF. Keygen: SaaS pronto, mensalidade. |
+| D2 | ✅ **RESOLVIDO (2026-06-21): SIM, relicenciado MIT → AGPL-3.0-or-later (dual-license).** | `media-forge/LICENSE` agora é AGPL-3.0 verbatim; `package.json` + ambos `.claude-plugin/plugin.json` → `AGPL-3.0-or-later`; README com seção dual-license apontando pro `LICENSE-COMMERCIAL/EULA.md` (já existente). Commit `49ebb10`. Liberado no release pra `main` (`be154a1`). |
+| D3 | 🔴 **BLOQUEADO na sua ação: moeda decidida (Ambas BRL+USD), mas conta Stripe errada conectada.** | Decisão 2026-06-21: **multi-currency** (prices BRL + USD por pack). Modo TEST confirmado no MCP. PORÉM o stripe-mcp está conectado na `acct_1SWLoD` (Meu Agente), e o billing F-E usa `acct_1SWXI9` (MaxVision). **Pra eu provisionar:** reconecte o stripe-mcp na `acct_1SWXI9`. Catálogo pronto abaixo (gate 2). |
 
 ## ✅ F-E — Pagamentos & Billing: CÓDIGO ENTREGUE (2026-06-03)
 
@@ -30,7 +30,16 @@ Tasks 1–10 implementadas, testadas e commitadas na `homolog` (10 commits `feat
 
 ### Gates restantes do F-E (ordem)
 1. **EXT1** — ✅ FEITO (credit-core v0.1.1 deployado, ver gate de dinheiro abaixo). Débito-na-geração desbloqueado.
-2. **Provisionar sandbox:** criar produtos/prices Stripe TEST (+ metadata credits/creditValueUsd) + endpoint de webhook TEST (→ `whsec`) + assinatura/packs no Asaas sandbox. Depende de D3.
+2. **Provisionar sandbox:** criar produtos/prices Stripe TEST (+ metadata credits/creditValueUsd) + endpoint de webhook TEST (→ `whsec`) + assinatura/packs no Asaas sandbox. **🔴 BLOQUEADO (2026-06-21): stripe-mcp conectado na conta errada (`acct_1SWLoD`/Meu Agente); precisa `acct_1SWXI9`/MaxVision.** Catálogo pronto (FX 5.55, spec §4.3) — provisionar mecânico quando a conta certa conectar:
+
+   | Pack | BRL | Créditos | creditValueUsd | USD (=brl/5.55) | metadata |
+   |---|---|---|---|---|---|
+   | Pack 1 (one-time) | R$19,90 | 1500 | 0.0023903 | $3,59 | `{credits:1500, creditValueUsd:0.0023903}` |
+   | Pack 2 (one-time) | R$49,90 | 4200 | 0.0021403 | $8,99 | `{credits:4200, creditValueUsd:0.0021403}` |
+   | Pack 3 (one-time) | R$99,90 | 9000 | 0.0020000 | $18,00 | `{credits:9000, creditValueUsd:0.0020000}` |
+   | Assinatura (recurring/mês) | R$37,90 | 2500 | 0.0027315 | $6,83 | `{credits:2500, creditValueUsd:0.0027315}` |
+
+   Cada pack = 1 product + 2 prices (BRL e USD), metadata IDÊNTICO nas duas moedas (creditValueUsd é valor interno, não muda com a moeda de exibição). USD = conversão matemática ao FX travado (5.55); arredondar pra "preço bonito" ($3,99 etc.) é decisão de marketing SUA, muda a margem — não fiz por conta própria.
 3. **Iniciação de checkout:** não há tool/frontend que crie a Checkout Session/Payment Link ainda (parte do F-H landing ou um tool dedicado). Sem isso o smoke e2e não roda fim-a-fim.
 4. **Ativar billing no VPS (test):** setar no Portainer `CREDIT_API_URL`/`CREDIT_API_KEY` + `ASAAS_*` + `STRIPE_*` → as rotas montam e o débito liga. Só após EXT1.
 
@@ -39,7 +48,7 @@ Tasks 1–10 implementadas, testadas e commitadas na `homolog` (10 commits `feat
 - **Veo cycle-cap (Task 6 Step 4):** funções puras prontas+testadas; integração (acopla handlers a PaymentsStore+Redis) deferida pra pós-EXT1.
 - **`media_edit_image`/`media_compose_scene`:** geração de imagem ainda não cobrada (`estimateImageCost` não precifica limpo).
 - **F1 sweep — ✅ CÓDIGO PRONTO (2026-06-20, credit-core v0.1.2), ⏳ deploy+validação pendente.** Caller periódico implementado: scheduler `setInterval` com Redis-lock (`SET NX PX`, multi-replica-safe), anti-overlap, erro isolado, graceful shutdown (SIGTERM→server.close+stop+pool/redis cleanup), admin `POST /sweep`. Oráculo cross-service: cada reserva carrega `status_url`; o sweep faz GET (shared-secret) → `completed`→capture(custo real via `actualCredits`), `failed`/incerteza→release (fallback seguro). **Bug P0 cross-kind achado e corrigido junto:** `rel-{rid}`+`cap-{rid}` (kinds diferentes) burlavam o `ON CONFLICT (kind,external_id)` → late capture pós-release re-cobrava (overdraft). Fix = índice único parcial `uq_ledger_settle_per_reservation` (first-settle-wins, ≤1 settle/reserva) + `append` engole 23505. Plano: `.maxvision/plans/2026-06-20-credit-core-sweep-oracle.md`. media-forge: endpoint `/job-status/:jobId` (fonte `video_jobs.actual_credits`, persistido no capture live) + `reserveForJob` registra `statusUrl`. **Falta:** Task 11 (push→CI→Portainer force-update→validar `/health`+`POST /sweep`+seed reserva vencida na VPS).
-- **SEAM (novo, 2026-06-20):** `kling-webhook-handler.ts:175` `recordActualCost` NÃO passa `actualCredits` (não tem contexto de billing do tenant / creditValueUsd — mesmo limite do A1). Jobs Kling completados PRIMEIRO via webhook (antes do download capture) ficam com `video_jobs.actual_credits=NULL`. Consequência: se ALÉM disso a captura live for perdida E a reserva for varrida, o sweep captura o **estimate** (não o custo real). Money-safe (first-settle-wins, sem overdraft), raro (nested exception). Fechar: threading do creditValueUsd no webhook handler OU recomputar no /job-status. Deferido.
+- **SEAM (2026-06-20) — ✅ FECHADO (2026-06-21, commit `edfc246`).** `kling-webhook-handler.ts` agora computa e persiste `actualCredits` via o helper centralizado `videoActualCredits(actualUsd)` (em `billing/pricing.ts`), idêntico ao caminho live de download-capture (`mcp/handlers.ts`). As constantes `IMAGE_MARKUP`/`VIDEO_MARKUP`/`DEFAULT_CREDIT_VALUE_USD` foram centralizadas em `pricing.ts` (DRY) — webhook-first e live agora cobram igual. Jobs Kling completados via webhook não deixam mais `video_jobs.actual_credits=NULL`, então o oráculo `/job-status` sempre devolve o custo real (não o estimate). Teste adicionado em `kling-webhook-handler.test.ts`. Liberado no release pra `main`.
 - **Critério 3 (saldo insuficiente bloqueia) — parcial:** vale pra IMAGEM (reserve precede o exec → 402 bloqueia antes da chamada ao provider). NÃO vale pra Kling (reserve dispara DEPOIS do submit → o job já está enfileirado quando o 402 chega; o user fica corretamente sem cobrança, mas o host absorve aquele render). Inerente ao jobId-vindo-do-dispatch; nomear, não esconder.
 
 ## 💰 Gate de dinheiro (bloqueia go-live do F-E)
@@ -62,6 +71,8 @@ Tasks 1–10 implementadas, testadas e commitadas na `homolog` (10 commits `feat
 - **OPS5** — Worktree leftover (`.claude/worktrees/agent-a439…`) fisicamente no disco (gitignored, node_modules travado no Windows) — `git worktree prune` + remover dir.
 - **OPS6** — F-G: confirmar que o loader tolera header `X-MaxVision-License` vazio (perfil B); smoke real de `claude plugin install` com a key; decidir hosting do marketplace (repo próprio vs atual).
 - **OPS7** — Build **multi-arch** (amd64+arm64): a primeira tentativa via QEMU **travou >2h**. Refeito com o padrão oficial Docker — runners **nativos** por arch (amd64 em `ubuntu-latest`, arm64 em `ubuntu-24.04-arm`), push por digest + merge de manifest, `timeout-minutes:30`. Dependência: o runner hosted `ubuntu-24.04-arm` precisa estar habilitado no plano do org (privado). Se a fila do job arm64 travar, validar disponibilidade ou cair pra QEMU-com-timeout. Validado neste deploy: ver run da tag.
+- **OPS8 — ✅ FEITO (2026-06-21, commit `8775418`): Windows CI não-bloqueante.** O runner `windows-latest` não consegue bootstrapar o `embedded-postgres` (`pg_ctl` falha) → suites pg-backed jogam erro na coleta. Não é bug de código e não tem fix runner-side. `ci.yml` mantém Windows pra typecheck/lint/build (sinal real; dev box é Windows) mas marca o step **Test** `continue-on-error` só no Windows. Ubuntu segue como gate autoritativo. Para de bloquear todo merge.
+- **OPS9 — ✅ FEITO (2026-06-21, commit `8775418`): stale-LB converge hardening.** Ambos serviços-app já têm `HEALTHCHECK` na imagem (wget `/health`) + `start-first`, então a saúde do task é gated. Endurecido `update_config` dos dois stacks com `monitor: 30s` + `failure_action: rollback` + `rollback_config` (converge observado e auto-revert). O resíduo do IPVS mantendo a task antiga por segundos pós-converge no overlay `net` é inerente do Swarm e money-safe (404 → sweep release); documentado inline com o remédio `docker service update --force <stack>_<svc>`.
 
 ## 🌐 Gates externos de go-live comercial (seus/terceiros)
 
