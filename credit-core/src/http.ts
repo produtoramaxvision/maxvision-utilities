@@ -5,7 +5,7 @@ import { CreditService } from './service.js';
 import { InsufficientBalanceError } from './store.js';
 
 const grantSchema = z.object({ tenantId: z.string(), amount: z.number().int().positive(), externalId: z.string() });
-const reserveSchema = z.object({ tenantId: z.string(), amount: z.number().int().positive(), reservationId: z.string(), ttlAt: z.string(), externalId: z.string() });
+const reserveSchema = z.object({ tenantId: z.string(), amount: z.number().int().positive(), reservationId: z.string(), ttlAt: z.string(), externalId: z.string(), statusUrl: z.string().url().optional() });
 const captureSchema = z.object({ tenantId: z.string(), reservationId: z.string(), amount: z.number().int().positive(), externalId: z.string() });
 const releaseSchema = captureSchema;
 

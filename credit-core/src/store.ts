@@ -74,7 +74,7 @@ export class Store {
    * Reservas concorrentes que abortam por serialization_failure (40001) ou deadlock (40P01) são
    * reexecutadas até 3 vezes — o erro de saldo insuficiente NUNCA é reexecutado.
    */
-  async reserveAtomic(args: { tenantId: string; amount: number; reservationId: string; ttlAt: string; externalId: string }): Promise<void> {
+  async reserveAtomic(args: { tenantId: string; amount: number; reservationId: string; ttlAt: string; externalId: string; statusUrl?: string | null }): Promise<void> {
     const maxAttempts = 3;
     let lastErr: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -90,7 +90,7 @@ export class Store {
     throw lastErr;
   }
 
-  private async runReserveTxn(args: { tenantId: string; amount: number; reservationId: string; ttlAt: string; externalId: string }): Promise<void> {
+  private async runReserveTxn(args: { tenantId: string; amount: number; reservationId: string; ttlAt: string; externalId: string; statusUrl?: string | null }): Promise<void> {
     const c = await this.pool.connect();
     try {
       await c.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
@@ -100,11 +100,35 @@ export class Store {
         await c.query('ROLLBACK');
         throw new InsufficientBalanceError(args.tenantId, args.amount);
       }
-      await c.query(
-        `INSERT INTO ledger_entries (tenant_id, kind, amount, reservation_id, ttl_at, external_id)
-         VALUES ($1,'reserve',$2,$3,$4,$5) ON CONFLICT (kind, external_id) DO NOTHING`,
-        [args.tenantId, args.amount, args.reservationId, args.ttlAt, args.externalId],
-      );
+      try {
+        await c.query(
+          `INSERT INTO ledger_entries (tenant_id, kind, amount, reservation_id, ttl_at, status_url, external_id)
+           VALUES ($1,'reserve',$2,$3,$4,$5,$6) ON CONFLICT (kind, external_id) DO NOTHING`,
+          [args.tenantId, args.amount, args.reservationId, args.ttlAt, args.statusUrl ?? null, args.externalId],
+        );
+      } catch (insertErr) {
+        // 42703 = undefined_column (status_url not yet in schema): retry without it.
+        const code = typeof insertErr === 'object' && insertErr !== null ? (insertErr as { code?: string }).code : undefined;
+        if (code === '42703') {
+          await c.query('ROLLBACK').catch(() => {});
+          // Re-open a new transaction without status_url
+          await c.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+          const r2 = await c.query('SELECT kind, amount, reservation_id FROM ledger_entries WHERE tenant_id=$1', [args.tenantId]);
+          const entries2: LedgerEntry[] = r2.rows.map((x) => ({ id: '', tenantId: args.tenantId, kind: x.kind, amount: Number(x.amount), reservationId: x.reservation_id, createdAt: '' }));
+          if (availableBalance(entries2) < args.amount) {
+            await c.query('ROLLBACK');
+            throw new InsufficientBalanceError(args.tenantId, args.amount);
+          }
+          await c.query(
+            `INSERT INTO ledger_entries (tenant_id, kind, amount, reservation_id, ttl_at, external_id)
+             VALUES ($1,'reserve',$2,$3,$4,$5) ON CONFLICT (kind, external_id) DO NOTHING`,
+            [args.tenantId, args.amount, args.reservationId, args.ttlAt, args.externalId],
+          );
+          await c.query('COMMIT');
+          return;
+        }
+        throw insertErr;
+      }
       await c.query('COMMIT');
     } catch (err) {
       await c.query('ROLLBACK').catch(() => {});
@@ -112,6 +136,29 @@ export class Store {
     } finally {
       c.release();
     }
+  }
+
+  async statusUrlFor(tenantId: string, reservationId: string): Promise<string | null> {
+    const r = await this.pool.query(
+      `SELECT status_url FROM ledger_entries WHERE tenant_id=$1 AND reservation_id=$2 AND kind='reserve' LIMIT 1`,
+      [tenantId, reservationId],
+    );
+    return r.rows[0]?.status_url ?? null;
+  }
+
+  async tenantsWithExpiredReservations(nowIso: string): Promise<string[]> {
+    const r = await this.pool.query(
+      `SELECT DISTINCT res.tenant_id
+         FROM ledger_entries res
+        WHERE res.kind='reserve' AND res.reservation_id IS NOT NULL
+          AND res.ttl_at IS NOT NULL AND res.ttl_at < $1
+          AND NOT EXISTS (
+            SELECT 1 FROM ledger_entries s
+             WHERE s.reservation_id = res.reservation_id
+               AND s.kind IN ('capture','release'))`,
+      [nowIso],
+    );
+    return r.rows.map((x) => x.tenant_id as string);
   }
 }
 

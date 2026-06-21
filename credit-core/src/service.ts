@@ -11,7 +11,7 @@ export class CreditService {
   async balance(tenantId: string): Promise<number> {
     return availableBalance(await this.store.entriesFor(tenantId));
   }
-  async reserve(a: { tenantId: string; amount: number; reservationId: string; ttlAt: string; externalId: string }): Promise<void> {
+  async reserve(a: { tenantId: string; amount: number; reservationId: string; ttlAt: string; externalId: string; statusUrl?: string | null }): Promise<void> {
     await this.store.reserveAtomic(a);
   }
   async capture(a: { tenantId: string; reservationId: string; amount: number; externalId: string }): Promise<void> {

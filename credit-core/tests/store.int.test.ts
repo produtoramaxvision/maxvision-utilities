@@ -42,6 +42,27 @@ d('Store (integração)', () => {
     expect(availableBalance(es)).toBeGreaterThanOrEqual(0);
   });
 
+  it('reserve persists status_url; statusUrlFor returns it', async () => {
+    await svc.grant({ tenantId: 's1', amount: 100, externalId: 'g-s1' });
+    await store.reserveAtomic({ tenantId: 's1', amount: 10, reservationId: 'U1', ttlAt: '2030-01-01T00:00:00Z', externalId: 'res-U1', statusUrl: 'http://mcp-server:3000/job-status/U1' });
+    expect(await store.statusUrlFor('s1', 'U1')).toBe('http://mcp-server:3000/job-status/U1');
+    expect(await store.statusUrlFor('s1', 'NOPE')).toBeNull();
+  });
+
+  it('tenantsWithExpiredReservations returns only tenants with an unsettled expired reserve', async () => {
+    await svc.grant({ tenantId: 't-exp', amount: 100, externalId: 'g-te' });
+    await svc.reserve({ tenantId: 't-exp', amount: 10, reservationId: 'E1', ttlAt: '2026-06-02T00:00:00Z', externalId: 'res-E1' });
+    await svc.grant({ tenantId: 't-valid', amount: 100, externalId: 'g-tv' });
+    await svc.reserve({ tenantId: 't-valid', amount: 10, reservationId: 'V1', ttlAt: '2030-01-01T00:00:00Z', externalId: 'res-V1' });
+    await svc.grant({ tenantId: 't-settled', amount: 100, externalId: 'g-ts' });
+    await svc.reserve({ tenantId: 't-settled', amount: 10, reservationId: 'S1', ttlAt: '2026-06-02T00:00:00Z', externalId: 'res-S1' });
+    await svc.release({ tenantId: 't-settled', reservationId: 'S1', amount: 10, externalId: 'rel-S1' });
+    const tenants = await store.tenantsWithExpiredReservations('2026-06-02T01:00:00Z');
+    expect(tenants).toContain('t-exp');
+    expect(tenants).not.toContain('t-valid');
+    expect(tenants).not.toContain('t-settled');
+  });
+
   it('cross-kind: release then late capture stays RELEASED (no overdraft)', async () => {
     await svc.grant({ tenantId: 'x1', amount: 100, externalId: 'g-x1' });
     await svc.reserve({ tenantId: 'x1', amount: 30, reservationId: 'K1', ttlAt: '2026-06-02T00:00:00Z', externalId: 'res-K1' });
