@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.3] - 2026-06-21
+
+### Security
+
+- SSRF / secret-exfiltration guard on the sweep probe (HIGH). The probe attached the
+  shared x-mf-status-secret to a caller-supplied status_url; any API-key holder could
+  harvest the secret or drive blind SSRF. Now the secret is sent ONLY to a host in
+  SWEEP_PROBE_ALLOWED_HOSTS (exact match); userinfo, IP literals, loopback/.local,
+  non-http(s), and redirects are rejected. Empty allowlist denies all (fail safe).
+
 ## [0.1.2] - 2026-06-20
 
 ### Fixed
