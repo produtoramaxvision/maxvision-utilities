@@ -54,6 +54,7 @@ describe('createClient', () => {
       _GoogleGenAIClass: SpyGenAI as unknown as new (init: unknown) => GoogleGenAI,
     });
     expect(client.mode).toBe('gemini');
+    void client.ai; // SE4: construction is lazy — trigger it before asserting the init
     expect(SpyGenAI.lastInit).toMatchObject({ apiKey: 'MY_KEY' });
   });
 
@@ -63,16 +64,25 @@ describe('createClient', () => {
       _GoogleGenAIClass: SpyGenAI as unknown as new (init: unknown) => GoogleGenAI,
     });
     expect(client.mode).toBe('vertex');
+    void client.ai; // SE4: trigger lazy construction
     expect(SpyGenAI.lastInit).toMatchObject({ vertexai: true, project: 'my-proj', location: 'us-east1' });
   });
 
-  it('throws ConfigError when neither apiKey nor vertex configured and not dry-run', () => {
+  it('SE4: does NOT throw at construction when no credentials (lazy)', () => {
     expect(() =>
       createClient({
         config: makeConfig({ apiKey: undefined, useVertex: false }),
         _GoogleGenAIClass: SpyGenAI as unknown as new (init: unknown) => GoogleGenAI,
       }),
-    ).toThrow(ConfigError);
+    ).not.toThrow();
+  });
+
+  it('throws ConfigError on first .ai access when neither apiKey nor vertex configured and not dry-run', () => {
+    const client = createClient({
+      config: makeConfig({ apiKey: undefined, useVertex: false }),
+      _GoogleGenAIClass: SpyGenAI as unknown as new (init: unknown) => GoogleGenAI,
+    });
+    expect(() => client.ai).toThrow(ConfigError);
   });
 
   it('dryRun=true + no credentials → stub client with placeholder apiKey', () => {
@@ -83,6 +93,7 @@ describe('createClient', () => {
     });
     expect(client.mode).toBe('gemini');
     expect(client.dryRun).toBe(true);
+    void client.ai; // SE4: trigger lazy construction
     expect(SpyGenAI.lastInit).toMatchObject({ apiKey: 'dry-run-stub' });
   });
 
@@ -124,6 +135,8 @@ describe('createClient', () => {
       dryRun: false,
       _GoogleGenAIClass: SpyGenAI as unknown as new (init: unknown) => GoogleGenAI,
     });
+    expect(SpyGenAI.lastInit).toBeNull(); // SE4: not constructed until .ai is read
+    void client.ai;
     expect(SpyGenAI.lastInit).not.toBeNull();
     expect(client.dryRun).toBe(false);
   });
