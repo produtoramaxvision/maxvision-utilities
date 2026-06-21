@@ -34,4 +34,10 @@ describe('/job-status/:jobId', () => {
     const res = await route({ status: 'completed', actualCredits: 25 }).request('/J', { headers: { 'x-mf-status-secret': '' } });
     expect(res.status).toBe(401);
   });
+  it('getJobRecord throws (missing/unopenable db) → {status:unknown}, not 500', async () => {
+    const app = buildJobStatusRoute({ secret: 's', getJobRecord: () => { throw new Error('unable to open database file'); } });
+    const res = await app.request('/J', { headers: { 'x-mf-status-secret': 's' } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'unknown' });
+  });
 });

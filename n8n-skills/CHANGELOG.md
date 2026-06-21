@@ -6,6 +6,25 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 **Note:** Skill content comes verbatim from upstream. Upstream version is tracked separately from plugin version.
 
+## [0.2.1] - 2026-06-20
+
+Plugin retargeted to its native MCP server (`czlonkowski/n8n-mcp`); enforcement layer completed.
+
+### Added
+
+- PreToolUse hooks `autofix-workflow.sh` and `deploy-template.sh` — close coverage gaps for `n8n_autofix_workflow` and `n8n_deploy_template` (original to this pack, not adapted from upstream).
+- `scripts/check-marketplace-sync.sh` — asserts `marketplace.json` skills[] matches `skills/` dirs.
+- `scripts/check-upstream-drift.sh` + `.upstream-pin` — detects when `czlonkowski/n8n-skills` advances past the pinned commit.
+- `.gitattributes` — enforces LF on `*.sh` so hook shebangs never break under CRLF.
+
+### Changed
+
+- Hook matchers verified 1:1 against `czlonkowski/n8n-mcp` v2.59.2 tool names.
+
+### Removed
+
+- `pre-tool-use/instances.sh` + its matcher — `n8n_instances` confirmed absent from the live `czlonkowski/n8n-mcp` v2.59.2 tool surface. The `n8n-multi-instance` skill is retained; the `manage-credentials.sh` reminder already references the tool defensively ("if present"), so it self-suppresses.
+
 ## [0.2.0] - 2026-06-20
 
 Upstream sync to [czlonkowski/n8n-skills v1.21.0](https://github.com/czlonkowski/n8n-skills) (commit `29d3c31`, from v1.6.0).
