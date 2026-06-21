@@ -8,7 +8,6 @@ import { tmpdir } from 'node:os';
 import {
   recordJob,
   setJobTenant,
-  recordActualCost,
 } from '../../../../src/core/cost-tracker.js';
 import { closeDb } from '../../../../src/core/db.js';
 import { createKlingWebhookHandler } from '../../../../src/video/providers/kling-webhook-handler.js';
@@ -44,7 +43,7 @@ function makeLogger() {
 }
 
 // Fake fetch that returns a minimal MP4 buffer (4 bytes).
-function makeFakeFetch(taskStatus: string = 'succeed') {
+function makeFakeFetch() {
   return vi.fn().mockImplementation(async (url: string) => {
     if (url.includes('api') || url.includes('klingai')) {
       // This is a re-poll (TTL refresh) — not expected in our test but handle anyway
@@ -55,7 +54,7 @@ function makeFakeFetch(taskStatus: string = 'succeed') {
   });
 }
 
-function makeKlingSuccessPayload(jobId: string) {
+function makeKlingSuccessPayload(_jobId: string) {
   return {
     task_id: 'native-task-123',
     task_status: 'succeed' as const,

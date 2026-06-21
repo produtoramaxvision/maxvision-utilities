@@ -9,13 +9,11 @@ import { Pool } from 'pg';
 import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { readFileSync } from 'node:fs';
 import { runPgMigrations } from '../../src/core/pg-migrate.js';
 import { GalleryStore } from '../../src/gallery/gallery-store.js';
 import {
   recordJob,
   setJobTenant,
-  recordActualCost,
 } from '../../src/core/cost-tracker.js';
 import { closeDb } from '../../src/core/db.js';
 import { createKlingWebhookHandler } from '../../src/video/providers/kling-webhook-handler.js';
