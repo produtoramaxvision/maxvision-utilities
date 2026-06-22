@@ -15,7 +15,7 @@ jobs:
     name: Markdown Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: DavidAnson/markdownlint-cli2-action@v23
         with:
           globs: |
@@ -27,7 +27,7 @@ jobs:
     name: JSON Syntax + Plugin Schema
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: "20"
@@ -63,7 +63,7 @@ jobs:
     name: Manifest Consistency
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Verify marketplace.json plugin names match plugin.json names
         run: |
           set -e
@@ -97,7 +97,7 @@ jobs:
     name: Skills Structure
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Verify each skill has SKILL.md with required frontmatter
         run: |
           set -e
@@ -135,7 +135,7 @@ jobs:
     name: Secret Scan (gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: gitleaks/gitleaks-action@v2
