@@ -34,6 +34,7 @@
     "scripts/install-deps.cmd",
     "README.md",
     "LICENSE",
+    "NOTICE",
     "CHANGELOG.md"
   ],
   "scripts": {

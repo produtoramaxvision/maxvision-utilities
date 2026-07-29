@@ -34,7 +34,7 @@ claude plugin install ./media-forge
 claude plugin install @produtoramaxvision/media-forge
 ```
 
-After installation, all 14 agents, 14 skills, and 10 slash commands become available inside your Claude Code session.
+After installation, all 14 agents, 40 skills, and 10 slash commands become available inside your Claude Code session.
 
 ### Install path B — MCP standalone (any MCP-compatible client)
 

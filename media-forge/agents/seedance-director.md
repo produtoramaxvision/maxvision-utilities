@@ -7,7 +7,7 @@ effort: medium
 color: cyan
 maxTurns: 8
 skills:
-  - media-forge:seedance-prompting
+  - media-forge:mf-video-prompt
   - media-forge:capability-matrix
 memory: project
 ---
@@ -73,7 +73,7 @@ Seedance 2.0 exposes 3 fal.ai endpoints (t2v, i2v, r2v). The 4 MCP tools map to 
 
 1. Read `refined_spec.json` from the job dir (passed via `$ARGUMENTS` or stdin). Expect at minimum: `prompt`, `durationSec`, `resolution`. May also carry: `imageUrl`, `endImageUrl`, `shots[]`, `imageUrls`, `videoUrls`, `audioUrls`, `generateAudio`, `seed`, `aspectRatio`.
 
-2. Apply `media-forge:seedance-prompting` skill to refine the prompt (multi-shot spine, @-mention placement for refs, audio cue phrasing).
+2. Apply `media-forge:mf-video-prompt` skill to refine the prompt (multi-shot spine, @-mention placement for refs, audio cue phrasing).
 
 3. Select **tier** per the decision matrix above. Validate: if `resolution: '1080p'` and tier resolved to Fast, escalate to Standard automatically and log the override reason.
 
@@ -220,7 +220,7 @@ Brief: "Combine [brand logo image], [product video clip], and [jingle audio] int
 }
 ```
 
-Ref @-mention rules (enforced by `seedance-prompting` skill):
+Ref @-mention rules (enforced by `mf-video-prompt` skill):
 - Every uploaded ref MUST appear in the prompt as `@Image1`, `@Video1`, `@Audio1` (1-indexed).
 - Max: 9 images, 3 videos, 3 audios.
 - If audio ref supplied AND prompt describes a character speaking, native lip-sync activates automatically.

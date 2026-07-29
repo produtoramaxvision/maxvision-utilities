@@ -149,3 +149,25 @@ Higgsfield publishes an official OAuth-based MCP connector at `https://mcp.higgs
 - The media-forge plugin uses the Higgsfield platform REST API directly with `HF_API_KEY` + `HF_API_SECRET` (two-header auth, as documented in step 4 above).
 - Both can coexist — they operate independently. The official MCP connector is not required for media-forge to call Higgsfield; it is simply another way to access Higgsfield capabilities from an MCP client.
 - To explore the official connector, visit `https://mcp.higgsfield.ai/mcp` and follow the OAuth pairing instructions provided there.
+
+## Self-host licenciado (C1 — agencias)
+
+A imagem `ghcr.io/produtoramaxvision/media-forge-mcp` roda na sua infra. O uso
+self-host comercial e regido pelo **EULA** em
+[`LICENSE-COMMERCIAL/EULA.md`](../LICENSE-COMMERCIAL/EULA.md) (uso interno;
+nao-revenda como servico).
+
+Para ativar o gating de licenca, defina no ambiente do container:
+
+- `LICENSE_CHECK_ENABLED=true`
+- `MAXVISION_LICENSE_SERVER_URL=https://<seu-worker>/validate`
+- `MEDIA_FORGE_LICENSE_KEY=<chave emitida pela MaxVision>`
+- `MEDIA_FORGE_LICENSE_INSTANCE_ID=<id estavel da instancia>` (opcional; default = hostname)
+
+No boot e a cada `MEDIA_FORGE_LICENSE_REVALIDATE_MS` (default 1h) o servidor valida
+a chave. Licenca revogada/expirada as tools retornam **403**; `/health` segue 200.
+Ha um periodo de graca offline (`MEDIA_FORGE_LICENSE_GRACE_MS`, default 72h) se o
+servidor de licenca ficar temporariamente inacessivel.
+
+No modo **hosted** (assinatura/creditos, B), `LICENSE_CHECK_ENABLED` fica `false`
+e este gating nao se aplica.

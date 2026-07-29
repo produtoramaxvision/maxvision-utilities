@@ -267,7 +267,7 @@ Agents are defined as `.md` files in `agents/`. The plugin loader builds the ful
 
 ---
 
-## 6. Skill Registry (14 skills)
+## 6. Skill Registry (40 skills)
 
 Skills live in `skills/<name>/SKILL.md`. The plugin loader builds `media-forge:<name>` at runtime.
 
@@ -298,9 +298,27 @@ Skills live in `skills/<name>/SKILL.md`. The plugin loader builds `media-forge:<
 |---|---|---|
 | `higgsfield-prompting` | `media-forge:higgsfield-prompting` | MCSLA formula, DoP cheatsheet, Cinema lens dictionary, Marketing template decision tree. |
 | `kling-prompting` | `media-forge:kling-prompting` | Kling 5-part prompt spine + mode cookbook (motion brush, elements, omni, lip-sync). |
-| `seedance-prompting` | `media-forge:seedance-prompting` | Tier selection, multi-shot syntax, `@`-mention reference grammar, frame-anchored edit pattern. |
 
-**Note:** `media-forge:campaign`, `media-forge:product-shoot`, `media-forge:ad-creative`, and `media-forge:cost-check` from the design spec were merged during P10. The 3 provider prompting skills (Higgsfield/Kling/Seedance) were added in P14–P16, bringing the total to 14.
+**Note:** `media-forge:campaign`, `media-forge:product-shoot`, `media-forge:ad-creative`, and `media-forge:cost-check` from the design spec were merged during P10. The Higgsfield and Kling prompting skills were added in P14–P15.
+
+`seedance-prompting` was replaced by `mf-video-prompt` during the seedance-2.0 absorption (T9). It is not a rename of scope: the `mf-*` pack is provider-neutral by design and serves Veo, Kling, Higgsfield and Seedance alike.
+
+### Craft skills absorbed from seedance-2.0 (27, `mf-*`)
+
+Vendored from `Emily2040/seedance-2.0` (MIT) at commit `6c51262`, rebranded to `mf-*` and generalised from single-provider to all four. Attribution lives in `NOTICE`, which ships in the npm artifact via `package.json` `files`.
+
+| Group | Skills |
+|---|---|
+| Prompting | `mf-video-prompt`, `mf-video-prompt-short`, `mf-interview`, `mf-interview-short`, `mf-recipes`, `mf-pipeline` |
+| Craft | `mf-camera`, `mf-lighting`, `mf-motion`, `mf-characters`, `mf-style`, `mf-vfx`, `mf-audio` |
+| Sequence | `mf-sequence`, `mf-continuation` |
+| Quality | `mf-antislop`, `mf-troubleshoot`, `mf-safety-rewrite` |
+| Examples | `mf-examples-ja`, `mf-examples-ko`, `mf-examples-zh` |
+| Vocabulary | `mf-vocab-en`, `mf-vocab-es`, `mf-vocab-ja`, `mf-vocab-ko`, `mf-vocab-ru`, `mf-vocab-zh` |
+
+`mf-safety-rewrite` is a merge of upstream's `seedance-copyright` and `seedance-filter`: IP/likeness-safe rewriting and content-filter repair are one job, and both originals refuse to help evade filters.
+
+Shared assets these skills reference live under `skills/_shared/` — 60 `references/*.md` (including `references/vocab/`) and 5 `schemas/*.json`. That location is deliberate: `tests/skills-injection.test.ts` scans `skills/**/*.md` recursively, so anything placed there is re-scanned on every upstream sync, and it ships automatically under the existing `skills` entry in `files`.
 
 ---
 

@@ -26,7 +26,7 @@
 - Curated MinIO bucket wired as semantic reference source; pgvector search (Voyage Multimodal-3), Marengo 3.0 alt backend (AWS Bedrock); 4 refs MCP tools + NBP moodboard fusion
 
 **Plugin surfaces (3):**
-- Claude Code plugin: 14 agents, 14 skills, 10 slash commands
+- Claude Code plugin: 14 agents, 40 skills, 10 slash commands
 - MCP server: 54 tools via stdio transport (50 with Seedance disabled)
 - CLI: `media-forge` binary with `image`, `video`, `cost`, `audit`, `prompts`, `models`, `config`, `doctor` subcommands
 
