@@ -73,6 +73,9 @@ export default defineConfig({
       'tests/integration/pg-migrate.int.test.ts',
       // SE2: gallery-webhook e2e (embedded-postgres + sqlite, tenant-attributed)
       'tests/integration/se2-gallery-webhook.int.test.ts',
+      // Security: scans shipped skills/**/*.md for prompt-injection content on
+      // every upstream sync (re-runs after the Emily2040/seedance-2.0 absorption).
+      'tests/skills-injection.test.ts',
     ],
     exclude: ['tests/integration/live-smoke.test.ts', 'tests/golden/**', 'tests/evals/**'],
     // F-I: globalSetup launches embedded-postgres for gallery integration tests.
