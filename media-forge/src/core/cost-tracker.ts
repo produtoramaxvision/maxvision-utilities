@@ -159,36 +159,29 @@ export function recordActualCost(input: RecordActualInput): void {
   ).run(input.actualUsd, input.durationMs ?? null, status, completedAt, input.actualCredits ?? null, input.jobId);
 }
 
-export function getJobRecord(opts: {
-  readonly dbPath: string;
-  readonly jobId: string;
-}): JobRecord | null {
-  const db = ensureDb(opts.dbPath);
-  const row = db
-    .prepare(
-      `SELECT id, provider, model, mode, status, est_usd, actual_usd, duration_ms,
-              created_at, completed_at, native_task_id, actual_credits, tenant_id
-         FROM video_jobs
-        WHERE id = ?`,
-    )
-    .get(opts.jobId) as
-    | {
-        id: string;
-        provider: string;
-        model: string;
-        mode: string;
-        status: string;
-        est_usd: number;
-        actual_usd: number | null;
-        duration_ms: number | null;
-        created_at: string;
-        completed_at: string | null;
-        native_task_id: string | null;
-        actual_credits: number | null;
-        tenant_id: string | null;
-      }
-    | undefined;
-  if (!row) return null;
+// Shared SELECT column list + row shape/mapping for video_jobs, so
+// getJobRecord and findJobByNativeTaskId (T15/PR3b) don't duplicate either.
+const VIDEO_JOB_ROW_COLUMNS =
+  `id, provider, model, mode, status, est_usd, actual_usd, duration_ms,
+   created_at, completed_at, native_task_id, actual_credits, tenant_id`;
+
+interface VideoJobRow {
+  id: string;
+  provider: string;
+  model: string;
+  mode: string;
+  status: string;
+  est_usd: number;
+  actual_usd: number | null;
+  duration_ms: number | null;
+  created_at: string;
+  completed_at: string | null;
+  native_task_id: string | null;
+  actual_credits: number | null;
+  tenant_id: string | null;
+}
+
+function mapJobRow(row: VideoJobRow): JobRecord {
   return {
     jobId: row.id,
     provider: row.provider,
@@ -206,6 +199,18 @@ export function getJobRecord(opts: {
   };
 }
 
+export function getJobRecord(opts: {
+  readonly dbPath: string;
+  readonly jobId: string;
+}): JobRecord | null {
+  const db = ensureDb(opts.dbPath);
+  const row = db
+    .prepare(`SELECT ${VIDEO_JOB_ROW_COLUMNS} FROM video_jobs WHERE id = ?`)
+    .get(opts.jobId) as VideoJobRow | undefined;
+  if (!row) return null;
+  return mapJobRow(row);
+}
+
 export function setJobTenant(opts: {
   readonly dbPath: string;
   readonly jobId: string;
@@ -213,6 +218,42 @@ export function setJobTenant(opts: {
 }): void {
   const db = ensureDb(opts.dbPath);
   db.prepare(`UPDATE video_jobs SET tenant_id = ? WHERE id = ?`).run(opts.tenantId, opts.jobId);
+}
+
+/**
+ * Binds a native provider task/operation id to our own internal jobId, AFTER
+ * the submit has already returned it. Modelled on setJobTenant. Needed for
+ * providers (Veo, T15/PR3b) where the row is inserted via recordJob BEFORE
+ * the submit — at insert time the native id (e.g. Veo's `operationName`)
+ * isn't known yet, so it's patched in once the submit responds.
+ */
+export function setJobNativeTaskId(opts: {
+  readonly dbPath: string;
+  readonly jobId: string;
+  readonly nativeTaskId: string;
+}): void {
+  const db = ensureDb(opts.dbPath);
+  db.prepare(`UPDATE video_jobs SET native_task_id = ? WHERE id = ?`).run(opts.nativeTaskId, opts.jobId);
+}
+
+/**
+ * Resolves a native provider task/operation id (e.g. Veo's `operationName`)
+ * back to our internal JobRecord — the inverse of setJobNativeTaskId. Needed
+ * so a poll handler that only receives the native id (not our jobId) can
+ * still find and settle the row. Returns null when no row matches (self-host,
+ * dry-run, or any job predating this correlation being recorded) — callers
+ * must treat that as "nothing to settle", not an error.
+ */
+export function findJobByNativeTaskId(opts: {
+  readonly dbPath: string;
+  readonly nativeTaskId: string;
+}): JobRecord | null {
+  const db = ensureDb(opts.dbPath);
+  const row = db
+    .prepare(`SELECT ${VIDEO_JOB_ROW_COLUMNS} FROM video_jobs WHERE native_task_id = ?`)
+    .get(opts.nativeTaskId) as VideoJobRow | undefined;
+  if (!row) return null;
+  return mapJobRow(row);
 }
 
 /**

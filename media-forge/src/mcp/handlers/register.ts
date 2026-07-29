@@ -4,7 +4,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { OutputStorageClient } from '../../output/storage.js';
 import { safeJoin, jobId as generateJobId } from '../../utils/paths.js';
 import { storeArtifact } from '../../output/output-storage.js';
-import { ValidationError, CostGuardError } from '../../core/errors.js';
+import { ValidationError, CostGuardError, ApiError } from '../../core/errors.js';
 import { evaluateCostGuard } from '../../core/cost-guard.js';
 import type { EditImageInputT, ComposeSceneInputT } from '../../image/image-schemas.js';
 import { MCP_TOOLS } from '../schemas.js';
@@ -33,6 +33,13 @@ import {
   pollVideoOperation,
   downloadVideo,
 } from '../../video/video-service.js';
+import type { GenerateVideoResult } from '../../video/video-service.js';
+import type {
+  GenerateVideoT2VInputT,
+  GenerateVideoI2VInputT,
+  GenerateVideoInterpolateInputT,
+  GenerateVideoWithRefsInputT,
+} from '../../video/video-schemas.js';
 import { OcrValidator, checkBrand } from '../../review/review-service.js';
 import { estimateImageCost, estimateVideoCost, estimateRefsCost, type RefsEstimate } from '../../core/cost.js';
 import { createRefsService } from '../../refs/refs-service.js';
@@ -46,10 +53,21 @@ import {
   IMAGE_MODEL_NANO_BANANA_PRO,
   IMAGE_MODEL_IMAGEN_4_ULTRA,
   VIDEO_MODEL_VEO_3_1_PRO,
+  type VideoMode,
 } from '../../core/models.js';
 import { KlingDownloadInput } from '../schemas.js';
-import { setJobTenant, dailySpendUsd, recordImageJob, recordImageActualCost } from '../../core/cost-tracker.js';
+import {
+  setJobTenant,
+  dailySpendUsd,
+  recordImageJob,
+  recordImageActualCost,
+  recordJob,
+  recordActualCost,
+  setJobNativeTaskId,
+  findJobByNativeTaskId,
+} from '../../core/cost-tracker.js';
 import { isSeedanceEnabled } from '../../core/feature-flags.js';
+import { logger } from '../../core/logger.js';
 import { defaultDbPath, handleVideoWebhookStatus } from './shared.js';
 import { handleVideoCostEstimate, handleVideoCostReport, handleVideoRoute } from './video.js';
 import {
@@ -88,6 +106,7 @@ import {
   reserveVideoSubmit,
   captureVideoComplete,
   preflightVideoCredit,
+  releaseVideoFailed,
 } from './billing.js';
 import {
   looseRegister,
@@ -264,6 +283,100 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     return result;
   }
 
+  // ---------------------------------------------------------------------------
+  // T15/PR3b — Veo submit-before-reserve ledger (2026-07-29).
+  //
+  // Prior state (see the higgsfield-kling-api-refresh plan, T15): Veo never
+  // called recordJob at all — GoogleVeoProvider.generate() is the only site
+  // that does, and it's never invoked from the MCP tools below (they call
+  // generateVideoT2V/I2V/etc. directly). Result: no video_jobs row, no cost
+  // guard, no credit reserve, and dailySpendUsd blind to every Veo generation.
+  //
+  // This mirrors withImageLedger's shape but reserves credit too (video is
+  // async — a submit and its eventual completion are different requests) and,
+  // per C8, reserves BEFORE the submit: jobId is minted first, recordJob()
+  // writes the 'pending' row using that jobId (the native operationName isn't
+  // known yet), then reserveVideoSubmit() reserves — all before the network
+  // call. This is the opposite order from Kling's tools (submit, THEN
+  // reserve, see the "F-E: reserve AFTER submit" comments below) — do not
+  // collapse the two shapes, C8 exists specifically because reserve-after-
+  // submit leaves a window where a submit that throws AFTER charging the
+  // provider never got a matching reserve to release.
+  //
+  // On success, setJobNativeTaskId binds the row to the returned
+  // operationName so media_poll_video_operation can resolve it back via
+  // findJobByNativeTaskId and settle it (capture/release) on completion — see
+  // that handler below. On a throw from `exec` (safety block, API error,
+  // network failure), the row settles at actualUsd:0/finalStatus:'failed' and
+  // the reservation is released before rethrowing, so neither a pending row
+  // nor a stuck reservation survives a submit that never charged anything.
+  //
+  // Dry-run bypasses ALL of this (guard, ledger, reserve) — identical
+  // `client.dryRun` gate used by the image tools above (see
+  // checkCostGuardOrThrow's doc comment). A dry run never reaches the
+  // provider and costs $0, so there is nothing to guard, record, or reserve.
+  // ---------------------------------------------------------------------------
+  async function submitVeoWithLedger(
+    mode: VideoMode,
+    jobIdPrefix: string,
+    paramsForHash: unknown,
+    estimateUsd: number,
+    exec: () => Promise<GenerateVideoResult>,
+  ): Promise<GenerateVideoResult & { jobId?: string; costWarning?: string }> {
+    if (client.dryRun) return exec();
+
+    const guard = checkCostGuardOrThrow(estimateUsd);
+    await preflightVideoCredit(deps, estimateUsd);
+
+    const jobId = generateJobId(jobIdPrefix);
+    recordJob({
+      dbPath: defaultDbPath(),
+      jobId,
+      provider: 'google',
+      model: VIDEO_MODEL_VEO_3_1_PRO,
+      mode,
+      paramsHash: hashImageParams(paramsForHash),
+      estUsd: estimateUsd,
+    });
+    setJobTenant({ dbPath: defaultDbPath(), jobId, tenantId: deps.tenantId ?? 'default' });
+    await reserveVideoSubmit(deps, jobId, estimateUsd);
+
+    let result: GenerateVideoResult;
+    try {
+      result = await exec();
+    } catch (err) {
+      // Cleanup must never replace the caller's error. A submit that failed on a
+      // safety block is far more actionable than "credit-core 500" from the
+      // release that ran afterwards — and swallowing the original would hide the
+      // only information the user can act on. releaseJob POSTs to credit-core and
+      // throws CreditServiceError on a non-2xx after retries, and recordActualCost
+      // hits SQLite, so both can fail independently of `exec`.
+      // A release that does not land leaks the reservation until its TTL, which
+      // the credit-core sweep already handles via the job-status oracle — the row
+      // is 'failed' by then, or 'unknown', and both release rather than charge.
+      try {
+        recordActualCost({ dbPath: defaultDbPath(), jobId, actualUsd: 0, finalStatus: 'failed' });
+      } catch (settleErr) {
+        logger.warn('veo submit cleanup: ledger settle failed', {
+          jobId,
+          msg: settleErr instanceof Error ? settleErr.message : String(settleErr),
+        });
+      }
+      try {
+        await releaseVideoFailed(deps, jobId, estimateUsd);
+      } catch (releaseErr) {
+        logger.warn('veo submit cleanup: credit release failed, reservation will expire by TTL', {
+          jobId,
+          msg: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+        });
+      }
+      throw err;
+    }
+
+    setJobNativeTaskId({ dbPath: defaultDbPath(), jobId, nativeTaskId: result.operationName });
+    return { ...result, jobId, ...(guard.costWarning ? { costWarning: guard.costWarning } : {}) };
+  }
+
   // ---- Image tools (6) ----
 
   {
@@ -414,12 +527,23 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Generate Video (Text to Video)', description: t.description, inputSchema: t.inputSchema as never },
-      // TODO(F-E veo-billing): Veo reserve/capture is DEFERRED — not reconcilable in handlers.ts.
-      // Reserve would key on `operationName`, but completion runs through
-      // media_poll_video_operation / media_download_video (id = resolved URI, changes; no
-      // actualUsd; no recordActualCost). Reserving here without a matching capture would leak
-      // the reservation until TTL → free Veo. Same deferral class as the webhook-router path.
-      wrap(t.name, async (input) => asResult(await generateVideoT2V(validateInput(t, input), client))),
+      // T15/PR3b: reserve-before-submit ledger — see submitVeoWithLedger above.
+      // jobId is minted, recordJob()+setJobTenant() run, and credit is
+      // reserved BEFORE generateVideoT2V ever reaches the network; the row is
+      // bound to the returned operationName so media_poll_video_operation can
+      // resolve it back and settle it on completion.
+      wrap(t.name, async (input) => {
+        const parsed = validateInput<GenerateVideoT2VInputT>(t, input);
+        const estimateUsd = estimateVideoCost({
+          model: VIDEO_MODEL_VEO_3_1_PRO,
+          resolution: parsed.resolution as '720p' | '1080p' | '4k',
+          generateAudio: parsed.generateAudio,
+        }).usd;
+        const result = await submitVeoWithLedger('t2v', 'veo-t2v', parsed, estimateUsd, () =>
+          generateVideoT2V(parsed, client),
+        );
+        return asResult(result);
+      }),
     );
   }
 
@@ -428,8 +552,19 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Generate Video (Image to Video)', description: t.description, inputSchema: t.inputSchema as never },
-      // TODO(F-E veo-billing): DEFERRED — see media_generate_video_t2v note above.
-      wrap(t.name, async (input) => asResult(await generateVideoI2V(validateInput(t, input), client))),
+      // T15/PR3b: same reserve-before-submit ledger — see media_generate_video_t2v note above.
+      wrap(t.name, async (input) => {
+        const parsed = validateInput<GenerateVideoI2VInputT>(t, input);
+        const estimateUsd = estimateVideoCost({
+          model: VIDEO_MODEL_VEO_3_1_PRO,
+          resolution: parsed.resolution as '720p' | '1080p' | '4k',
+          generateAudio: parsed.generateAudio,
+        }).usd;
+        const result = await submitVeoWithLedger('i2v', 'veo-i2v', parsed, estimateUsd, () =>
+          generateVideoI2V(parsed, client),
+        );
+        return asResult(result);
+      }),
     );
   }
 
@@ -438,8 +573,19 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Generate Video (Interpolate)', description: t.description, inputSchema: t.inputSchema as never },
-      // TODO(F-E veo-billing): DEFERRED — see media_generate_video_t2v note above.
-      wrap(t.name, async (input) => asResult(await generateVideoInterpolate(validateInput(t, input), client))),
+      // T15/PR3b: same reserve-before-submit ledger — see media_generate_video_t2v note above.
+      wrap(t.name, async (input) => {
+        const parsed = validateInput<GenerateVideoInterpolateInputT>(t, input);
+        const estimateUsd = estimateVideoCost({
+          model: VIDEO_MODEL_VEO_3_1_PRO,
+          resolution: parsed.resolution as '720p' | '1080p' | '4k',
+          generateAudio: parsed.generateAudio,
+        }).usd;
+        const result = await submitVeoWithLedger('interpolate', 'veo-interpolate', parsed, estimateUsd, () =>
+          generateVideoInterpolate(parsed, client),
+        );
+        return asResult(result);
+      }),
     );
   }
 
@@ -448,8 +594,19 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Generate Video With References', description: t.description, inputSchema: t.inputSchema as never },
-      // TODO(F-E veo-billing): DEFERRED — see media_generate_video_t2v note above.
-      wrap(t.name, async (input) => asResult(await generateVideoWithRefs(validateInput(t, input), client))),
+      // T15/PR3b: same reserve-before-submit ledger — see media_generate_video_t2v note above.
+      wrap(t.name, async (input) => {
+        const parsed = validateInput<GenerateVideoWithRefsInputT>(t, input);
+        const estimateUsd = estimateVideoCost({
+          model: VIDEO_MODEL_VEO_3_1_PRO,
+          resolution: parsed.resolution as '720p' | '1080p' | '4k',
+          generateAudio: parsed.generateAudio,
+        }).usd;
+        const result = await submitVeoWithLedger('with-refs', 'veo-with-refs', parsed, estimateUsd, () =>
+          generateVideoWithRefs(parsed, client),
+        );
+        return asResult(result);
+      }),
     );
   }
 
@@ -494,14 +651,40 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
         // still gets the caller's full requested wait window. Math.floor would chop
         // off the partial last attempt. Matches the CLI poll/wait derivation.
         const maxAttempts = Math.ceil((inp.timeoutMs ?? 900000) / intervalMs);
-        return asResult(
-          await pollVideoOperation({
+
+        // T15/PR3b: resolve operationName back to the ledger row submitVeoWithLedger
+        // wrote (via setJobNativeTaskId). No row = self-host, dry-run, billing off,
+        // or a job predating this correlation — poll behaves exactly as before.
+        const dbPath = defaultDbPath();
+        const jobRow = findJobByNativeTaskId({ dbPath, nativeTaskId: inp.operationName });
+
+        try {
+          const result = await pollVideoOperation({
             client,
             operationName: inp.operationName,
             intervalMs,
             maxAttempts,
-          }),
-        );
+          });
+          // pollVideoOperation only RETURNS when operation.done === true AND
+          // operation.error is absent (success) — see polling.ts. Both the
+          // still-in-flight (timeout) and done+failed cases throw instead, so
+          // they're handled in the catch block below, not here.
+          if (jobRow) {
+            recordActualCost({ dbPath, jobId: jobRow.jobId, actualUsd: jobRow.estUsd, finalStatus: 'completed' });
+            await captureVideoComplete(deps, jobRow.jobId, jobRow.estUsd);
+          }
+          return asResult(result);
+        } catch (err) {
+          // ApiError (polling.ts's `operation.error` branch, code 'API') means
+          // done === true but the operation itself failed — terminal, release
+          // the reservation. PollingError (timeout, code 'POLLING') means NOT
+          // done yet — per spec, change nothing and let the caller re-poll.
+          if (jobRow && err instanceof ApiError) {
+            recordActualCost({ dbPath, jobId: jobRow.jobId, actualUsd: 0, finalStatus: 'failed' });
+            await releaseVideoFailed(deps, jobRow.jobId, jobRow.estUsd);
+          }
+          throw err;
+        }
       }),
     );
   }
