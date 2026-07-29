@@ -139,18 +139,38 @@ Arquivo: `src/video/providers/auth/kling-jwt.ts`
 Testes (`tests/`): API-key vence JWT quando ambos presentes; JWT preservado quando
 só AccessKey/SecretKey; erro lista as duas alternativas; nenhum segredo na mensagem.
 
-### T3 — Kling endpoints API 2.0
+### T3 — Kling endpoints API 2.0 — **RETRATADO, não implementar**
 
-Arquivo: `src/video/providers/kling.ts`
+A tarefa original mandava mapear "o path 2.0 de cada um dos 6 endpoints", tirar
+`model_name` do body e criar a flag `MEDIA_FORGE_KLING_API_VERSION = 2 | legacy`.
 
-- [ ] Mapear, na doc oficial, o path 2.0 de cada um dos 6 endpoints
-- [ ] `pickEndpoint`/`pollPathFor` ganham variante 2.0 (versão no path) mantendo a
-      legacy selecionável por flag
-- [ ] Body 2.0 sem `model_name` (a versão vai no path)
-- [ ] Flag `MEDIA_FORGE_KLING_API_VERSION` = `2` (default) | `legacy`
+**Nada disso existe.** Verificado em 2026-07-29 na doc oficial via
+`context7-mcp` (`/websites/kling_ai_document-api`, fonte
+`https://kling.ai/document-api/`):
 
-Bloqueio: exige leitura de cada página de endpoint na doc (bloqueia WebFetch com
-HTTP 446 — usar browser-harness autenticado).
+| Premissa do plano | Realidade na doc |
+|---|---|
+| endpoints versionados por modelo no path | `POST /v1/videos/text2video`, `/v1/videos/image2video`, `/v1/videos/omni-video` — todos `/v1/`, sem versão de modelo no path |
+| body 2.0 sem `model_name` | `model_name` continua **obrigatório ou default** em todos, inclusive nos modelos mais novos: `"model_name": "kling-v3"` no text2video, enum `kling-video-o1 \| kling-v3-omni` no omni |
+| existe uma "API 2.0" com contrato novo | o changelog de 17/06/2026 anuncia **só** o novo método de auth, e diz que ele é "fully compatible with existing models and can be used alongside AK/SK authentication" |
+
+Ou seja: a única coisa que mudou na Kling é **autenticação**, que é o T2. O erro
+veio de ler "API Key para todos os modelos" na sessão anterior e inferir uma
+versão nova de API que a Kling nunca publicou.
+
+Verificado também que o media-forge **já está correto** no resto:
+
+- domínio `https://api-singapore.klingai.com` (`kling.ts:16`) — é o domínio novo;
+  o antigo `api.klingai.com` foi aposentado e a doc confirma a troca
+- `model_name` enviado é `kling-v3` ou `kling-v3-omni` (`kling.ts:462`) — ambos
+  presentes nos enums oficiais, sem drift
+
+Único resíduo, de baixo risco: `pollPathFor`/`endpointPathFor` usam
+`/v1/videos/omni-video/` com barra final (`kling.ts:402`) e a doc escreve
+`/v1/videos/omni-video`. Não mexer sem evidência de que quebra — anotado.
+
+**Consequência no escopo:** PR1 encolhe. Sobram T1 (credencial), T2 (auth
+dual-mode) e T4 (rates). T3 sai inteiro.
 
 ### T4 — Refresh do registry Kling
 
@@ -161,6 +181,57 @@ Arquivo: `src/core/models.ts`
 - [ ] `updatedAt: '2026-07-29'` em toda entrada tocada
 - [ ] **Não** cruzar com os créditos do plano Higgsfield — são unidades distintas
       (crédito de assinatura ≠ USD de API)
+
+**Nota (2026-07-29):** as rates não são verificáveis por `context7-mcp`. A lib
+`/websites/kling_ai_document-api` cobre a referência de API, não a página de
+preços — três consultas distintas não retornaram nenhum valor por segundo. Para
+fechar este item é preciso a página de pricing autenticada (browser-harness), ou
+aceitar o PLACEHOLDER com a nota de volatilidade que já está no registry.
+
+### T4-b — 4K do Kling nunca é pedido na requisição (BUG, achado em 2026-07-29)
+
+Encontrado ao verificar T3. É defeito de entrega **e** de cobrança.
+
+Cadeia completa, toda verificada:
+
+1. `src/mcp/handlers/video.ts:181-183` — "4K resolution → kling-v3-master (only
+   registered 4K-native provider)". Pedir 4K roteia para `kling-v3-master`.
+2. `src/core/models.ts:354-372` — `kling-v3-master` declara `resolutions: ['4k']`,
+   `fps: [24,30,60]` e a rate mais cara da Kling no registry (0.18 usd/s).
+3. `src/video/providers/kling.ts:446-447` — o corpo da requisição é montado com
+   `extras?.klingMode ?? (spec.id.includes('-pro') || spec.id.includes('-master') ? 'pro' : 'std')`.
+   Master vira **`'pro'`**.
+4. `src/video/providers/base.ts:136` — `readonly klingMode?: 'std' | 'pro';`.
+   O tipo **não consegue expressar `'4k'`**.
+5. `grep -rn "'4k'" src/video/providers/kling.ts` → **zero**. A string nunca é
+   enviada.
+6. `src/mcp/handlers/kling.ts` — 5 sites fixam `klingMode: 'pro'` literal.
+
+Contra a doc oficial (`context7`, `/websites/kling_ai_document-api`, página
+`api/video/2-6`), onde `mode` é enum de três valores:
+
+> `std`: Standard Mode … Output video resolution is 720P.
+> `pro`: Professional Mode … Output video resolution is 1080P.
+> `4k`: 4K Mode … Output video resolution is 4K.
+
+**Resultado:** o usuário pede 4K, o roteador escolhe o modelo "4K-native", a
+requisição sai com `mode: 'pro'`, a Kling devolve 1080p, e o custo é calculado à
+rate de 4K. Entrega abaixo do pedido e cobrança acima do entregue.
+
+Nenhum teste pega isso: `tests/mcp/video-route-handler.test.ts:80` prova que 4K
+roteia para master, e `tests/core/models-registry.test.ts:127` prova que o
+registry diz 4K — nenhum verifica o `mode` que sai no wire.
+
+Escopo da correção:
+
+- [ ] `base.ts:136` — alargar para `'std' | 'pro' | '4k'`
+- [ ] `kling.ts` — master mapeia para `'4k'`, não `'pro'`
+- [ ] Revisar os 5 `klingMode: 'pro'` literais em `handlers/kling.ts`: motion
+      brush, elements, lip-sync, omni e extend suportam `4k`? A doc lista o enum
+      por endpoint — conferir antes de mexer, não assumir
+- [ ] Teste que afirma o `mode` **no corpo da requisição**, não só o roteamento
+- [ ] `kling-v3-pro` declara `resolutions: ['1080p','2k']`, mas `mode: 'pro'` é
+      1080P pela doc. Verificar de onde saiu o `2k` ou remover
 
 ### T5 — Provider `higgsfield-cli`
 
