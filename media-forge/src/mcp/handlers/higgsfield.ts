@@ -23,6 +23,54 @@ import {
 import { defaultDbPath, higgsfieldProvider } from './shared.js';
 
 // ---------------------------------------------------------------------------
+// T15 part B (2026-07-29) — cost-guard + credit-preflight hooks for the 6
+// Higgsfield submit handlers below (DoP, Cinema Studio, Speak, Marketing
+// Studio, Recast, Generate). Mirrors KlingHandlerExecOpts/runCostGuards in
+// kling.ts exactly, same shape: both hooks are optional so every handler
+// below is still callable directly with a single argument (e.g. the existing
+// higgsfield-*-handler.test.ts files), and both run BEFORE provider.generate()
+// ever reaches the Higgsfield platform.
+// ---------------------------------------------------------------------------
+
+export interface HiggsfieldHandlerExecOpts {
+  /**
+   * Cost-guard hook (media-forge cost guards). Called SYNCHRONOUSLY with the
+   * pure cost estimate, BEFORE provider.generate() ever submits to the
+   * Higgsfield platform. Throws CostGuardError to block the call; returns
+   * `{ costWarning }` to surface a non-blocking warning in the tool response;
+   * returns undefined to allow silently. Optional — handlers called directly
+   * without this hook behave exactly as before T15 part B.
+   */
+  readonly checkCostGuard?: (estimateUsd: number) => { costWarning?: string } | undefined;
+  /**
+   * Credit preflight hook (media-forge cost guards). Called BEFORE
+   * provider.generate() to narrow (not close — see preflightVideoCredit's own
+   * doc comment in billing.ts) the reserve-after-submit credit gap: the
+   * actual reserve still runs in register.ts AFTER generate() returns, keyed
+   * on the jobId the Higgsfield platform accepted (recordJob only writes on a
+   * successful submit — see HiggsfieldProvider.generate()). Throws
+   * InsufficientCreditError on insufficient balance; no-op when omitted.
+   */
+  readonly preflightCredit?: (estimateUsd: number) => Promise<void>;
+}
+
+/**
+ * Shared cost-guard + credit-preflight gate run by every Higgsfield submit
+ * handler below, BEFORE provider.generate() ever reaches the network.
+ * Identical shape to kling.ts's runCostGuards.
+ */
+async function runCostGuards(
+  estimateUsd: number,
+  opts: HiggsfieldHandlerExecOpts,
+): Promise<string | undefined> {
+  const costWarning = opts.checkCostGuard?.(estimateUsd)?.costWarning;
+  if (opts.preflightCredit) {
+    await opts.preflightCredit(estimateUsd);
+  }
+  return costWarning;
+}
+
+// ---------------------------------------------------------------------------
 // handleHiggsfieldPoll / handleHiggsfieldDownload — async job lifecycle for the
 // 7 Higgsfield generation tools (Codex P2 round 5 PR#10).
 // ---------------------------------------------------------------------------
@@ -83,11 +131,15 @@ export async function handleHiggsfieldPoll(
 // director routed Soul t2v through media_video_route (a decision-only tool)
 // with no actual submit path.
 // ---------------------------------------------------------------------------
-export async function handleHiggsfieldGenerate(rawInput: unknown): Promise<{
+export async function handleHiggsfieldGenerate(
+  rawInput: unknown,
+  opts: HiggsfieldHandlerExecOpts = {},
+): Promise<{
   provider: string;
   jobId: string;
   providerNativeId?: string;
   estimatedCostUSD: number;
+  costWarning?: string;
 }> {
   const input: HiggsfieldGenerateInputT = HiggsfieldGenerateInput.parse(rawInput);
   const provider = higgsfieldProvider();
@@ -105,12 +157,17 @@ export async function handleHiggsfieldGenerate(rawInput: unknown): Promise<{
       ...(input.soulId ? { soulId: input.soulId } : {}),
     },
   };
+  // Cost-guard + credit-preflight run BEFORE generate() submits to the
+  // Higgsfield platform — estimateCostUSD is pure (no I/O).
+  const estimateUsd = provider.estimateCostUSD(req);
+  const costWarning = await runCostGuards(estimateUsd, opts);
   const handle = await provider.generate(req);
   return {
     provider: handle.provider,
     jobId: handle.jobId,
     providerNativeId: handle.providerNativeId,
-    estimatedCostUSD: provider.estimateCostUSD(req),
+    estimatedCostUSD: estimateUsd,
+    ...(costWarning ? { costWarning } : {}),
   };
 }
 
@@ -136,11 +193,15 @@ export async function handleHiggsfieldDownload(rawInput: unknown): Promise<{
 // handleHiggsfieldDop — DoP image-to-video with WAN Camera Control verbs
 // ---------------------------------------------------------------------------
 
-export async function handleHiggsfieldDop(rawInput: unknown): Promise<{
+export async function handleHiggsfieldDop(
+  rawInput: unknown,
+  opts: HiggsfieldHandlerExecOpts = {},
+): Promise<{
   provider: string;
   jobId: string;
   providerNativeId?: string;
   estimatedCostUSD: number;
+  costWarning?: string;
 }> {
   const input: HiggsfieldDopInputT = HiggsfieldDopInput.parse(rawInput);
   const provider = higgsfieldProvider();
@@ -157,12 +218,15 @@ export async function handleHiggsfieldDop(rawInput: unknown): Promise<{
       dopCameraVerbs: input.cameraVerbs,
     },
   };
+  const estimateUsd = provider.estimateCostUSD(req);
+  const costWarning = await runCostGuards(estimateUsd, opts);
   const handle = await provider.generate(req);
   return {
     provider: handle.provider,
     jobId: handle.jobId,
     providerNativeId: handle.providerNativeId,
-    estimatedCostUSD: provider.estimateCostUSD(req),
+    estimatedCostUSD: estimateUsd,
+    ...(costWarning ? { costWarning } : {}),
   };
 }
 
@@ -170,11 +234,15 @@ export async function handleHiggsfieldDop(rawInput: unknown): Promise<{
 // handleHiggsfieldCinemaStudio — Cinema Studio 3.5 with 1,296 virtual lenses
 // ---------------------------------------------------------------------------
 
-export async function handleHiggsfieldCinemaStudio(rawInput: unknown): Promise<{
+export async function handleHiggsfieldCinemaStudio(
+  rawInput: unknown,
+  opts: HiggsfieldHandlerExecOpts = {},
+): Promise<{
   provider: string;
   jobId: string;
   providerNativeId?: string;
   estimatedCostUSD: number;
+  costWarning?: string;
 }> {
   const input: HiggsfieldCinemaStudioInputT = HiggsfieldCinemaStudioInput.parse(rawInput);
   const provider = higgsfieldProvider();
@@ -197,12 +265,15 @@ export async function handleHiggsfieldCinemaStudio(rawInput: unknown): Promise<{
       },
     },
   };
+  const estimateUsd = provider.estimateCostUSD(req);
+  const costWarning = await runCostGuards(estimateUsd, opts);
   const handle = await provider.generate(req);
   return {
     provider: handle.provider,
     jobId: handle.jobId,
     providerNativeId: handle.providerNativeId,
-    estimatedCostUSD: provider.estimateCostUSD(req),
+    estimatedCostUSD: estimateUsd,
+    ...(costWarning ? { costWarning } : {}),
   };
 }
 
@@ -215,11 +286,15 @@ export async function handleHiggsfieldCinemaStudio(rawInput: unknown): Promise<{
 //     per intel/2026-05-27-higgsfield-speak-audio-decision.md). Throws if set.
 // ---------------------------------------------------------------------------
 
-export async function handleHiggsfieldSpeak(rawInput: unknown): Promise<{
+export async function handleHiggsfieldSpeak(
+  rawInput: unknown,
+  opts: HiggsfieldHandlerExecOpts = {},
+): Promise<{
   provider: string;
   jobId: string;
   providerNativeId?: string;
   estimatedCostUSD: number;
+  costWarning?: string;
 }> {
   const input: HiggsfieldSpeakInputT = HiggsfieldSpeakInput.parse(rawInput);
   const provider = higgsfieldProvider();
@@ -263,12 +338,15 @@ export async function handleHiggsfieldSpeak(rawInput: unknown): Promise<{
       speakAudioPath: audioReference,
     },
   };
+  const estimateUsd = provider.estimateCostUSD(req);
+  const costWarning = await runCostGuards(estimateUsd, opts);
   const handle = await provider.generate(req);
   return {
     provider: handle.provider,
     jobId: handle.jobId,
     providerNativeId: handle.providerNativeId,
-    estimatedCostUSD: provider.estimateCostUSD(req),
+    estimatedCostUSD: estimateUsd,
+    ...(costWarning ? { costWarning } : {}),
   };
 }
 
@@ -276,11 +354,15 @@ export async function handleHiggsfieldSpeak(rawInput: unknown): Promise<{
 // handleHiggsfieldMarketingStudio — Marketing Studio: 9 UGC templates from product URL
 // ---------------------------------------------------------------------------
 
-export async function handleHiggsfieldMarketingStudio(rawInput: unknown): Promise<{
+export async function handleHiggsfieldMarketingStudio(
+  rawInput: unknown,
+  opts: HiggsfieldHandlerExecOpts = {},
+): Promise<{
   provider: string;
   jobId: string;
   providerNativeId?: string;
   estimatedCostUSD: number;
+  costWarning?: string;
 }> {
   const input: HiggsfieldMarketingStudioInputT = HiggsfieldMarketingStudioInput.parse(rawInput);
   const provider = higgsfieldProvider();
@@ -297,12 +379,15 @@ export async function handleHiggsfieldMarketingStudio(rawInput: unknown): Promis
       marketingStudioProductUrl: input.productUrl,
     },
   };
+  const estimateUsd = provider.estimateCostUSD(req);
+  const costWarning = await runCostGuards(estimateUsd, opts);
   const handle = await provider.generate(req);
   return {
     provider: handle.provider,
     jobId: handle.jobId,
     providerNativeId: handle.providerNativeId,
-    estimatedCostUSD: provider.estimateCostUSD(req),
+    estimatedCostUSD: estimateUsd,
+    ...(costWarning ? { costWarning } : {}),
   };
 }
 
@@ -310,11 +395,15 @@ export async function handleHiggsfieldMarketingStudio(rawInput: unknown): Promis
 // handleHiggsfieldRecast — Recast Studio: swap character in existing video
 // ---------------------------------------------------------------------------
 
-export async function handleHiggsfieldRecast(rawInput: unknown): Promise<{
+export async function handleHiggsfieldRecast(
+  rawInput: unknown,
+  opts: HiggsfieldHandlerExecOpts = {},
+): Promise<{
   provider: string;
   jobId: string;
   providerNativeId?: string;
   estimatedCostUSD: number;
+  costWarning?: string;
 }> {
   const input: HiggsfieldRecastInputT = HiggsfieldRecastInput.parse(rawInput);
   const provider = higgsfieldProvider();
@@ -330,12 +419,15 @@ export async function handleHiggsfieldRecast(rawInput: unknown): Promise<{
       recastTargetCharacterPath: input.targetCharacterImagePath,
     },
   };
+  const estimateUsd = provider.estimateCostUSD(req);
+  const costWarning = await runCostGuards(estimateUsd, opts);
   const handle = await provider.generate(req);
   return {
     provider: handle.provider,
     jobId: handle.jobId,
     providerNativeId: handle.providerNativeId,
-    estimatedCostUSD: provider.estimateCostUSD(req),
+    estimatedCostUSD: estimateUsd,
+    ...(costWarning ? { costWarning } : {}),
   };
 }
 

@@ -19,6 +19,7 @@ export {
   handleHiggsfieldViralityPredictor,
   handleHiggsfieldSoulId,
 } from './handlers/higgsfield.js';
+export type { HiggsfieldHandlerExecOpts } from './handlers/higgsfield.js';
 
 export { handleVideoCostEstimate, handleVideoCostReport, handleVideoRoute } from './handlers/video.js';
 export type { VideoRouteResult } from './handlers/video.js';
@@ -43,6 +44,7 @@ export {
   handleSeedanceMultishot,
   handleSeedanceReferenceFusion,
 } from './handlers/seedance.js';
+export type { SeedanceHandlerExecOpts } from './handlers/seedance.js';
 
 export {
   withImageDebit,

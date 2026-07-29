@@ -65,6 +65,7 @@ import {
   recordActualCost,
   setJobNativeTaskId,
   findJobByNativeTaskId,
+  getJobRecord,
 } from '../../core/cost-tracker.js';
 import { isSeedanceEnabled } from '../../core/feature-flags.js';
 import { logger } from '../../core/logger.js';
@@ -185,8 +186,9 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
 
   // ---------------------------------------------------------------------------
   // media-forge cost guards — evaluated BEFORE every image generation call and
-  // (via KlingHandlerExecOpts.checkCostGuard) before every Kling video submit,
-  // reading today's UTC spend across both video_jobs and image_jobs.
+  // (via KlingHandlerExecOpts.checkCostGuard / HiggsfieldHandlerExecOpts /
+  // SeedanceHandlerExecOpts) before every Kling, Higgsfield, and Seedance
+  // video submit, reading today's UTC spend across both video_jobs and image_jobs.
   //
   // Guard is SKIPPED under dry-run (client.dryRun) — a dry run never calls the
   // provider and costs $0, so both the guard check and the ledger write it
@@ -233,12 +235,16 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     return Math.abs(h).toString(16);
   }
 
-  // Shared opts for every Kling submit handler (media-forge cost guards, Step
-  // 3 + Step 4): checkCostGuard runs the same guard used by the image tools
-  // above; preflightCredit narrows the reserve-after-submit credit gap (see
-  // preflightVideoCredit's doc comment in billing.ts for the honesty caveat).
-  // Both hooks run inside the handler, BEFORE provider.generate() submits.
-  const klingGuardOpts = {
+  // Shared opts for every Kling / Higgsfield / Seedance submit handler
+  // (media-forge cost guards, Step 3 + Step 4; extended to Higgsfield + Seedance
+  // in T15 part B, 2026-07-29): checkCostGuard runs the same guard used by the
+  // image tools above; preflightCredit narrows the reserve-after-submit credit
+  // gap (see preflightVideoCredit's doc comment in billing.ts for the honesty
+  // caveat). Both hooks run inside the handler, BEFORE provider.generate()
+  // submits. Structurally identical to KlingHandlerExecOpts,
+  // HiggsfieldHandlerExecOpts, and SeedanceHandlerExecOpts, so this one object
+  // is accepted by all three providers' handler functions.
+  const videoGuardOpts = {
     checkCostGuard: checkCostGuardOrThrow,
     preflightCredit: (estimateUsd: number) => preflightVideoCredit(deps, estimateUsd),
   };
@@ -1237,12 +1243,53 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     );
   }
 
-  // TODO(F-E higgsfield-billing): all Higgsfield video submits below (DoP, Cinema Studio,
-  // Speak, Marketing Studio, Recast, Generate) are DEFERRED — same deferral class as Veo.
-  // Their capture point (recordActualCostUSD) lives in HiggsfieldProvider, not a handler tool,
-  // and completion runs through the webhook router (stdio entrypoint, no per-request
-  // creditClient). Reservable here, but not reconcilable → left unbilled until provider-level
-  // capture plumbing lands (post-EXT1). Kling is the only fully-reconcilable cycle in handlers.
+  // T15 part B (2026-07-29): guard + preflight now run INSIDE each of the 6
+  // Higgsfield submit handlers below (DoP, Cinema Studio, Speak, Marketing
+  // Studio, Recast, Generate) via HiggsfieldHandlerExecOpts — same
+  // videoGuardOpts object already shared with Kling above. reserveVideoSubmit
+  // + setJobTenant run here, AFTER each handler returns, keyed on the jobId
+  // HiggsfieldProvider.generate() only records via recordJob on a successful
+  // submit (higgsfield.ts:156) — i.e. the same reserve-AFTER-submit shape
+  // Kling already used, not Veo's reserve-before-submit shape (Higgsfield's
+  // row, like Kling's, never exists to reserve against until the platform
+  // has accepted it).
+  //
+  // The previous comment here was wrong about the capture point: it claimed
+  // recordActualCostUSD (declared on HiggsfieldProvider) was where completion
+  // gets reconciled. It doesn't — grep `recordActualCostUSD` under src/: it's
+  // declared once on the VideoProvider interface (base.ts) and implemented by
+  // all four providers, but has ZERO callers anywhere in the handler/register
+  // layer. It is dead interface surface, not a capture path.
+  //
+  // The REAL capture path is wired below at media_higgsfield_poll, and it is
+  // NEW, not a rewire of something that already settled these rows: before
+  // this change nothing ever called recordActualCost for a Higgsfield job —
+  // the webhook handler is an explicit logging stub (see
+  // higgsfield-webhook-handler.ts:34, "no cost is recorded here"), and the
+  // old poll handler (this file, pre-T15-part-B) only forwarded pollStatus's
+  // result without touching the ledger. So this isn't "the credit side was
+  // missing, the DB side already worked" — media_higgsfield_poll below is the
+  // first thing that ever settles a Higgsfield video_jobs row to a terminal
+  // actual_usd, for either side (DB or credit).
+  //
+  // The poll input's `jobId` IS the same internal id HiggsfieldProvider.
+  // generate() already writes via recordJob — no native-task-id indirection
+  // needed (unlike Veo, which had to bind operationName back to its own
+  // jobId). When pollStatus's returned state is terminal, the poll handler
+  // settles the row directly: capture on 'completed', release on 'failed' |
+  // 'nsfw' | 'canceled' (mapPlatformStatus's full failure set — see
+  // higgsfield.ts's mapPlatformStatus). 'pending' | 'in_progress' change
+  // nothing, same as a Veo poll that isn't done yet.
+  //
+  // The capture call below passes finalStatus:'completed' without
+  // actualCredits, same as Veo's poll settle above (register.ts, ~line 690) —
+  // deliberately consistent with part A, not an oversight. Kling's download
+  // path (kling.ts) does pass actualCredits via videoActualCredits(actualUsd)
+  // because it captures through a different call chain; Higgsfield's own
+  // captureVideoComplete() call just below independently re-derives credits
+  // from actualUsd (billing.ts), so the omission here is harmless — it only
+  // means the DB row's own actual_credits column stays null, which nothing
+  // downstream reads.
 
   // ---- Higgsfield DoP (1 — P14 image-to-video with WAN Camera Control verbs) ----
 
@@ -1251,7 +1298,12 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Higgsfield DoP', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleHiggsfieldDop(input))),
+      wrap(t.name, async (input) => {
+        const r = await handleHiggsfieldDop(input, videoGuardOpts);
+        await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
+        return asResult(r);
+      }),
     );
   }
 
@@ -1262,7 +1314,12 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Higgsfield Cinema Studio', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleHiggsfieldCinemaStudio(input))),
+      wrap(t.name, async (input) => {
+        const r = await handleHiggsfieldCinemaStudio(input, videoGuardOpts);
+        await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
+        return asResult(r);
+      }),
     );
   }
 
@@ -1273,7 +1330,12 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Higgsfield Speak', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleHiggsfieldSpeak(input))),
+      wrap(t.name, async (input) => {
+        const r = await handleHiggsfieldSpeak(input, videoGuardOpts);
+        await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
+        return asResult(r);
+      }),
     );
   }
 
@@ -1284,7 +1346,12 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Higgsfield Marketing Studio', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleHiggsfieldMarketingStudio(input))),
+      wrap(t.name, async (input) => {
+        const r = await handleHiggsfieldMarketingStudio(input, videoGuardOpts);
+        await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
+        return asResult(r);
+      }),
     );
   }
 
@@ -1295,7 +1362,12 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Higgsfield Recast', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleHiggsfieldRecast(input))),
+      wrap(t.name, async (input) => {
+        const r = await handleHiggsfieldRecast(input, videoGuardOpts);
+        await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
+        if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
+        return asResult(r);
+      }),
     );
   }
 
@@ -1317,7 +1389,8 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Higgsfield Generate', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const r = await handleHiggsfieldGenerate(input);
+        const r = await handleHiggsfieldGenerate(input, videoGuardOpts);
+        await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
         // SE2: attribute the job to the caller so the async webhook can record the gallery row.
         if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
         return asResult(r);
@@ -1326,12 +1399,36 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
   }
 
   // ---- Higgsfield Poll + Download (Codex P2 round 5 PR#10 — async lifecycle) ----
+  //
+  // T15 part B: settles the video_jobs row + credit reservation opened by the
+  // 6 submit sites above. input.jobId IS the row's own id (no native-task-id
+  // translation needed, unlike Veo) — see the comment above the DoP site.
+  // Capture on 'completed'; release on any of the 3 failure-equivalent
+  // terminal states ('failed' | 'nsfw' | 'canceled', mapPlatformStatus's full
+  // set in higgsfield.ts); 'pending' | 'in_progress' settle nothing, mirroring
+  // a Veo poll that returns before the operation is done.
   {
     const t = getTool('media_higgsfield_poll');
     regIfAllowed(
       t.name,
       { title: 'Higgsfield Poll', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleHiggsfieldPoll(input, { storage }))),
+      wrap(t.name, async (input) => {
+        const result = await handleHiggsfieldPoll(input, { storage });
+        const dbPath = defaultDbPath();
+        const jobRow = getJobRecord({ dbPath, jobId: result.jobId });
+        if (jobRow) {
+          if (result.state === 'completed') {
+            const actualUsd = jobRow.actualUsd ?? jobRow.estUsd;
+            recordActualCost({ dbPath, jobId: jobRow.jobId, actualUsd, finalStatus: 'completed' });
+            await captureVideoComplete(deps, jobRow.jobId, actualUsd);
+          } else if (result.state === 'failed' || result.state === 'nsfw' || result.state === 'canceled') {
+            recordActualCost({ dbPath, jobId: jobRow.jobId, actualUsd: 0, finalStatus: result.state });
+            await releaseVideoFailed(deps, jobRow.jobId, jobRow.estUsd);
+          }
+          // 'pending' | 'in_progress': not done yet — change nothing, let the caller re-poll.
+        }
+        return asResult(result);
+      }),
     );
   }
   {
@@ -1351,7 +1448,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Kling Motion Brush', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const r = await handleKlingMotionBrush(input, klingGuardOpts);
+        const r = await handleKlingMotionBrush(input, videoGuardOpts);
         // F-E: reserve AFTER submit, keyed on the returned jobId — the SAME id
         // media_kling_download captures with. No-op when billing off. 402 → wrap → tool error.
         await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
@@ -1399,7 +1496,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Kling Elements', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const r = await handleKlingElements(input, klingGuardOpts);
+        const r = await handleKlingElements(input, videoGuardOpts);
         await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
         // SE2: attribute the job to the caller so the async webhook can record the gallery row.
         if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
@@ -1416,7 +1513,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Kling Lip-Sync', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const r = await handleKlingLipSync(input, klingGuardOpts);
+        const r = await handleKlingLipSync(input, videoGuardOpts);
         await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
         // SE2: attribute the job to the caller so the async webhook can record the gallery row.
         if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
@@ -1433,7 +1530,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Kling Omni Multi-Shot', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const r = await handleKlingOmniMultiShot(input, klingGuardOpts);
+        const r = await handleKlingOmniMultiShot(input, videoGuardOpts);
         await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
         // SE2: attribute the job to the caller so the async webhook can record the gallery row.
         if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
@@ -1450,7 +1547,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Kling Video Extend', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const r = await handleKlingVideoExtend(input, klingGuardOpts);
+        const r = await handleKlingVideoExtend(input, videoGuardOpts);
         await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
         // SE2: attribute the job to the caller so the async webhook can record the gallery row.
         if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
@@ -1524,10 +1621,40 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     );
   }
 
-  // TODO(F-E seedance-billing): all 4 Seedance submits below are DEFERRED — same deferral class
-  // as Veo/Higgsfield. Capture (recordActualCostUSD) lives in BytedanceSeedanceProvider on
-  // webhook/poll completion, not a handler tool with deps + matching id → not reconcilable here.
-  // Left unbilled until provider-level capture plumbing lands (post-EXT1).
+  // T15 part B (2026-07-29): guard + preflight now run INSIDE each of the 4
+  // Seedance submit handlers below via SeedanceHandlerExecOpts (same
+  // videoGuardOpts object shared with Kling + Higgsfield above), and
+  // reserveVideoSubmit + setJobTenant run here, AFTER each handler returns —
+  // same reserve-AFTER-submit shape as Kling/Higgsfield, keyed on the jobId
+  // BytedanceSeedanceProvider.generate() only records (via its
+  // recordOnSuccess closure) once fal.ai/ARK accepts the submit.
+  //
+  // The previous comment here made the same wrong claim the Higgsfield one
+  // did: recordActualCostUSD is NOT the capture point for any of the 4
+  // providers — it's declared once on VideoProvider (base.ts) and
+  // implemented 4 times, with zero callers anywhere in src/. Delete that
+  // belief entirely; it never described this codebase.
+  //
+  // What IS true, and needs no new wiring: Seedance's REAL capture path
+  // already exists at the provider level. pollStatus (invoked from the
+  // webhook AND from a direct re-poll) calls recordActualCost directly
+  // inside bytedance-seedance.ts on every terminal transition — success at
+  // :439, failed/nsfw/canceled at :452. Neither call site has a per-request
+  // creditClient (the webhook is the stdio entrypoint; pollStatus takes no
+  // `deps`), so CREDIT settlement — as opposed to the video_jobs row, which
+  // Seedance already settles itself — runs through the sweep instead:
+  // reserveVideoSubmit below sets `statusUrl` from MEDIA_FORGE_INTERNAL_URL,
+  // the row lands in video_jobs on submit success, src/http/job-status.ts
+  // serves that row to credit-core's sweep, and the sweep captures on
+  // 'completed' / releases on 'failed' or 'unknown'. There is deliberately no
+  // capture/release call anywhere in this file for Seedance — the sweep is
+  // the intended settler, not a gap left by this task.
+  //
+  // KNOWN GAP, reported not fixed (out of scope for T15 part B — changing
+  // what the sweep captures is a billing decision): the success path at
+  // bytedance-seedance.ts:439 calls recordActualCost WITHOUT actualCredits,
+  // so the job-status oracle answers `{ status: 'completed' }` with no
+  // amount for the sweep to capture at.
 
   // ---- Seedance 2.0 (ByteDance) — P16 Task 7 (4 tools: t2v / i2v / multishot / reference-fusion) ----
   // Task 8.5: all 4 tools are conditionally registered based on MEDIA_FORGE_SEEDANCE_ENABLED flag.
@@ -1541,7 +1668,8 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
         t.name,
         { title: 'Seedance 2.0 Text-to-Video', description: t.description, inputSchema: t.inputSchema as never },
         wrap(t.name, async (input) => {
-          const r = await handleSeedanceTextToVideo(input);
+          const r = await handleSeedanceTextToVideo(input, videoGuardOpts);
+          await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
           // SE2: attribute the job to the caller so the async webhook can record the gallery row.
           if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
           return asResult(r);
@@ -1555,7 +1683,8 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
         t.name,
         { title: 'Seedance 2.0 Image-to-Video', description: t.description, inputSchema: t.inputSchema as never },
         wrap(t.name, async (input) => {
-          const r = await handleSeedanceImageToVideo(input);
+          const r = await handleSeedanceImageToVideo(input, videoGuardOpts);
+          await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
           // SE2: attribute the job to the caller so the async webhook can record the gallery row.
           if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
           return asResult(r);
@@ -1569,7 +1698,8 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
         t.name,
         { title: 'Seedance 2.0 Multi-Shot', description: t.description, inputSchema: t.inputSchema as never },
         wrap(t.name, async (input) => {
-          const r = await handleSeedanceMultishot(input);
+          const r = await handleSeedanceMultishot(input, videoGuardOpts);
+          await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
           // SE2: attribute the job to the caller so the async webhook can record the gallery row.
           if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
           return asResult(r);
@@ -1583,7 +1713,8 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
         t.name,
         { title: 'Seedance 2.0 Reference Fusion', description: t.description, inputSchema: t.inputSchema as never },
         wrap(t.name, async (input) => {
-          const r = await handleSeedanceReferenceFusion(input);
+          const r = await handleSeedanceReferenceFusion(input, videoGuardOpts);
+          await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
           // SE2: attribute the job to the caller so the async webhook can record the gallery row.
           if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
           return asResult(r);

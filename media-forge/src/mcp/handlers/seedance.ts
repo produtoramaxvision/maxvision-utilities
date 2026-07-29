@@ -31,6 +31,50 @@ interface SeedanceHandlerResult {
   mode: string;
   estimatedCostUSD: number;
   providerNativeId?: string;
+  costWarning?: string;
+}
+
+// ---------------------------------------------------------------------------
+// T15 part B (2026-07-29) — cost-guard + credit-preflight hooks for the 4
+// Seedance submit handlers below. Same shape as KlingHandlerExecOpts
+// (kling.ts) / HiggsfieldHandlerExecOpts (higgsfield.ts): both hooks are
+// optional so every handler below is still callable directly with a single
+// argument (e.g. the existing seedance-*-handler.test.ts files), and both run
+// BEFORE provider.generate() ever reaches fal.ai/ARK.
+// ---------------------------------------------------------------------------
+
+export interface SeedanceHandlerExecOpts {
+  /**
+   * Cost-guard hook (media-forge cost guards). Called SYNCHRONOUSLY with the
+   * pure cost estimate, BEFORE provider.generate() ever submits. Throws
+   * CostGuardError to block; returns `{ costWarning }` to surface a
+   * non-blocking warning; returns undefined to allow silently. Optional.
+   */
+  readonly checkCostGuard?: (estimateUsd: number) => { costWarning?: string } | undefined;
+  /**
+   * Credit preflight hook (media-forge cost guards). Called BEFORE
+   * provider.generate() to narrow (not close — see preflightVideoCredit's own
+   * doc comment in billing.ts) the reserve-after-submit credit gap: the
+   * actual reserve still runs in register.ts AFTER generate() returns, keyed
+   * on the jobId BytedanceSeedanceProvider.generate() only records on a
+   * successful submit. Throws InsufficientCreditError on insufficient
+   * balance; no-op when omitted.
+   */
+  readonly preflightCredit?: (estimateUsd: number) => Promise<void>;
+}
+
+/** Shared cost-guard + credit-preflight gate run by every Seedance submit
+ *  handler below, BEFORE provider.generate() ever reaches the network.
+ *  Identical shape to kling.ts's runCostGuards / higgsfield.ts's runCostGuards. */
+async function runCostGuards(
+  estimateUsd: number,
+  opts: SeedanceHandlerExecOpts,
+): Promise<string | undefined> {
+  const costWarning = opts.checkCostGuard?.(estimateUsd)?.costWarning;
+  if (opts.preflightCredit) {
+    await opts.preflightCredit(estimateUsd);
+  }
+  return costWarning;
 }
 
 function seedanceProvider(): ReturnType<typeof getBytedanceSeedanceProvider> {
@@ -82,6 +126,7 @@ function castSeedanceResolution(r: '480p' | '720p' | '1080p'): '720p' | '1080p' 
 
 export async function handleSeedanceTextToVideo(
   rawInput: unknown,
+  opts: SeedanceHandlerExecOpts = {},
 ): Promise<SeedanceHandlerResult> {
   const input: SeedanceTextToVideoInputT = SeedanceTextToVideoInput.parse(rawInput);
   const provider = seedanceProvider();
@@ -106,17 +151,22 @@ export async function handleSeedanceTextToVideo(
       : {}),
     extras,
   };
+  // Cost-guard + credit-preflight run BEFORE generate() submits — estimateCostUSD
+  // is pure (no I/O), so this is genuinely pre-submit.
+  const estimateUsd = provider.estimateCostUSD(req);
+  const costWarning = await runCostGuards(estimateUsd, opts);
   const handle = await provider.generate(req);
   const result: SeedanceHandlerResult = {
     jobId: handle.jobId,
     provider: handle.provider,
     model: handle.model,
     mode: handle.mode,
-    estimatedCostUSD: provider.estimateCostUSD(req),
+    estimatedCostUSD: estimateUsd,
   };
   if (handle.providerNativeId !== undefined) {
     result.providerNativeId = handle.providerNativeId;
   }
+  if (costWarning) result.costWarning = costWarning;
   return result;
 }
 
@@ -124,6 +174,7 @@ export async function handleSeedanceTextToVideo(
 
 export async function handleSeedanceImageToVideo(
   rawInput: unknown,
+  opts: SeedanceHandlerExecOpts = {},
 ): Promise<SeedanceHandlerResult> {
   const input: SeedanceImageToVideoInputT = SeedanceImageToVideoInput.parse(rawInput);
   const provider = seedanceProvider();
@@ -150,17 +201,20 @@ export async function handleSeedanceImageToVideo(
     ...(input.endImageUrl !== undefined ? { lastFrameImagePath: input.endImageUrl } : {}),
     extras,
   };
+  const estimateUsd = provider.estimateCostUSD(req);
+  const costWarning = await runCostGuards(estimateUsd, opts);
   const handle = await provider.generate(req);
   const result: SeedanceHandlerResult = {
     jobId: handle.jobId,
     provider: handle.provider,
     model: handle.model,
     mode: handle.mode,
-    estimatedCostUSD: provider.estimateCostUSD(req),
+    estimatedCostUSD: estimateUsd,
   };
   if (handle.providerNativeId !== undefined) {
     result.providerNativeId = handle.providerNativeId;
   }
+  if (costWarning) result.costWarning = costWarning;
   return result;
 }
 
@@ -168,6 +222,7 @@ export async function handleSeedanceImageToVideo(
 
 export async function handleSeedanceMultishot(
   rawInput: unknown,
+  opts: SeedanceHandlerExecOpts = {},
 ): Promise<SeedanceHandlerResult> {
   const input: SeedanceMultishotInputT = SeedanceMultishotInput.parse(rawInput);
   const provider = seedanceProvider();
@@ -219,17 +274,20 @@ export async function handleSeedanceMultishot(
       : {}),
     extras,
   };
+  const estimateUsd = provider.estimateCostUSD(req);
+  const costWarning = await runCostGuards(estimateUsd, opts);
   const handle = await provider.generate(req);
   const result: SeedanceHandlerResult = {
     jobId: handle.jobId,
     provider: handle.provider,
     model: handle.model,
     mode: handle.mode,
-    estimatedCostUSD: provider.estimateCostUSD(req),
+    estimatedCostUSD: estimateUsd,
   };
   if (handle.providerNativeId !== undefined) {
     result.providerNativeId = handle.providerNativeId;
   }
+  if (costWarning) result.costWarning = costWarning;
   return result;
 }
 
@@ -237,6 +295,7 @@ export async function handleSeedanceMultishot(
 
 export async function handleSeedanceReferenceFusion(
   rawInput: unknown,
+  opts: SeedanceHandlerExecOpts = {},
 ): Promise<SeedanceHandlerResult> {
   const input: SeedanceReferenceFusionInputT = SeedanceReferenceFusionInput.parse(rawInput);
   const provider = seedanceProvider();
@@ -265,16 +324,19 @@ export async function handleSeedanceReferenceFusion(
       : {}),
     extras,
   };
+  const estimateUsd = provider.estimateCostUSD(req);
+  const costWarning = await runCostGuards(estimateUsd, opts);
   const handle = await provider.generate(req);
   const result: SeedanceHandlerResult = {
     jobId: handle.jobId,
     provider: handle.provider,
     model: handle.model,
     mode: handle.mode,
-    estimatedCostUSD: provider.estimateCostUSD(req),
+    estimatedCostUSD: estimateUsd,
   };
   if (handle.providerNativeId !== undefined) {
     result.providerNativeId = handle.providerNativeId;
   }
+  if (costWarning) result.costWarning = costWarning;
   return result;
 }
