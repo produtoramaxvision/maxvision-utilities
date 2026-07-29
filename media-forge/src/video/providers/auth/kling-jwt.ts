@@ -8,7 +8,14 @@ export class KlingAuthConfigError extends Error {
 }
 
 export interface KlingEnvSubset {
+  /**
+   * Kling API 2.0 static API key, sent as `Authorization: Bearer <key>`.
+   * Preferred scheme — takes precedence over AccessKey/SecretKey when set.
+   */
+  readonly KLING_API_KEY?: string;
+  /** AccessKey — legacy scheme (HS256 JWT signing). */
   readonly KLING_ACCESS_KEY?: string;
+  /** SecretKey — legacy scheme (HS256 JWT signing). */
   readonly KLING_SECRET_KEY?: string;
   /** Override JWT cache TTL in seconds. Default 1500 (25min). Max 1800 (Kling's 30-min server window). */
   readonly KLING_JWT_CACHE_TTL_SEC?: string;
@@ -70,14 +77,24 @@ export function signKlingJwt(accessKey: string, secretKey: string, opts: SignOpt
 }
 
 /**
- * Builds the Kling Authorization header. Validates env vars, signs (or reuses cached) JWT,
- * caches it per access-key for the configured TTL (default 25min, env-overridable).
+ * Builds the Kling Authorization header. Supports two auth schemes:
+ *
+ * 1. API 2.0 (preferred): `KLING_API_KEY` set → returns `Bearer <key>` directly.
+ *    No JWT signing, no cache involvement.
+ * 2. Legacy (AccessKey/SecretKey): `KLING_API_KEY` absent/empty → validates env vars,
+ *    signs (or reuses cached) JWT, caches it per access-key for the configured TTL
+ *    (default 25min, env-overridable).
  *
  * Security: error messages NEVER include the secret value (only var names). Tests assert.
  *
  * Threading: not thread-safe (Node is single-threaded per worker — fine for our usage).
  */
 export function getKlingAuthHeader(env: KlingEnvSubset): AuthHeader {
+  const apiKey = env.KLING_API_KEY;
+  if (apiKey && apiKey.trim().length > 0) {
+    return { Authorization: `Bearer ${apiKey}` };
+  }
+
   const missing: string[] = [];
   const accessKey = env.KLING_ACCESS_KEY;
   const secretKey = env.KLING_SECRET_KEY;
@@ -85,7 +102,8 @@ export function getKlingAuthHeader(env: KlingEnvSubset): AuthHeader {
   if (!secretKey || secretKey.length === 0) missing.push('KLING_SECRET_KEY');
   if (missing.length > 0) {
     throw new KlingAuthConfigError(
-      `Kling auth not configured. Missing env: ${missing.join(', ')}. ` +
+      'Kling auth not configured. Set KLING_API_KEY (API 2.0, preferred), or both ' +
+        `KLING_ACCESS_KEY and KLING_SECRET_KEY (legacy). Missing: ${missing.join(', ')}. ` +
         'Generate keys at https://klingai.com → Console → API Keys.',
     );
   }
