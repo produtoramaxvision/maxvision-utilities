@@ -96,8 +96,8 @@ alterado em nenhum commit.
 | PR2 | T9 / T9-b / T9-c absorção | pendente | — |
 | PR3a | 10. Ledger de gasto + 13. os tiers consultados + 14. README | **feito** | `2688441`, `d14680f`, `bbc857b` |
 | PR3a | 11. Reserva **antes** do submit com ID próprio | **parcial** — só preflight de saldo no Kling | `2688441` |
-| PR3a | 12. Captura/liberação por poll, webhook e sweep | **não feito** | — |
-| PR3b | T15 | **em andamento** | — |
+| PR3a | 12. Captura/liberação por poll, webhook e sweep | **feito junto do T15** | `c0415f9`, `13d3d37` |
+| PR3b | T15 | **feito** (Veo + Higgsfield + Seedance) | `c0415f9`, `13d3d37` |
 | PR4 | T10 / T11 / T14 | pendente | — |
 | PR4 | ~~T12~~ | adiado (C5), em `TODOS.md` | — |
 | PR5 | T13 narrative planner | pendente | — |
@@ -563,12 +563,25 @@ Reescrito em 2026-07-29 depois de auditar provider por provider. A versão
 anterior listava 8 TODOs por número de linha e tratava os 4 providers como se
 tivessem o mesmo problema. **Não têm.** Estado real, cada linha verificada:
 
-| Provider | Entra em `video_jobs`? | Reserva crédito? | Guard de custo? | Lacuna |
+| Provider | Entra em `video_jobs`? | Liquida custo real? | Reserva crédito? | Guard de custo? |
 |---|---|---|---|---|
-| Kling | sim (`kling.ts:221`) | sim, 5 sites | sim | nenhuma |
-| Higgsfield | sim (`higgsfield.ts:156`, só após submit OK) | **não** | **não** | reserve/capture + guard |
-| Seedance | sim (`bytedance-seedance.ts:284`, já com `nativeTaskId`) | **não** | **não** | reserve/capture + guard |
-| Veo | **não entra** | **não** | **não** | tudo |
+| Kling | sim (`kling.ts:221`) | sim | sim, 5 sites | sim |
+| Higgsfield | sim (`higgsfield.ts:156`, só após submit OK) | **não** | **não** | **não** |
+| Seedance | sim (`bytedance-seedance.ts:284`, já com `nativeTaskId`) | sim (`:439`, `:452`) | **não** | **não** |
+| Veo | **não entra** | não | **não** | **não** |
+
+**Correção de 2026-07-29, depois de implementar:** a coluna "liquida custo real"
+do Higgsfield estava marcada errada por mim numa versão anterior desta tabela.
+Ele **nunca** liquidou. `recordActualCostUSD` é declarado na interface
+`VideoProvider` (`base.ts:284`) e implementado pelos 4 providers, mas
+`grep -rn "recordActualCostUSD" src/` mostra **zero callers**. E o webhook do
+Higgsfield se documenta como stub: *"Higgsfield webhook is a logging stub — no
+cost is recorded here (no recordActualCost)"*.
+
+Consequência: as linhas do Higgsfield ficavam `pending` para sempre. Mesmo com
+reserva, o oracle responderia `unknown` e o sweep **sempre liberaria** — nenhum
+job de Higgsfield jamais seria cobrado. Fechado no `13d3d37`, onde
+`media_higgsfield_poll` passa a ser a primeira coisa que liquida essas linhas.
 
 **O caso do Veo é o mais grave e não era o que o plano descrevia.**
 `GoogleVeoProvider.generate()` — que é quem chama `recordJob` — **nunca é

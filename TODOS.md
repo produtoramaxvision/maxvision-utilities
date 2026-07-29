@@ -175,6 +175,30 @@ exatamente o que T15 constrói.
 **Onde:** `src/mcp/handlers/register.ts`.
 **Esforço:** S (CC ~15min)
 
+## P2 — Sweep do Seedance captura sem valor de crédito
+
+**O quê:** o caminho de sucesso do Seedance chama `recordActualCost`
+(`src/video/providers/bytedance-seedance.ts:439`) **sem** `actualCredits`. O
+oracle (`src/http/job-status.ts:41`) só devolve `actualCredits` quando a coluna
+está preenchida, então o sweep do credit-core recebe `{ status: 'completed' }`
+sem valor.
+
+**Impacto:** a captura acontece, mas pelo valor que o sweep decidir na ausência
+do dado — provavelmente o reservado. Se o custo real divergir da estimativa, a
+diferença não é reconciliada. O caminho de falha (`:452`) não tem esse problema
+porque libera.
+
+**Por que não corrigi junto:** mudar **o que o sweep captura** é decisão de
+cobrança, não refactor. Precisa da confirmação de qual valor vale: o reservado
+ou o real recalculado.
+
+**Contexto:** achado ao fechar o T15 parte B. O Seedance é o único provider cuja
+captura é dirigida pelo sweep, porque não registra tool de poll nem de download —
+só os 4 submits. Ver o comentário no site do Seedance em
+`src/mcp/handlers/register.ts`.
+
+**Esforço:** S (CC ~20min) depois da decisão.
+
 ## P2 — O campo `dryRun` do request é ignorado por todos os serviços
 
 **O quê:** todo schema de imagem tem `dryRun: z.boolean().default(false)`, mas
