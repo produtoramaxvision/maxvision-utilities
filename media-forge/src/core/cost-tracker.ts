@@ -97,6 +97,7 @@ export interface RecordImageJobInput {
   readonly paramsHash: string;
   readonly estUsd: number;
   readonly createdAtOverride?: string;
+  readonly tenantId?: string;
 }
 
 export interface RecordImageActualInput {
@@ -120,9 +121,17 @@ export function recordImageJob(input: RecordImageJobInput): void {
   const createdAt = input.createdAtOverride ?? new Date().toISOString();
   db.prepare(
     `INSERT INTO image_jobs
-     (id, provider, model, params_hash, est_usd, status, created_at)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-  ).run(input.jobId, input.provider, input.model, input.paramsHash, input.estUsd, createdAt);
+     (id, provider, model, params_hash, est_usd, status, created_at, tenant_id)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+  ).run(
+    input.jobId,
+    input.provider,
+    input.model,
+    input.paramsHash,
+    input.estUsd,
+    createdAt,
+    input.tenantId ?? 'default',
+  );
 }
 
 /** Mirrors recordActualCost for image_jobs. Idempotent — only updates while
@@ -214,29 +223,63 @@ export function setJobTenant(opts: {
  * estimate — a cap that only summed settled jobs would let an unbounded
  * number of in-flight generations slip past it.
  *
+ * Multi-tenant: when `tenantId` is given, the cap is PER TENANT — only rows
+ * attributed to that tenant are summed, via COALESCE(tenant_id, 'default') = ?
+ * so pre-existing/legacy rows with a NULL tenant_id are attributed to
+ * 'default' (matching 008-video-jobs-tenant.sql's stated contract) instead of
+ * silently vanishing from every tenant's total. When `tenantId` is omitted,
+ * the query preserves the original install-wide behavior and sums every
+ * tenant's rows together — useful for an operator-level "whole install" view.
+ * The MCP cost guard (checkCostGuardOrThrow in handlers/register.ts) always
+ * calls this WITH a tenantId (deps.tenantId ?? 'default'): without per-tenant
+ * scoping, one busy tenant's spend would count against the daily cap for
+ * every other tenant on the same hosted install, denying them service.
+ *
  * NOT queryReport: that function computes a rolling 24h window from
  * Date.now() and reads only video_jobs — neither matches "today, UTC,
  * across all generation kinds".
  */
-export function dailySpendUsd(opts: { readonly dbPath: string; readonly dateUtc?: string }): number {
+export function dailySpendUsd(opts: {
+  readonly dbPath: string;
+  readonly dateUtc?: string;
+  readonly tenantId?: string;
+}): number {
   const db = ensureDb(opts.dbPath);
   const day = opts.dateUtc ?? new Date().toISOString().slice(0, 10);
 
-  const videoRow = db
-    .prepare(
-      `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total
-         FROM video_jobs
-        WHERE substr(created_at, 1, 10) = ?`,
-    )
-    .get(day) as { total: number };
+  const videoRow = opts.tenantId
+    ? (db
+        .prepare(
+          `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total
+             FROM video_jobs
+            WHERE substr(created_at, 1, 10) = ?
+              AND COALESCE(tenant_id, 'default') = ?`,
+        )
+        .get(day, opts.tenantId) as { total: number })
+    : (db
+        .prepare(
+          `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total
+             FROM video_jobs
+            WHERE substr(created_at, 1, 10) = ?`,
+        )
+        .get(day) as { total: number });
 
-  const imageRow = db
-    .prepare(
-      `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total
-         FROM image_jobs
-        WHERE substr(created_at, 1, 10) = ?`,
-    )
-    .get(day) as { total: number };
+  const imageRow = opts.tenantId
+    ? (db
+        .prepare(
+          `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total
+             FROM image_jobs
+            WHERE substr(created_at, 1, 10) = ?
+              AND COALESCE(tenant_id, 'default') = ?`,
+        )
+        .get(day, opts.tenantId) as { total: number })
+    : (db
+        .prepare(
+          `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total
+             FROM image_jobs
+            WHERE substr(created_at, 1, 10) = ?`,
+        )
+        .get(day) as { total: number });
 
   return (videoRow.total ?? 0) + (imageRow.total ?? 0);
 }

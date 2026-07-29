@@ -179,7 +179,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
   // hits the network), so no such gating is needed there.
   // ---------------------------------------------------------------------------
   function checkCostGuardOrThrow(estimateUsd: number): { costWarning?: string } {
-    const spentTodayUsd = dailySpendUsd({ dbPath: defaultDbPath() });
+    const spentTodayUsd = dailySpendUsd({ dbPath: defaultDbPath(), tenantId: deps.tenantId ?? 'default' });
     const decision = evaluateCostGuard({
       estimateUsd,
       spentTodayUsd,
@@ -248,6 +248,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       model,
       paramsHash: hashImageParams(paramsForHash),
       estUsd: estimateUsd,
+      tenantId: deps.tenantId ?? 'default',
     });
     let result: T;
     try {

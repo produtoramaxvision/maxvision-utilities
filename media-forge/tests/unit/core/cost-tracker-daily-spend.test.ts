@@ -12,6 +12,7 @@ import {
   recordImageJob,
   recordImageActualCost,
   dailySpendUsd,
+  setJobTenant,
 } from '../../../src/core/cost-tracker.js';
 import { closeDb } from '../../../src/core/db.js';
 
@@ -160,5 +161,140 @@ describe('dailySpendUsd', () => {
       createdAtOverride: `${today}T00:00:01.000Z`,
     });
     expect(dailySpendUsd({ dbPath })).toBeCloseTo(0.24, 5);
+  });
+});
+
+describe('dailySpendUsd — tenant scoping (multi-tenant cost guard)', () => {
+  const today = '2026-06-15';
+
+  it('keeps two tenants isolated — tenant A rows do not count toward tenant B total (image_jobs)', () => {
+    recordImageJob({
+      dbPath,
+      jobId: 'i-tenant-a',
+      provider: 'google',
+      model: 'gemini-3-pro-image-preview',
+      paramsHash: 'h',
+      estUsd: 1.0,
+      createdAtOverride: `${today}T10:00:00.000Z`,
+      tenantId: 'tenant-a',
+    });
+    recordImageJob({
+      dbPath,
+      jobId: 'i-tenant-b',
+      provider: 'google',
+      model: 'gemini-3-pro-image-preview',
+      paramsHash: 'h',
+      estUsd: 5.0,
+      createdAtOverride: `${today}T10:00:00.000Z`,
+      tenantId: 'tenant-b',
+    });
+    expect(dailySpendUsd({ dbPath, dateUtc: today, tenantId: 'tenant-a' })).toBeCloseTo(1.0, 5);
+    expect(dailySpendUsd({ dbPath, dateUtc: today, tenantId: 'tenant-b' })).toBeCloseTo(5.0, 5);
+  });
+
+  it('keeps two tenants isolated for video_jobs too (setJobTenant attribution)', () => {
+    recordJob({
+      dbPath,
+      jobId: 'v-tenant-a',
+      provider: 'kling',
+      model: 'kling-v3-pro',
+      mode: 't2v',
+      paramsHash: 'h',
+      estUsd: 2.0,
+      createdAtOverride: `${today}T10:00:00.000Z`,
+    });
+    setJobTenant({ dbPath, jobId: 'v-tenant-a', tenantId: 'tenant-a' });
+    recordJob({
+      dbPath,
+      jobId: 'v-tenant-b',
+      provider: 'kling',
+      model: 'kling-v3-pro',
+      mode: 't2v',
+      paramsHash: 'h',
+      estUsd: 7.0,
+      createdAtOverride: `${today}T10:00:00.000Z`,
+    });
+    setJobTenant({ dbPath, jobId: 'v-tenant-b', tenantId: 'tenant-b' });
+    expect(dailySpendUsd({ dbPath, dateUtc: today, tenantId: 'tenant-a' })).toBeCloseTo(2.0, 5);
+    expect(dailySpendUsd({ dbPath, dateUtc: today, tenantId: 'tenant-b' })).toBeCloseTo(7.0, 5);
+  });
+
+  it('attributes a NULL tenant_id row (pre-existing/legacy, never tenant-tagged) to "default"', () => {
+    // recordJob never sets tenant_id — it stays NULL until setJobTenant runs, which
+    // mirrors real pre-existing rows written before the tenant column existed.
+    recordJob({
+      dbPath,
+      jobId: 'v-legacy-null-tenant',
+      provider: 'kling',
+      model: 'kling-v3-pro',
+      mode: 't2v',
+      paramsHash: 'h',
+      estUsd: 3.0,
+      createdAtOverride: `${today}T10:00:00.000Z`,
+    });
+    expect(dailySpendUsd({ dbPath, dateUtc: today, tenantId: 'default' })).toBeCloseTo(3.0, 5);
+    // A different tenant must NOT see the legacy NULL row's spend.
+    expect(dailySpendUsd({ dbPath, dateUtc: today, tenantId: 'some-other-tenant' })).toBe(0);
+  });
+
+  it('omitting tenantId still returns the install-wide sum across every tenant', () => {
+    recordImageJob({
+      dbPath,
+      jobId: 'i-install-wide-a',
+      provider: 'google',
+      model: 'gemini-3-pro-image-preview',
+      paramsHash: 'h',
+      estUsd: 0.5,
+      createdAtOverride: `${today}T10:00:00.000Z`,
+      tenantId: 'tenant-a',
+    });
+    recordImageJob({
+      dbPath,
+      jobId: 'i-install-wide-b',
+      provider: 'google',
+      model: 'gemini-3-pro-image-preview',
+      paramsHash: 'h',
+      estUsd: 1.5,
+      createdAtOverride: `${today}T10:00:00.000Z`,
+      tenantId: 'tenant-b',
+    });
+    expect(dailySpendUsd({ dbPath, dateUtc: today })).toBeCloseTo(2.0, 5);
+  });
+
+  it('applies the tenant filter to BOTH image_jobs and video_jobs at once, not just one table', () => {
+    recordJob({
+      dbPath,
+      jobId: 'v-mixed-a',
+      provider: 'kling',
+      model: 'kling-v3-pro',
+      mode: 't2v',
+      paramsHash: 'h',
+      estUsd: 4.0,
+      createdAtOverride: `${today}T10:00:00.000Z`,
+    });
+    setJobTenant({ dbPath, jobId: 'v-mixed-a', tenantId: 'tenant-a' });
+    recordImageJob({
+      dbPath,
+      jobId: 'i-mixed-a',
+      provider: 'google',
+      model: 'gemini-3-pro-image-preview',
+      paramsHash: 'h',
+      estUsd: 0.24,
+      createdAtOverride: `${today}T10:00:00.000Z`,
+      tenantId: 'tenant-a',
+    });
+    recordImageJob({
+      dbPath,
+      jobId: 'i-mixed-b',
+      provider: 'google',
+      model: 'gemini-3-pro-image-preview',
+      paramsHash: 'h',
+      estUsd: 9.0,
+      createdAtOverride: `${today}T10:00:00.000Z`,
+      tenantId: 'tenant-b',
+    });
+    // tenant-a's total is its video row PLUS its image row — tenant-b's $9 image
+    // spend must not leak in from either table.
+    expect(dailySpendUsd({ dbPath, dateUtc: today, tenantId: 'tenant-a' })).toBeCloseTo(4.24, 5);
   });
 });
