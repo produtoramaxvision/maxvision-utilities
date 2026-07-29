@@ -86,14 +86,18 @@ alterado em nenhum commit.
 | PR0 | 1. Split de `handlers.ts` | **feito** | `96c8751` |
 | PR0 | 2. `llm-models.ts` (registry por papel) | **não feito, premissa caiu** | — |
 | PR0 | 3. `llm-invoke.ts` (extrair dual-mode) | **não feito, tirado do PR0** | — |
-| PR1 | T1 credenciais | **bloqueado** — falta o valor da chave | — |
+| PR1 | T1 credenciais | **feito** — chave no `.env`, gitignored | (sem commit: `.env` não é versionado) |
 | PR1 | T7 MCP remoto como sonda | pendente | — |
 | PR1 | T2 auth dual-mode | **feito** | `28d732b` |
 | PR1 | ~~T3 endpoints~~ | **retratado, não existe** | `e35ae72` |
 | PR1 | T4 rates | **bloqueado** — não verificável por context7 | — |
 | PR1 | T4-b bug do 4K | **feito** (fora do plano original) | `b84756c` |
-| PR1 | T8 smoke test | **bloqueado** — depende de T1 | — |
-| PR2 | T9 / T9-b / T9-c absorção | pendente | — |
+| PR1 | T8 auth | **feito e validado na API real**, 0 créditos | — |
+| PR1 | T8 geração | **não executado** — gasta crédito, decisão do usuário | — |
+| PR2 | T9-c scan de injection | **feito** (gate do PR2, liberou) | `ff746e5` |
+| PR2 | T9 absorção | em andamento | — |
+| PR2 | T9-b evals | pendente | — |
+| PR2 | T9-d last-frame | pendente (lacuna achada no T9) | — |
 | PR3a | 10. Ledger de gasto + 13. os tiers consultados + 14. README | **feito** | `2688441`, `d14680f`, `bbc857b` |
 | PR3a | 11. Reserva **antes** do submit com ID próprio | **parcial** — só preflight de saldo no Kling | `2688441` |
 | PR3a | 12. Captura/liberação por poll, webhook e sweep | **feito junto do T15** | `c0415f9`, `13d3d37` |
@@ -164,16 +168,73 @@ O media-forge não é atualizado desde ~2026-05-27. Nesse intervalo:
 
 ## Tarefas
 
-### T1 — Rotacionar e provisionar credenciais (bloqueante, manual)
+### T1 — Provisionar credenciais — CONCLUÍDO (2026-07-29)
 
-- [ ] Usuário rotaciona a API Key do Kling no console (a antiga vazou no chat)
-- [ ] Gravar em `.env` (já em `.gitignore`), nunca hardcoded:
-      `KLING_API_KEY=...`
-- [ ] `higgsfield auth login` (interativo, OAuth PKCE)
-- [ ] `higgsfield account` → registrar se o saldo bate com o dashboard do plano
+- [x] `KLING_API_KEY` gravada em `media-forge/.env` (append, sem truncar a
+      `GOOGLE_API_KEY` que já estava lá)
+- [x] `git check-ignore -v .env` → `media-forge/.gitignore:15`. `git status` não
+      lista o arquivo. Nenhum segredo entra em commit.
+- [x] `higgsfield auth login` feito em sessão anterior; `higgsfield account status`
+      retornou `produtoramaxvision@gmail.com — pro plan, 610 credits`
+- [ ] ~~Rotacionar a chave~~ — **decisão explícita do usuário: não rotacionar,
+      usar a mesma.** A chave apareceu no histórico de chat e no cache de imagem.
 
-Critério: `higgsfield account --json` retorna saldo; `.env` contém `KLING_API_KEY`;
-`git status` não mostra `.env`.
+### T8 — Verificação — metade de auth CONCLUÍDA, zero créditos gastos
+
+Sonda de custo zero: `GET /v1/videos/text2video/<id-inexistente>` com a chave.
+Chave inválida devolveria 401; chave válida devolve erro de negócio.
+
+```
+HTTP 400
+{"code":1201,"message":"Task not found by id/external id: mf-auth-probe-nonexistent",
+ "request_id":"13fef8e2-f5a0-4ee0-a81f-f40872d96095"}
+```
+
+Erro de negócio, não de auth. **A chave autentica.** Isso prova três coisas de
+uma vez:
+
+1. **T2 está correto** — o esquema `Authorization: Bearer <api-key>` funciona
+2. **T3 estava mesmo errado** — o path `/v1/videos/text2video/{task_id}` resolveu
+   e fez lookup do id. Não existe path versionado por modelo.
+3. O domínio `api-singapore.klingai.com` é o certo
+
+E o código do media-forge produz exatamente esse header. Rodando
+`getKlingAuthHeader` sobre o `.env` real:
+
+```
+scheme: Bearer
+token length: 57
+is a JWT (3 segments): false
+equals KLING_API_KEY exactly: true
+```
+
+Falta do T8: o smoke test de **geração**, que gasta crédito. Não executado por
+instrução do usuário.
+
+### T9-d — Extração de last-frame (lacuna descoberta no T9)
+
+`skills/seedance-continuation`, `references/continuation-handoff.md` e
+`references/sequence-worked-trace.md` instruem rodar
+`scripts/extract_last_frame.py` do upstream. Esse script **não é vendorizado** —
+só `skills/`, `references/` e `schemas/` entram.
+
+Verificado no media-forge: `lastFrameImagePath` é **consumido** como entrada
+(`base.ts:236`, `capabilities.ts:117`, CLI `--last`), mas **nada extrai** o
+último frame de um vídeo gerado. `src/core/ffmpeg.ts` só resolve o caminho do
+binário (`resolveFfmpegPath`), não executa filtro nenhum.
+
+Ou seja: o fluxo de continuação que essas skills ensinam — gerar clipe 1, tirar o
+último frame, alimentar como primeiro frame do clipe 2 — **tem um elo faltando**
+no media-forge. O usuário pediu Seedance "funcionando profissional igual nas
+outras plataformas", e essa é a peça que falta.
+
+- [ ] Extração do último frame via `ffmpeg-static`, que já é dependência
+- [ ] Superfície MCP + CLI, coerente com as tools existentes
+- [ ] Alimenta `lastFrameImagePath` sem passo manual
+- [ ] Substituir os marcadores de ponteiro morto deixados pelo T9
+
+**Não** inventar comando antes de existir: o T9 deixa marcador honesto dizendo
+qual capacidade falta, e o T9-d entrega.
 
 ### T2 — Kling dual-mode auth
 
