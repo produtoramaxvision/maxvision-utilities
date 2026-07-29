@@ -1,25 +1,79 @@
 # Higgsfield + Kling — atualização para os padrões oficiais de 2026-07-29
 
-Status: aguardando execução
-Branch base: **ver T0 abaixo** — `homolog` NÃO contém o fix que T15 precisa.
+Status: T0 concluído em 2026-07-29 — base pronta, PR0 liberado.
+Branch base: `feat/media-forge-refresh`, ramificada de **`origin/homolog`** (927293f).
 
-### T0 — Preparar a base (bloqueante, antes de qualquer PR)
+### T0 — Preparar a base — CONCLUÍDO
 
-`git branch --contains 97cb0b9` retorna **apenas** `feat/n8n-mcp-alignment`.
-O commit é `fix(media-forge): job-status degrades to 'unknown' on db open failure
-(v0.2.2)` — exatamente o oracle de job-status que T15 vai consumir. Ramificar de
-`homolog` reintroduziria um bug já corrigido.
+**Correção de premissa (2026-07-29).** A versão anterior deste T0 mandava fazer
+`cherry-pick 97cb0b9` para `homolog`. Estava **errado**: o check original usou
+`git branch --contains`, que só olha branches **locais**, e o `homolog` local
+estava desatualizado (682e2e3) frente ao `origin/homolog` (927293f).
 
-- [ ] **Antes de tudo:** tratar o working tree sujo. Há modificações não commitadas
-      em `credit-core/src/http.ts`, `credit-core/src/probe.ts`,
-      `credit-core/tests/probe.test.ts` e 2 specs. Commitar ou fazer stash — trocar
-      de branch com isso pendente é como se perde trabalho.
-- [ ] `git checkout homolog && git cherry-pick 97cb0b9`
-- [ ] `git checkout -b feat/media-forge-refresh homolog`
-- [ ] Verificar: `git branch --contains 97cb0b9` passa a listar `homolog` também
+Verificado: `git merge-base --is-ancestor 97cb0b9 origin/homolog` retorna 0 —
+o oracle de job-status que T15 consome **já está em `origin/homolog`**. Nenhum
+cherry-pick é necessário. Não reintroduzir esse passo.
 
-Resultado: base limpa, com o oracle correto, sem herdar os 338 arquivos de
-n8n-skills da branch atual.
+Segunda correção: as modificações não commitadas em `credit-core/` e nos 2 specs
+**não eram trabalho novo**. `git diff origin/homolog -- credit-core/` e
+`-- .maxvision/` retornaram vazio: o conteúdo já estava em `origin/homolog`
+(credit-core 0.1.3 com `isProbeUrlAllowed`). Eram artefato de working tree numa
+branch atrasada. Descartadas com perda zero, provada pelo diff vazio.
+
+Executado:
+
+- [x] Os 12 `.md` untracked (planos n8n + prompts de landing) commitados em
+      `feat/n8n-mcp-alignment` (`d65cd2d`) — pertencem àquele trabalho, não a este
+- [x] `git restore` nos 5 arquivos tracked (idênticos a `origin/homolog`)
+- [x] `git checkout -b feat/media-forge-refresh origin/homolog`
+- [x] `git cherry-pick 088f694` (traz este plano + `TODOS.md`) → `96e4fdc`
+
+**Terceira correção, a que mais importa.** Este plano inteiro foi escrito lendo
+`feat/n8n-mcp-alignment`, que está **80 arquivos / +2134 / −3867 atrás** de
+`origin/homolog`. Todos os números de linha citados no plano estão defasados.
+Os achados de substância foram re-verificados em `origin/homolog` e **sobrevivem**
+(ver "Baseline real" abaixo), mas trate qualquer `arquivo.ts:NNN` do plano como
+aproximado até reconferir.
+
+### Baseline real (medido em `feat/media-forge-refresh`, 2026-07-29)
+
+Executado por subagent Sonnet e **reconferido pessoalmente** — as duas execuções
+bateram exatamente.
+
+```
+ Test Files  169 passed | 4 skipped (173)
+      Tests  1587 passed | 8 skipped (1595)
+```
+
+- `pnpm test` (config default, com embedded-postgres via `globalSetup`): **0 falhas**
+- `pnpm typecheck`: limpo, exit 0, sem output
+- `pnpm lint` (`eslint . --max-warnings=0`): limpo, exit 0, sem output
+- 185 arquivos `*.test.ts` tracked; 173 coletados pela config default
+- media-forge na `origin/homolog` está em **v0.2.8** (o plano dizia 0.2.2)
+
+**`pnpm test:evals` NÃO entra no gate.** Falha com 2/2 testes por credencial
+ausente, não por defeito de código:
+- `tests/evals/refs-match-eval.test.ts:100` — `reason: VOYAGE_API_KEY not set`
+- `tests/evals/reviewer-calibration.test.ts:50` — `Could not resolve authentication
+  method` vindo de `src/review/llm-judge.ts:296` (chamada ao SDK da Anthropic)
+
+Ou seja: o número do plano ("181 testes") estava errado nas duas leituras — não são
+181 testes nem 181 arquivos. **O gate de regressão é `1587 passed | 8 skipped`,
+com typecheck e lint limpos.**
+
+### Achados re-verificados em `origin/homolog` (todos continuam válidos)
+
+| Achado | Onde, agora | Status |
+|---|---|---|
+| Cost guard prometido e não implementado | `src/core/config.ts:71` e `:179` (era `:187`) — só 2 ocorrências de `dailyCapUsd` em `src/`, nenhum handler consulta | confirmado |
+| Modelo de judge desatualizado | `src/review/llm-judge.ts:297` — `model: 'claude-opus-4-7'` | confirmado |
+| Kling só tem auth legacy | `src/video/providers/auth/kling-jwt.ts:82` usa `KLING_ACCESS_KEY`; `KLING_API_KEY` não existe em `src/` | confirmado |
+| `NOTICE` não é publicado | `media-forge/package.json` → array `files` sem `NOTICE` | confirmado |
+| T15 é estrutural, não trivial | `src/mcp/handlers.ts:2061` (era `:2057`) + 5 outros pontos `DEFERRED` (2075, 2085, 2095, 2702, 2988) | confirmado |
+| T5 precisa ser transporte, não Provider | `src/core/models.ts` tem **10** specs `provider: 'higgsfield'`; `PROVIDERS` na linha 62 | confirmado |
+| Não reinventar pricing/billing | `src/core/pricing.ts:10` já tem `usdPerCredit` + `credits-per-video`; `src/billing/debit.ts:13` já exporta `reserveForJob` | confirmado |
+| T12 fica adiado | `src/video/providers/base.ts:57` — `multiReferenceImages?: ReadonlyArray<string>`, ainda sem campo de papel | confirmado |
+| `handlers.ts` grande o bastante pra justificar PR0 | 3092 linhas (era 3049); `ADAPTED_PROVIDERS_BASE` na linha 169 (era 163) | confirmado |
 
 ## Contexto
 
@@ -301,6 +355,53 @@ Lacuna real encontrada ao comparar com o `config.yaml` do OpenMontage (ideia, n�
       retries do T11 — o job morre no meio
 - [ ] `mode: observe | warn | cap` explicitando o comportamento atual
 
+**T14 depende de T14-pre. Não existe cap diário para reservar percentual.**
+
+### T14-pre — Implementar os cost guards que o README já vende (PR3a, BLOQUEANTE)
+
+Descoberto em 2026-07-29 re-verificando em `origin/homolog`. **Pior que o achado
+C7 original**, que falava só do cap diário. Os três thresholds existem apenas como
+config morta:
+
+| Campo | Declarado | Lido em `envFloat` | Consultado por algum handler |
+|---|---|---|---|
+| `dailyCapUsd` | `config.ts:71` | `:179` (default 25) | **não** |
+| `confirmThresholdUsd` | `config.ts:72` | `:180` (default 0.5) | **não** |
+| `blockThresholdUsd` | `config.ts:73` | `:181` (default 2.0) | **não** |
+
+Evidência: `grep -rn "<campo>" src/` retorna **só** as duas linhas de `config.ts`
+para cada um dos três. `grep -rniE "hard.?block|blockAbove|maxCostUsd|costCeiling"`
+em `src/` retorna **zero**. `src/core/cost.ts` tem `dailyTotal()`, mas é função de
+relatório: `handlers.ts` importa `queryReport` (ferramenta de report) e
+`recordActualCost`, nunca um guard. Os testes que citam `blockThresholdUsd`
+(`config.test.ts:62` e 7 outros) só verificam que o valor foi *parseado* — nenhum
+testa enforcement.
+
+Dos 4 tiers anunciados, **só o dry-run existe** (`dryRun`: 100 ocorrências em `src/`).
+
+O `README.md` vende os outros três como funcionalidade entregue:
+
+> `README.md:21` — "Cost guards (dry-run default, confirmation prompt above $0.50,
+> hard block above $2.00, daily cap at $25) mitigate budget exposure"
+>
+> `README.md:159` — "media-forge applies a four-tier guard to every generation call"
+>
+> `README.md:167` — "Daily cap | $25 / day (configurable) | Blocks all spending past
+> the cap; requires `--override-daily-cap`"
+
+A flag `--override-daily-cap` documentada não existe no código.
+
+Isso é promessa não cumprida a quem paga pelo plugin, e é o item que mais pesa
+contra "apto para produção". Escopo:
+
+- [ ] Guard consultado no caminho de geração (imagem e vídeo), antes do submit
+- [ ] `blockThresholdUsd`: erro duro, não prompt
+- [ ] `confirmThresholdUsd`: exige confirmação explícita
+- [ ] `dailyCapUsd`: soma via `dailyTotal()` + custo estimado; bloqueia ao exceder
+- [ ] `--override-daily-cap` implementada, ou removida do README — não as duas coisas
+- [ ] Teste de enforcement por tier (hoje só existe teste de parsing)
+- [ ] README reconciliado com o que o código faz de fato
+
 ## Delegação de testes e validação
 
 Por instrução do usuário, **toda validação e teste vai para subagentes Sonnet 5.0**,
@@ -402,10 +503,13 @@ Resequenciada em 2026-07-29 após a voz externa. A ordem anterior colocava T15
 dentro do PR2 com base numa estimativa de 40min que se mostrou errada (ver C1).
 
 **PR0 — Refatoração pura** (zero mudança de comportamento)
-1. Extrair `handlers.ts` (3.049 linhas) em módulos por domínio
+1. Extrair `handlers.ts` (3.092 linhas) em módulos por domínio
 2. `src/core/llm-models.ts` — registry de modelo por papel (corrige `claude-opus-4-7`)
 3. `src/core/llm-invoke.ts` — extrair o dual-mode `subagent | sdk` de `llm-judge.ts`
-   - Gate: os 181 testes passam **sem uma linha de teste alterada**
+   - Gate: `pnpm test` continua em **`1587 passed | 8 skipped (1595)`** e
+     **`169 passed | 4 skipped (173)`** arquivos, **sem uma linha de teste alterada**,
+     com `pnpm typecheck` e `pnpm lint` limpos. Qualquer desvio nesses números
+     reprova o PR — inclusive testes *a mais*, que indicariam mudança de escopo.
 
 **PR1 — Kling + sonda de crédito** (risco baixo, urgente)
 4. **T1** — credenciais em `.env` (manual, bloqueante)
@@ -705,11 +809,11 @@ de chamada e formato de saída, antes de escrever qualquer adapter.
 | `soul-id-cache.ts` + `migrations/sqlite/002-soul-ids.sql` | T6 (não recria) |
 | Reviewer 3 estágios, máx 3 tentativas (`src/review/`) | T11 estende |
 | `trace.jsonl` + `lineage.json` | T10 reconcilia |
-| Cost-guard 4 tiers + cap diário | T14 estende |
-| `ADAPTED_PROVIDERS` como gate (`handlers.ts:163`) | T5, T16 reusam |
-| `vitest.evals.config.ts` + `pnpm test:evals` | T9-b liga a suíte |
+| Cost-guard 4 tiers (o cap diário **não** existe de fato — ver PR3a) | T14 estende |
+| `ADAPTED_PROVIDERS` como gate (`handlers.ts:169`) | T5, T16 reusam |
+| `vitest.evals.config.ts` + `pnpm test:evals` (hoje 2/2 falhando por credencial) | T9-b liga a suíte |
 | `ffmpeg-static` + `src/core/ffmpeg.ts` | smartcut, se um dia |
-| 181 arquivos de teste | base para toda validação nova |
+| 185 arquivos `*.test.ts` tracked; 173 coletados; 1587 testes verdes | base para toda validação nova |
 
 ## MAXVISION ORCHESTRATION REVIEW REPORT
 
@@ -746,11 +850,12 @@ de chamada e formato de saída, antes de escrever qualquer adapter.
 
 | # | Achado | Evidência |
 |---|---|---|
-| C7 | **Cost-guard não existe como enforcement** | `config.ts:71,187` são os únicos usos de `dailyCapUsd`; nenhum handler consulta. `README.md` promete 4 tiers inexistentes |
-| C8 | Reserva acontece **depois** do gasto | `handlers.ts:2807` — `// reserve AFTER submit` |
+| C7 | **Cost-guard não existe como enforcement** | `config.ts:71,179` são os únicos usos de `dailyCapUsd`; nenhum handler consulta. `README.md` promete 4 tiers inexistentes |
+| C8 | Reserva acontece **depois** do gasto | `handlers.ts` — `// reserve AFTER submit` |
 | C9 | Atribuição MIT não chegaria ao pacote | `package.json` `files` tem `LICENSE`, não tem `NOTICE` |
 | C10 | T7 contorna adapter, ledger, trace e tenant gates | MCP remoto gera fora de todo controle |
-| — | Base de branch errada | `git branch --contains 97cb0b9` retorna só `feat/n8n-mcp-alignment`; `homolog` perderia o oracle que T15 usa → **T0** |
+| ~~—~~ | ~~Base de branch errada~~ **RETRATADO** | O check usou `git branch --contains` (só branches locais) com `homolog` local defasado. `git merge-base --is-ancestor 97cb0b9 origin/homolog` = 0: o oracle **já estava** em `origin/homolog`. Nenhum cherry-pick era necessário |
+| — | **Plano medido na branch errada** | Todo o plano foi escrito lendo `feat/n8n-mcp-alignment`, 80 arquivos atrás de `origin/homolog`. Achados de substância re-verificados e mantidos; números de linha e o baseline de testes corrigidos (ver T0) |
 
 **CROSS-MODEL:** Codex 0.128.0 falhou (`gpt-5.6-sol requires newer version`);
 migrado npm→pnpm e atualizado para 0.146.0, então re-executado. As duas vozes
