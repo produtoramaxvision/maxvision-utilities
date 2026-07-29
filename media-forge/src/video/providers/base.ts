@@ -132,8 +132,15 @@ export interface KlingExtras {
   readonly callbackUrl?: string;
   /** Optional external task id passed back in webhook payload — auto-set to internal jobId. */
   readonly externalTaskId?: string;
-  /** Mode selection within Kling: 'std' (Standard) or 'pro'. Defaults align with model id. */
-  readonly klingMode?: 'std' | 'pro';
+  /**
+   * Mode selection within Kling. Per Kling API docs (`api/video/2-6`), a
+   * three-value enum that also determines output resolution:
+   *   'std' — Standard Mode, output resolution 720P.
+   *   'pro' — Professional Mode, output resolution 1080P.
+   *   '4k'  — 4K Mode, output resolution 4K.
+   * Defaults align with model id (see KlingProvider's buildRequestBody).
+   */
+  readonly klingMode?: 'std' | 'pro' | '4k';
   /** Video reference URL for motion control mode (3-30s reference video). */
   readonly motionReferenceVideoUrl?: string;
 }

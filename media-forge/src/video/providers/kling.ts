@@ -441,8 +441,13 @@ interface BuildBodyArgs {
 
 function buildRequestBody(args: BuildBodyArgs): Record<string, unknown> {
   const { req, spec, jobId, extras, env } = args;
+  // FIX (T4-b): '-master' must derive '4k', not 'pro' — kling-v3-master is the
+  // only 4K-native model in the registry (resolutions: ['4k']) and Kling's
+  // `mode` enum is std=720P / pro=1080P / 4k=4K. Sending 'pro' for a 4K
+  // request under-delivers resolution while billing at the 4K rate.
   const klingMode =
-    extras?.klingMode ?? (spec.id.includes('-pro') || spec.id.includes('-master') ? 'pro' : 'std');
+    extras?.klingMode ??
+    (spec.id.includes('-master') ? '4k' : spec.id.includes('-pro') ? 'pro' : 'std');
   const watermarkEnabled = extras?.watermarkEnabled ?? false;
 
   // FIX (Codex P1, PR#11): media-forge webhook router rejects POSTs without

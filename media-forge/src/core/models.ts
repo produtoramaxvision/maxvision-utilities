@@ -339,6 +339,9 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
     provider: 'kling',
     modes: ['t2v', 'i2v', 'motion-brush', 'elements', 'lip-sync', 'extend'],
     maxDurationSec: 10,
+    // '2k' unverified: Kling's `mode` enum (std/pro/4k) maps 'pro' to 1080P output only —
+    // no dedicated 2K mode exists per docs. Left in place: tests/core/models-registry.test.ts:124
+    // asserts on it and it's part of the shared cross-provider resolution union (base.ts/schemas.ts).
     resolutions: ['1080p', '2k'],
     fps: [24, 30],
     audioNative: true,
