@@ -88,5 +88,106 @@ cálculo de custo — que é exatamente o problema que T15 existe para fechar.
 caso de T10 entregar os dois convivendo por conveniência de prazo. Se isso
 acontecer, é dívida a pagar antes do PR3.
 
+**Atualização 2026-07-29:** não são dois registros, são **três**. Mapeados ao
+implementar o cost guard:
+
+| Escritor | Onde grava | Quem lê |
+|---|---|---|
+| `cost-tracker.recordJob` (4 providers de vídeo) | SQLite `video_jobs` | `queryReport`, `dailySpendUsd`, sweep do credit-core |
+| `cost-tracker.recordImageJob` (novo, 3 tools de imagem) | SQLite `image_jobs` | `dailySpendUsd` |
+| `OutputManager.appendCostLog` | `<jobDir>/cost.jsonl` | **ninguém** (ver P1 abaixo) |
+
+Além do `trace.jsonl`. Quem for fechar este TODO parte daqui, não precisa
+re-derivar.
+
 **Esforço:** S (human ~2h / CC ~15min)
 **Depende de:** T10 concluída.
+
+---
+
+# Bugs herdados encontrados em 2026-07-29
+
+Achados ao implementar os cost guards. Todos verificados no código, nenhum é
+suposição. Ordenados por impacto financeiro.
+
+## P1 — Dry-run cobra créditos por geração que nunca acontece
+
+**O quê:** com billing ligado, `withImageDebit` roda incondicionalmente, inclusive
+em dry-run. Reserva e captura crédito de uma chamada que nunca chega ao provider.
+
+**Impacto:** o cliente paga por simulação. É cobrança indevida, não só desperdício.
+
+**Contexto:** o cost guard novo já é pulado sob `client.dryRun` justamente para não
+poluir o ledger com linha fantasma. O caminho de crédito ficou de fora porque já
+era incondicional antes e estava fora do escopo daquele PR.
+
+**Onde:** `src/mcp/handlers/register.ts`, os 3 sites de imagem.
+**Esforço:** S (CC ~15min)
+
+## P1 — `media_edit_image` e `media_compose_scene` geram sem debitar
+
+**O quê:** nenhuma das duas chama `withImageDebit`. Geram, entregam o resultado,
+não reservam nem capturam crédito.
+
+**Impacto:** em modo hospedado é geração gratuita. Vazamento de receita direto.
+
+**Onde:** `src/mcp/handlers/register.ts`. `media_edit_image` agora tem cost guard e
+ledger (do PR dos guards), mas continua sem débito.
+**Esforço:** S (CC ~20min)
+
+## P1 — `media-forge cost --today` sempre reporta $0.00
+
+**O quê:** três defeitos em cadeia:
+
+1. `OutputManager.appendCostLog` (`src/output/output-manager.ts:273`) não tem
+   nenhum caller de produção — só testes chamam
+2. ele grava em `<jobDir>/cost.jsonl`, um arquivo por job
+3. o CLI (`src/cli/commands/cost.ts:83,189`) lê `<projectDir>/cost.jsonl`, um
+   caminho diferente que ninguém escreve
+
+**Impacto:** comando documentado que sempre responde zero. O usuário conclui que
+não gastou nada.
+
+**Correção provável:** apontar o CLI para `dailySpendUsd` / `queryReport` no
+SQLite, que agora tem imagem e vídeo, e decidir se o `cost.jsonl` continua
+existindo. Ver o TODO de reconciliação acima.
+**Esforço:** S (CC ~20min)
+
+## P2 — Veo, Higgsfield generate e Seedance submetem sem reserva
+
+**O quê:** só os 5 submits do Kling chamam `reserveVideoSubmit`. Os 4 tools do Veo,
+o generate do Higgsfield e os 4 do Seedance carregam `TODO(F-E ...-billing):
+DEFERRED` e não reservam nada.
+
+**Impacto:** mesma classe do item acima, em modo hospedado. O preflight de crédito
+novo também só cobre os 5 sites do Kling.
+
+**Contexto:** o deferral é estrutural, não preguiça — `handlers.ts` documenta que a
+reserva do Veo não é reconciliável sem um store de correlação submit→poll. É
+exatamente o que T15 constrói.
+**Depende de:** T15.
+
+## P2 — `maybeStoreImageArtifact` cunha um segundo jobId
+
+**O quê:** o `job_id` devolvido ao caller não é o mesmo usado na linha de
+`image_jobs`. Impossível correlacionar o que o usuário vê com o ledger.
+
+**Onde:** `src/mcp/handlers/register.ts`.
+**Esforço:** S (CC ~15min)
+
+## P3 — Comentário de `handleKlingElementDelete` mente sobre o contrato
+
+**O quê:** o banner diz "Requires confirm:true — irreversible on backend". O código
+ramifica em `input.alsoDeleteRemote`. Não existe campo `confirm`.
+
+**Onde:** `src/mcp/handlers/kling.ts`.
+**Esforço:** XS (CC ~5min)
+
+## P3 — `releaseVideoFailed` é export morto no call-site
+
+**O quê:** definido e exportado em `src/mcp/handlers/billing.ts`, nunca invocado por
+`registerAllTools`. O caminho de release em falha de vídeo não existe de fato.
+
+**Contexto:** provavelmente vira vivo com T15, que é quem passa a ter a estimativa
+no momento da falha. Se T15 fechar e ele continuar sem caller, deletar.
+**Depende de:** T15.
