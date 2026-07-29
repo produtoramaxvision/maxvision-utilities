@@ -78,8 +78,19 @@ com typecheck e lint limpos.**
 ## Situação das PRs (atualizado 2026-07-29)
 
 Rastreia a "Ordem de execução" do fim deste documento contra o que existe em
-`git log`. Testes saíram de 1587 para 1650 verdes; nenhum teste pré-existente foi
-alterado em nenhum commit.
+`git log`. Nenhum teste pré-existente foi alterado em nenhum commit.
+
+**Contagem de testes corrigida na auditoria de 2026-07-29 (medida, não estimada).**
+O número "1650" desta tabela estava defasado. Medições reais:
+
+| Ponto | Arquivos | Testes |
+|---|---|---|
+| baseline `origin/homolog` | 169 passed \| 4 skipped (173) | 1587 passed \| 8 skipped (1595) |
+| HEAD `adb955c` (derivado: atual − os 3 arquivos do T9-b) | 187 \| 4 (191) | 1687 \| 8 (1695) |
+| working tree atual (HEAD + T9-b não commitado) | **190 passed \| 4 skipped (194)** | **1715 passed \| 8 skipped (1723)** |
+
+`pnpm typecheck` exit 0, `pnpm lint` exit 0, `pnpm test` exit 0 — reconferidos
+pessoalmente na auditoria, não herdados de relatório de subagente.
 
 | PR | Item | Estado | Commit |
 |---|---|---|---|
@@ -95,9 +106,9 @@ alterado em nenhum commit.
 | PR1 | T8 auth | **feito e validado na API real**, 0 créditos | — |
 | PR1 | T8 geração | **não executado** — gasta crédito, decisão do usuário | — |
 | PR2 | T9-c scan de injection | **feito** (gate do PR2, liberou) | `ff746e5` |
-| PR2 | T9 absorção | em andamento | — |
-| PR2 | T9-b evals | pendente | — |
-| PR2 | T9-d last-frame | pendente (lacuna achada no T9) | — |
+| PR2 | T9 absorção | **feito** — 27 skills `mf-*` + 60 references + 5 schemas; mirror thin ressincronizado no mesmo commit | `7fba029` |
+| PR2 | T9-b evals | **implementado, NÃO commitado** — 3 arquivos em `tests/skills/`, 28 testes verdes; ver "Interrupção" abaixo | working tree |
+| PR2 | T9-d last-frame | **feito** | `adb955c` |
 | PR3a | 10. Ledger de gasto + 13. os tiers consultados + 14. README | **feito** | `2688441`, `d14680f`, `bbc857b` |
 | PR3a | 11. Reserva **antes** do submit com ID próprio | **parcial** — só preflight de saldo no Kling | `2688441` |
 | PR3a | 12. Captura/liberação por poll, webhook e sweep | **feito junto do T15** | `c0415f9`, `13d3d37` |
@@ -890,7 +901,15 @@ autoridade que nunca chega ao provider.
 `media-forge/` tem `LICENSE` e `LICENSE-COMMERCIAL/EULA.md`. Não há `NOTICE`.
 T9 dizia "ou estender o existente" — errado.
 
-- [ ] T9 **cria** `media-forge/NOTICE` do zero
+- [x] T9 **cria** `media-forge/NOTICE` do zero — feito em `7fba029`
+
+**Correção da auditoria de 2026-07-29:** a primeira frase desta seção está errada.
+`LICENSE-COMMERCIAL/EULA.md` **não existe** — `ls LICENSE-COMMERCIAL/` falha e
+`git ls-files` não lista nenhum arquivo com `eula` no nome. Foi deletado em
+`7b5c82a` ("repo going private, self-host dropped"). Só `LICENSE` existe. Isso
+não muda a conclusão do C6 (o NOTICE tinha que ser criado do zero), mas abre um
+item novo: `commands/setup.md:156-158` ainda linka o EULA inexistente num plugin
+comercial. Registrado como A2 na auditoria no fim deste documento.
 
 ### Aberto, sem decisão ainda
 
@@ -1124,7 +1143,20 @@ Adiada: T12. Diferidas para `TODOS.md`: smartcut, novel2movie, reconciliação
 `generation-run`.
 
 **CRITICAL GAPS:** 2 do CEO review (mitigados), 6 da primeira voz externa
-(corrigidos), 4 do Codex (corrigidos), 1 de base de branch (T0). 0 em aberto.
+(corrigidos), 4 do Codex (corrigidos), 1 de base de branch (T0). 0 em aberto
+**no plano**.
+
+**Correção da auditoria de 2026-07-29:** "0 em aberto" vale para o *plano*, não
+para o *código*. Resolvido no plano ≠ resolvido no código. Estado por achado,
+verificado arquivo a arquivo (ver "Auditoria da sessão" no fim deste documento):
+
+| Achado | No plano | No código |
+|---|---|---|
+| C7 cost-guard sem enforcement | corrigido | **fechado** (`2688441`, `d14680f`) |
+| C8 reserva depois do gasto | corrigido | **parcial** — só Veo reserva antes (`register.ts:336,349`); Kling/Higgsfield/Seedance seguem `reserve AFTER submit` com preflight que estreita, não fecha (`register.ts:308,1473`) |
+| C9 NOTICE fora do pacote | corrigido | **fechado** — `files` contém `"NOTICE"` |
+| C10 T7 é superfície não governada | corrigido | **aberto** — `commands/setup.md:144-151` descreve o MCP oficial mas **não** avisa que ele contorna ledger, reserva, trace e tenant gates |
+| C2 T5 como transporte | corrigido | **não iniciado** — sem campo `transport` em `models.ts`; `PROVIDERS` segue com 4 vendors |
 
 **RISCO COMERCIAL REGISTRADO:** o `README.md` do media-forge descreve um cost-guard
 de 4 tiers que o código não aplica. Enquanto PR3a não existir, isso é promessa não
@@ -1137,3 +1169,132 @@ vocabulário Seedance transfere para Kling e Veo; recomendação de corte do T16
 
 **VERDICT:** CEO + ENG CLEARED, com duas vozes externas aplicadas. Pronto para
 implementação a partir do T0. Nenhum crédito Higgsfield consumido durante os reviews.
+
+---
+
+# Auditoria da sessão interrompida (2026-07-29)
+
+Sessão `eaa39b6a-fb91-4705-a865-74ec1134ef6e`, 3.436 linhas de transcript,
+15 subagentes. Auditada linha a linha; cada afirmação abaixo tem evidência
+citada. Nada aqui vem de confiança em relatório de subagente — os itens de
+código foram reconferidos pessoalmente.
+
+## Causa da interrupção
+
+Não foi bug, não foi gap de implementação. Falha de servidor da Anthropic:
+
+```
+19:58:05Z  API Error: 529 Overloaded
+20:01:52Z  API Error: 529 Overloaded   (retry, mesma falha)
+```
+
+O primeiro 529 encerrou um turno de **7.909.721 ms (2h11min) / 2.714 mensagens**
+(`type: system, subtype: turn_duration`, uuid `dbb3ee30`). O turno havia acabado
+de receber o relatório do subagente T9-b às 19:54:37Z e ia commitar. O 529
+matou o turno antes do commit.
+
+**Consequência única:** o trabalho do T9-b ficou no working tree, não commitado.
+Nenhum código foi perdido, nenhum arquivo corrompido, nenhum crédito gasto.
+
+## Estado do T9-b (o único trabalho não commitado)
+
+```
+ M media-forge/NOTICE           (+12: divulga o port da lógica dos validadores Python)
+ M media-forge/package.json     (+1: devDependency ajv ^8.20.0)
+ M media-forge/vitest.config.ts (+7: registra os 3 arquivos no include explícito)
+ M pnpm-lock.yaml               (+3)
+?? media-forge/tests/skills/    (3 arquivos, 28 testes)
+```
+
+Verificado nesta auditoria:
+
+- os 3 arquivos rodados por nome → **3 passed, 28 passed** (11 + 15 + 2)
+- `pnpm test` completo → **190 passed | 4 skipped (194)** arquivos,
+  **1715 passed | 8 skipped (1723)** testes, exit 0
+- `pnpm typecheck` exit 0, `pnpm lint` exit 0
+- `ajv@8.20.0` já resolvido em `node_modules` (era dep transitiva do eslint)
+- Nenhum arquivo de teste pré-existente tocado
+
+**Desvio de desenho, deliberado e correto.** O plano (T9-b) mandava ligar os
+validadores ao `pnpm test:evals`. O subagente colocou na suíte principal porque
+`test:evals` falha 2/2 por credencial ausente e não entra no gate — um guard ali
+não guardaria nada. Os três validadores são **estruturais e offline** (leem
+markdown/JSON do disco, sem rede, sem chave). A decisão está documentada em
+comentário no próprio `vitest.config.ts`. **Registrar como desvio aprovado, não
+como gap.**
+
+**Afirmação legal do NOTICE, verificada pessoalmente (não aceita do subagente).**
+As +12 linhas do `NOTICE` afirmam *"No upstream source lines were copied; the
+checks were re-derived from reading the Python and its own test suite"*. Numa
+plataforma comercial, essa é uma afirmação de atribuição — checada contra a fonte
+primária, não contra o relatório de quem a escreveu. Baixados os 4 validadores do
+upstream no commit pinado `6c51262`
+(`scripts/{validate_skills,prompt_lint,schema_check,behavior_contract_check}.py`,
+HTTP 200 nos 4) e comparados com os 3 arquivos novos:
+
+- 363 linhas substantivas (>25 chars) no upstream → **0 linhas verbatim** nos testes
+- 3 literais de string em comum, todos **identificadores de dado**, não código:
+  `'## Compiled Natural-Language Prompt'`, `'## Control-Critical Sentences'`,
+  `'references/prompt-compiler.md'` — são nomes de seção e um caminho de arquivo
+  que os dois lados validam, não expressão copiada
+
+A afirmação do NOTICE **se sustenta**. Liberado para commit.
+
+Ressalva do subagente, verificada: `tsc --noEmit` usa o `tsconfig.json` base,
+que exclui o diretório `tests/` — o gate de typecheck já era vacuamente cego a
+arquivos de teste antes desta mudança. Ele rodou `tsc -p tsconfig.test.json`
+adicionalmente e corrigiu 2 erros reais de `string | undefined`. Os ~20 erros
+restantes sob `tsconfig.test.json` são pré-existentes e fora de `tests/skills/`.
+
+## Não existe nenhuma PR
+
+`git branch -a` não tem `remotes/origin/feat/media-forge-refresh`. Os **18
+commits** (`origin/homolog..feat/media-forge-refresh`) são **100% locais, zero
+pushados**. Os rótulos "PR0/PR1/PR2/PR3a/PR3b" deste plano são **agrupamentos de
+commit**, não PRs do GitHub. As PRs abertas no repo (#17, #26–#29) são 4 bumps
+do dependabot + gitleaks, todas alheias a este trabalho.
+
+## Itens abertos verificados no código (não inventados)
+
+Achados pelos subagentes e **reconferidos arquivo a arquivo** nesta auditoria:
+
+| # | Item | Evidência reconferida | Severidade |
+|---|---|---|---|
+| A1 | Os 5 schemas absorvidos ainda carregam identidade do upstream | `skills/_shared/schemas/*.json:3-4` — `$id` aponta para `github.com/Emily2040/seedance-2.0/schemas/...` e `title` começa com `Seedance` nos 5 | alta — rebrand do T9 incompleto; `$id` público aponta pro repo de terceiro. **Custo do fix medido:** baixo — os únicos `$ref` são fragmentos do mesmo documento (`#/$defs/...`, só em `project-state.schema.json`) e `schema-contract.test.ts` não afirma nada sobre `$id`. Reescrever `$id`/`title` não quebra os 15 testes |
+| A2 | `LICENSE-COMMERCIAL/EULA.md` não existe, mas é linkado | `ls LICENSE-COMMERCIAL/` não existe; `git ls-files` filtrado por `eula` retorna vazio. `commands/setup.md:156-158` linka o arquivo. Este plano (linha 890) também afirmava que ele existe | alta — plugin comercial linkando EULA inexistente. Deletado em `7b5c82a` ("repo going private, self-host dropped"), a referência ficou |
+| A3 | C10 sem mitigação escrita | `commands/setup.md:144-151` descreve o MCP oficial do Higgsfield e diz "both can coexist" — **não** avisa que ele contorna cost ledger, reserva, trace, lineage e tenant gates | alta — é exatamente o risco que C10 apontou |
+| A4 | Seedance captura sem `actualCredits` | `src/video/providers/bytedance-seedance.ts:439` chama `recordActualCost` sem `actualCredits`; o oracle (`src/http/job-status.ts:41`) só devolve o valor quando a coluna está preenchida | alta — o sweep captura pelo valor que decidir na ausência do dado. Já em `TODOS.md` P2; **precisa de decisão de cobrança, não de código** |
+| A5 | C8 fechado só para o Veo | `register.ts:336,349` reserva **antes** do submit (Veo); `register.ts:308,1473` documentam que Kling/Higgsfield/Seedance seguem `reserve AFTER submit`, com `preflightVideoCredit` estreitando a janela sem fechá-la | alta — bloqueia o PR4, porque T14 é especificado como consumidor do ledger do PR3a |
+| A6 | `higgsfield-prompting` sem campo de tools | o frontmatter de `skills/higgsfield-prompting/SKILL.md` não tem `allowed-tools`, ao contrário do irmão estrutural `kling-prompting` (`[Read, Grep]`) | média |
+| A7 | Colisão de skills segue sem regra | `kling-prompting` (5-part spine) e `higgsfield-prompting` (MCSLA + DoP) duplicam estruturalmente `mf-video-prompt` (Director Formula) e `mf-camera` (Camera Contract). Os 4 coexistem | média — já listado em "Aberto, sem decisão ainda" |
+| A8 | T4: 2 rates ainda PLACEHOLDER | `src/core/models.ts:367` `rate: 0.18` e `:385` `rate: 0.168`, ambos com o comentário "PLACEHOLDER — verify on first live invocation" | média — **bloqueia o fechamento do PR1** |
+| A9 | `behavior_contract_check.py` não portado | T9-b descartou o validador inteiro (os paths do upstream não existem aqui); o teste de phrase-pinning equivalente é construível mas ficou fora | baixa — decisão registrada, não silenciosa |
+| A10 | `validate:plugin --strict` falha | pré-existente e alheio: warning "CLAUDE.md at plugin root is not loaded as project context" | baixa |
+| A11 | `fallow audit` verdict `fail` | `dead_code_issues: 6`, `max_cyclomatic: 55`, `duplication_clone_groups: 92`. Dois subagentes provaram via `git stash` que é byte-idêntico antes/depois das mudanças — estado pré-existente do repo | baixa — nenhum commit desta branch introduziu |
+
+Itens que subagentes reportaram como abertos e que **já foram fechados** (não
+repropagar):
+
+- Mirror thin `plugins/media-forge-hosted/` com `seedance-prompting` — fechado no
+  próprio `7fba029` (27 `mf-*` presentes, nenhum arquivo com `seedance` no nome)
+- `docs/specification.md` com tabela de skills defasada — fechado
+  (`docs/specification.md:304` explica a substituição)
+- `NOTICE` fora do array `files` do `package.json` — fechado
+
+## O que ainda não foi tocado no plano
+
+`T7` (sonda MCP), `T4` (rates), `T8-geração` (gasta crédito, decisão do usuário),
+`T10`, `T11`, `T14`, `T5`, `T5-guard`, `T6`, `T13`, `T16`, `T17`, adapter MuAPI.
+`T12` adiado por C5. `T3` retratado.
+
+## Higiene de processo observada
+
+- **`TodoWrite`/`TaskCreate` nunca foi usado** na sessão inteira. O rastreamento
+  ficou só no `.md` do plano — que é o motivo pelo qual a tabela de status
+  divergiu do `git log` em 4 linhas e a contagem de testes ficou 65 testes atrás.
+- 14 subagentes despachados: 13 Sonnet + 1 Opus (voz externa), respeitando a
+  instrução do usuário de delegar teste e validação ao Sonnet.
+- 1 subagente de profundidade 2 (`Extract references+schemas from repomix XML`,
+  filho do T9) — viola o "sem nesting" do CLAUDE.md, mas rodou e entregou. O
+  próprio T9 reportou ter encontrado e corrigido 3 arquivos que esse filho deixou
+  com cross-reference `seedance-*` não renomeada.
