@@ -89,6 +89,55 @@ export function recordJob(input: RecordJobInput): void {
   );
 }
 
+export interface RecordImageJobInput {
+  readonly dbPath: string;
+  readonly jobId: string;
+  readonly provider: Provider;
+  readonly model: string;
+  readonly paramsHash: string;
+  readonly estUsd: number;
+  readonly createdAtOverride?: string;
+}
+
+export interface RecordImageActualInput {
+  readonly dbPath: string;
+  readonly jobId: string;
+  readonly actualUsd: number;
+  /** Default 'completed' preserves backward compat (mirrors RecordActualInput.finalStatus).
+   *  Pass 'failed' with actualUsd: 0 when the provider call threw — otherwise the row stays
+   *  'pending' at its est_usd FOREVER and dailySpendUsd's COALESCE(actual_usd, est_usd) counts
+   *  it against the daily cap for the rest of the UTC day, for a call that cost $0. */
+  readonly finalStatus?: 'completed' | 'failed';
+}
+
+/** Mirrors recordJob for the image_jobs ledger (009-image-jobs.sql). Image
+ *  generations are synchronous — status starts 'pending' and is flipped to
+ *  'completed' (or 'failed', see RecordImageActualInput.finalStatus) by
+ *  recordImageActualCost right after the provider call returns or throws, in
+ *  the same tool invocation. */
+export function recordImageJob(input: RecordImageJobInput): void {
+  const db = ensureDb(input.dbPath);
+  const createdAt = input.createdAtOverride ?? new Date().toISOString();
+  db.prepare(
+    `INSERT INTO image_jobs
+     (id, provider, model, params_hash, est_usd, status, created_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+  ).run(input.jobId, input.provider, input.model, input.paramsHash, input.estUsd, createdAt);
+}
+
+/** Mirrors recordActualCost for image_jobs. Idempotent — only updates while
+ *  actual_usd is still NULL. */
+export function recordImageActualCost(input: RecordImageActualInput): void {
+  const db = ensureDb(input.dbPath);
+  const completedAt = new Date().toISOString();
+  const status = input.finalStatus ?? 'completed';
+  db.prepare(
+    `UPDATE image_jobs
+     SET actual_usd = ?, status = ?, completed_at = ?
+     WHERE id = ? AND actual_usd IS NULL`,
+  ).run(input.actualUsd, status, completedAt, input.jobId);
+}
+
 export function recordActualCost(input: RecordActualInput): void {
   const db = ensureDb(input.dbPath);
   const completedAt = new Date().toISOString();
@@ -155,6 +204,41 @@ export function setJobTenant(opts: {
 }): void {
   const db = ensureDb(opts.dbPath);
   db.prepare(`UPDATE video_jobs SET tenant_id = ? WHERE id = ?`).run(opts.tenantId, opts.jobId);
+}
+
+/**
+ * Sums today's spend (UTC calendar day, or `dateUtc` if given) across BOTH
+ * video_jobs and image_jobs, so the cost guard's daily cap actually reflects
+ * every generation kind. Uses COALESCE(actual_usd, est_usd) per row so
+ * pending (not-yet-settled) jobs still count against the cap at their
+ * estimate — a cap that only summed settled jobs would let an unbounded
+ * number of in-flight generations slip past it.
+ *
+ * NOT queryReport: that function computes a rolling 24h window from
+ * Date.now() and reads only video_jobs — neither matches "today, UTC,
+ * across all generation kinds".
+ */
+export function dailySpendUsd(opts: { readonly dbPath: string; readonly dateUtc?: string }): number {
+  const db = ensureDb(opts.dbPath);
+  const day = opts.dateUtc ?? new Date().toISOString().slice(0, 10);
+
+  const videoRow = db
+    .prepare(
+      `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total
+         FROM video_jobs
+        WHERE substr(created_at, 1, 10) = ?`,
+    )
+    .get(day) as { total: number };
+
+  const imageRow = db
+    .prepare(
+      `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total
+         FROM image_jobs
+        WHERE substr(created_at, 1, 10) = ?`,
+    )
+    .get(day) as { total: number };
+
+  return (videoRow.total ?? 0) + (imageRow.total ?? 0);
 }
 
 export function queryReport(opts: { dbPath: string; periodDays: number }): CostReport {

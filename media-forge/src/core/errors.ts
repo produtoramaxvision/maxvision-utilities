@@ -9,7 +9,8 @@ export type ErrorCode =
   | 'POLLING'
   | 'OUTPUT'
   | 'FILESYSTEM'
-  | 'SAFETY_BLOCK';
+  | 'SAFETY_BLOCK'
+  | 'COST_GUARD';
 
 export class MediaForgeError extends Error {
   constructor(
@@ -88,5 +89,23 @@ export interface SafetyBlockContext extends Record<string, unknown> {
 export class SafetyBlockError extends MediaForgeError {
   constructor(message: string, context?: SafetyBlockContext) {
     super(message, 'SAFETY_BLOCK', context);
+  }
+}
+
+/**
+ * Thrown by the cost guard (src/core/cost-guard.ts) when a generation request
+ * is refused before hitting the provider — either a single-call estimate
+ * above the hard block threshold, or the projected daily total (today's
+ * spend + this estimate) above the daily cap. `kind` distinguishes the two
+ * so callers can report which limit fired without re-parsing `message`.
+ */
+export class CostGuardError extends MediaForgeError {
+  constructor(
+    message: string,
+    public readonly estimateUsd: number,
+    public readonly limitUsd: number,
+    public readonly kind: 'block' | 'daily-cap',
+  ) {
+    super(message, 'COST_GUARD', { estimateUsd, limitUsd, kind });
   }
 }

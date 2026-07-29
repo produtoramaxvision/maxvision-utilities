@@ -11,7 +11,7 @@ import {
   VIDEO_MARKUP,
   DEFAULT_CREDIT_VALUE_USD,
 } from '../../billing/pricing.js';
-import type { CreditClient } from '../../billing/credit-client.js';
+import { InsufficientCreditError, type CreditClient } from '../../billing/credit-client.js';
 
 export interface HandlersDeps {
   client: MediaForgeClient;
@@ -83,6 +83,39 @@ export async function withImageDebit<T extends object>(
     },
   );
   return out.result;
+}
+
+/**
+ * Credit preflight for VIDEO submits — checks the tenant's balance BEFORE the
+ * handler runs (i.e. before the provider is ever called). No-op when billing
+ * is off (same guard as the other F-E functions here).
+ *
+ * HONESTY NOTE (do not misrepresent this as closing the gap): every Kling
+ * submit handler calls the provider FIRST and reserveVideoSubmit runs AFTER
+ * (see the "F-E: reserve AFTER submit" comment at each call site) — so an
+ * insufficient-balance tenant could still get a provider-side charge before
+ * the post-submit reserve() ever 402s. This function only NARROWS that
+ * window: it catches the common case (balance already too low right now),
+ * but the balance can still drop between this check and the actual submit
+ * (a concurrent generation from the same tenant, another call landing in
+ * between). It does NOT close the reserve-after-submit race. The real fix is
+ * the submit-to-poll correlation store tracked as task T15 — until that
+ * lands, this is a mitigation, not a guarantee.
+ */
+export async function preflightVideoCredit(
+  deps: HandlersDeps,
+  estimateUsd: number,
+): Promise<void> {
+  if (!deps.creditClient || !deps.tenantId) return; // self-host / billing off
+  const estimateCredits = priceCredits({
+    costUsd: estimateUsd,
+    markup: VIDEO_MARKUP,
+    creditValueUsd: DEFAULT_CREDIT_VALUE_USD,
+  });
+  const bal = await deps.creditClient.balance(deps.tenantId);
+  if (bal < estimateCredits) {
+    throw new InsufficientCreditError(deps.tenantId, estimateCredits, bal);
+  }
 }
 
 /** Reserva crédito para um submit de VÍDEO (assíncrono) usando o jobId/operationName

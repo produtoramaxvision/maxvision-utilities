@@ -44,12 +44,48 @@ export interface KlingHandlerExecOpts {
   readonly fetchImpl?: typeof fetch;
   /** F-B: when present, handleKlingPoll presigns the MinIO artifact uploaded by the webhook handler. */
   readonly storage?: OutputStorageClient;
+  /**
+   * Cost-guard hook (media-forge cost guards). Called SYNCHRONOUSLY with the
+   * pure cost estimate, BEFORE provider.generate() ever submits to the Kling
+   * API. Throws CostGuardError to block the call; returns `{ costWarning }`
+   * to surface a non-blocking warning in the tool response; returns
+   * undefined to allow silently. Optional — submit handlers called directly
+   * (e.g. in tests) without this hook behave exactly as before.
+   */
+  readonly checkCostGuard?: (estimateUsd: number) => { costWarning?: string } | undefined;
+  /**
+   * Credit preflight hook (media-forge cost guards, F-E). Called BEFORE
+   * provider.generate() to narrow (not close — see preflightVideoCredit's
+   * own doc comment) the reserve-after-submit credit gap. Throws
+   * InsufficientCreditError on insufficient balance; no-op when omitted.
+   */
+  readonly preflightCredit?: (estimateUsd: number) => Promise<void>;
+}
+
+/**
+ * Shared cost-guard + credit-preflight gate run by every Kling submit handler
+ * below, BEFORE provider.generate() ever reaches the network. Both hooks are
+ * optional (submit handlers called directly without opts, e.g. in tests,
+ * behave exactly as before this change). checkCostGuard throws
+ * CostGuardError synchronously to block; preflightCredit throws
+ * InsufficientCreditError to block. Returns the costWarning (if any) so the
+ * caller can attach it to the handler's return value.
+ */
+async function runCostGuards(
+  estimateUsd: number,
+  opts: KlingHandlerExecOpts,
+): Promise<string | undefined> {
+  const costWarning = opts.checkCostGuard?.(estimateUsd)?.costWarning;
+  if (opts.preflightCredit) {
+    await opts.preflightCredit(estimateUsd);
+  }
+  return costWarning;
 }
 
 export async function handleKlingMotionBrush(
   rawInput: unknown,
   opts: KlingHandlerExecOpts = {},
-): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number }> {
+): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number; costWarning?: string }> {
   const input: KlingMotionBrushInputT = KlingMotionBrushInput.parse(rawInput);
   const provider = new KlingProvider({
     dbPath: defaultDbPath(),
@@ -72,12 +108,17 @@ export async function handleKlingMotionBrush(
       klingMode: 'pro' as const,
     },
   };
+  // Cost-guard + credit-preflight run BEFORE generate() submits to the Kling
+  // API — estimateCostUSD is pure (no I/O), so this is genuinely pre-submit.
+  const estimateUsd = provider.estimateCostUSD(req);
+  const costWarning = await runCostGuards(estimateUsd, opts);
   const handle = await provider.generate(req);
   return {
     jobId: handle.jobId,
     provider: handle.provider,
     modelId: handle.model,
-    estimatedCostUSD: provider.estimateCostUSD(req),
+    estimatedCostUSD: estimateUsd,
+    ...(costWarning ? { costWarning } : {}),
   };
 }
 
@@ -206,7 +247,7 @@ export async function handleKlingElementDelete(
 export async function handleKlingElements(
   rawInput: unknown,
   opts: KlingHandlerExecOpts = {},
-): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number }> {
+): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number; costWarning?: string }> {
   const input: KlingElementsInputT = KlingElementsInput.parse(rawInput);
   const provider = new KlingProvider({
     dbPath: defaultDbPath(),
@@ -228,12 +269,15 @@ export async function handleKlingElements(
       klingMode: 'pro' as const,
     },
   };
+  const estimateUsd = provider.estimateCostUSD(req);
+  const costWarning = await runCostGuards(estimateUsd, opts);
   const handle = await provider.generate(req);
   return {
     jobId: handle.jobId,
     provider: handle.provider,
     modelId: handle.model,
-    estimatedCostUSD: provider.estimateCostUSD(req),
+    estimatedCostUSD: estimateUsd,
+    ...(costWarning ? { costWarning } : {}),
   };
 }
 
@@ -245,7 +289,7 @@ export async function handleKlingElements(
 export async function handleKlingLipSync(
   rawInput: unknown,
   opts: KlingHandlerExecOpts = {},
-): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number }> {
+): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number; costWarning?: string }> {
   const input: KlingLipSyncInputT = KlingLipSyncInput.parse(rawInput);
   const provider = new KlingProvider({
     dbPath: defaultDbPath(),
@@ -271,12 +315,15 @@ export async function handleKlingLipSync(
       klingMode: 'pro' as const,
     },
   };
+  const estimateUsd = provider.estimateCostUSD(req);
+  const costWarning = await runCostGuards(estimateUsd, opts);
   const handle = await provider.generate(req);
   return {
     jobId: handle.jobId,
     provider: handle.provider,
     modelId: handle.model,
-    estimatedCostUSD: provider.estimateCostUSD(req),
+    estimatedCostUSD: estimateUsd,
+    ...(costWarning ? { costWarning } : {}),
   };
 }
 
@@ -288,7 +335,7 @@ export async function handleKlingLipSync(
 export async function handleKlingOmniMultiShot(
   rawInput: unknown,
   opts: KlingHandlerExecOpts = {},
-): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number }> {
+): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number; costWarning?: string }> {
   const input: KlingOmniMultiShotInputT = KlingOmniMultiShotInput.parse(rawInput);
   const totalDuration = input.shots.reduce((sum, s) => sum + s.duration, 0);
   const provider = new KlingProvider({
@@ -314,12 +361,15 @@ export async function handleKlingOmniMultiShot(
       klingMode: 'pro' as const,
     },
   };
+  const estimateUsd = provider.estimateCostUSD(req);
+  const costWarning = await runCostGuards(estimateUsd, opts);
   const handle = await provider.generate(req);
   return {
     jobId: handle.jobId,
     provider: handle.provider,
     modelId: handle.model,
-    estimatedCostUSD: provider.estimateCostUSD(req),
+    estimatedCostUSD: estimateUsd,
+    ...(costWarning ? { costWarning } : {}),
   };
 }
 
@@ -340,6 +390,7 @@ export async function handleKlingVideoExtend(
   modelId: string;
   estimatedCostUSD: number;
   hopsRemaining: number;
+  costWarning?: string;
 }> {
   const input: KlingVideoExtendInputT = KlingVideoExtendInput.parse(rawInput);
   const provider = new KlingProvider({
@@ -347,6 +398,22 @@ export async function handleKlingVideoExtend(
     env: process.env as never,
     fetchImpl: opts.fetchImpl,
   });
+  // FIX (Codex P2 round 13, PR#11): this handler submits a SINGLE hop per
+  // call (durationSec: KLING_EXTEND_HOP_SEC above) and asks the caller to
+  // re-invoke for the rest via `hopsRemaining`. The estimate must match
+  // what actually goes through recordJob — multiplying by input.hops over-
+  // reports the cost on call 1 and under-reports on later calls, breaking
+  // any client that sums estimates across the chain.
+  const estimateUsd = provider.estimateCostUSD({
+    modelId: input.modelId,
+    mode: 'extend',
+    prompt: input.prompt,
+    durationSec: KLING_EXTEND_HOP_SEC,
+    resolution: '1080p',
+  });
+  // Cost-guard + credit-preflight run BEFORE generate() — same estimate value
+  // used above, computed pre-submit.
+  const costWarning = await runCostGuards(estimateUsd, opts);
   const handle = await provider.generate({
     modelId: input.modelId,
     mode: 'extend',
@@ -364,20 +431,9 @@ export async function handleKlingVideoExtend(
     jobId: handle.jobId,
     provider: handle.provider,
     modelId: handle.model,
-    // FIX (Codex P2 round 13, PR#11): this handler submits a SINGLE hop per
-    // call (durationSec: KLING_EXTEND_HOP_SEC above) and asks the caller to
-    // re-invoke for the rest via `hopsRemaining`. The estimate must match
-    // what actually goes through recordJob — multiplying by input.hops over-
-    // reports the cost on call 1 and under-reports on later calls, breaking
-    // any client that sums estimates across the chain.
-    estimatedCostUSD: provider.estimateCostUSD({
-      modelId: input.modelId,
-      mode: 'extend',
-      prompt: input.prompt,
-      durationSec: KLING_EXTEND_HOP_SEC,
-      resolution: '1080p',
-    }),
+    estimatedCostUSD: estimateUsd,
     hopsRemaining: input.hops - 1,
+    ...(costWarning ? { costWarning } : {}),
   };
 }
 

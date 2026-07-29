@@ -4,7 +4,9 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { OutputStorageClient } from '../../output/storage.js';
 import { safeJoin, jobId as generateJobId } from '../../utils/paths.js';
 import { storeArtifact } from '../../output/output-storage.js';
-import { ValidationError } from '../../core/errors.js';
+import { ValidationError, CostGuardError } from '../../core/errors.js';
+import { evaluateCostGuard } from '../../core/cost-guard.js';
+import type { EditImageInputT } from '../../image/image-schemas.js';
 import { MCP_TOOLS } from '../schemas.js';
 import { isToolAllowed } from '../../http/tier-gates.js';
 import { ListMyGenerationsInput } from '../schemas.js';
@@ -46,7 +48,7 @@ import {
   VIDEO_MODEL_VEO_3_1_PRO,
 } from '../../core/models.js';
 import { KlingDownloadInput } from '../schemas.js';
-import { setJobTenant } from '../../core/cost-tracker.js';
+import { setJobTenant, dailySpendUsd, recordImageJob, recordImageActualCost } from '../../core/cost-tracker.js';
 import { isSeedanceEnabled } from '../../core/feature-flags.js';
 import { defaultDbPath, handleVideoWebhookStatus } from './shared.js';
 import { handleVideoCostEstimate, handleVideoCostReport, handleVideoRoute } from './video.js';
@@ -85,6 +87,7 @@ import {
   withImageDebit,
   reserveVideoSubmit,
   captureVideoComplete,
+  preflightVideoCredit,
 } from './billing.js';
 import {
   looseRegister,
@@ -161,6 +164,105 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     return t;
   }
 
+  // ---------------------------------------------------------------------------
+  // media-forge cost guards — evaluated BEFORE every image generation call and
+  // (via KlingHandlerExecOpts.checkCostGuard) before every Kling video submit,
+  // reading today's UTC spend across both video_jobs and image_jobs.
+  //
+  // Guard is SKIPPED under dry-run (client.dryRun) — a dry run never calls the
+  // provider and costs $0, so both the guard check and the ledger write it
+  // would otherwise produce (recordImageJob, in the 3 image call sites below)
+  // are meaningless. Recording a $0-real-cost job as 'pending' at its
+  // estimate would count phantom spend against the cap forever (nothing ever
+  // captures a dry-run row) — the exact failure mode this task exists to fix,
+  // just inverted. Kling has no dry-run path (provider.generate() always
+  // hits the network), so no such gating is needed there.
+  // ---------------------------------------------------------------------------
+  function checkCostGuardOrThrow(estimateUsd: number): { costWarning?: string } {
+    const spentTodayUsd = dailySpendUsd({ dbPath: defaultDbPath() });
+    const decision = evaluateCostGuard({
+      estimateUsd,
+      spentTodayUsd,
+      blockThresholdUsd: config.blockThresholdUsd,
+      dailyCapUsd: config.dailyCapUsd,
+      confirmThresholdUsd: config.confirmThresholdUsd,
+    });
+    if (decision.action === 'block') {
+      const overBlock = estimateUsd > config.blockThresholdUsd;
+      throw new CostGuardError(
+        decision.reason,
+        estimateUsd,
+        overBlock ? config.blockThresholdUsd : config.dailyCapUsd,
+        overBlock ? 'block' : 'daily-cap',
+      );
+    }
+    if (decision.action === 'warn') {
+      return { costWarning: decision.reason };
+    }
+    return {};
+  }
+
+  // Non-cryptographic hash for the image_jobs.params_hash column — mirrors
+  // the local hashParams() helpers already used per-provider in
+  // src/video/providers/{kling,google-veo,bytedance-seedance}.ts.
+  function hashImageParams(obj: unknown): string {
+    const json = JSON.stringify(obj);
+    let h = 0;
+    for (let i = 0; i < json.length; i++) {
+      h = ((h << 5) - h + json.charCodeAt(i)) | 0;
+    }
+    return Math.abs(h).toString(16);
+  }
+
+  // Shared opts for every Kling submit handler (media-forge cost guards, Step
+  // 3 + Step 4): checkCostGuard runs the same guard used by the image tools
+  // above; preflightCredit narrows the reserve-after-submit credit gap (see
+  // preflightVideoCredit's doc comment in billing.ts for the honesty caveat).
+  // Both hooks run inside the handler, BEFORE provider.generate() submits.
+  const klingGuardOpts = {
+    checkCostGuard: checkCostGuardOrThrow,
+    preflightCredit: (estimateUsd: number) => preflightVideoCredit(deps, estimateUsd),
+  };
+
+  // Records an image_jobs row around `exec` (skipped entirely under dry-run —
+  // see checkCostGuardOrThrow's doc comment above). On success, settles at
+  // actualCostUSD when the result carries one (rare) or the estimate
+  // (exact for image cost, which is deterministic per size). On a THROWN
+  // error (safety block, API error, network failure — all routine for image
+  // generation), settles at actualUsd: 0 / finalStatus: 'failed' before
+  // rethrowing, so the row does NOT stay 'pending' at its estimate forever —
+  // a permanently-pending failed job would otherwise poison the rest of the
+  // UTC day's cap for a call that cost nothing.
+  async function withImageLedger<T>(
+    jobId: string,
+    model: string,
+    paramsForHash: unknown,
+    estimateUsd: number,
+    exec: () => Promise<T>,
+  ): Promise<T> {
+    if (client.dryRun) return exec();
+    recordImageJob({
+      dbPath: defaultDbPath(),
+      jobId,
+      provider: 'google',
+      model,
+      paramsHash: hashImageParams(paramsForHash),
+      estUsd: estimateUsd,
+    });
+    let result: T;
+    try {
+      result = await exec();
+    } catch (err) {
+      recordImageActualCost({ dbPath: defaultDbPath(), jobId, actualUsd: 0, finalStatus: 'failed' });
+      throw err;
+    }
+    // actualCostUSD is rarely present on image results (cost is deterministic per
+    // size) — the estimate fallback is exact in production.
+    const actualUsd = (result as { actualCostUSD?: number }).actualCostUSD ?? estimateUsd;
+    recordImageActualCost({ dbPath: defaultDbPath(), jobId, actualUsd });
+    return result;
+  }
+
   // ---- Image tools (6) ----
 
   {
@@ -174,11 +276,18 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           model: IMAGE_MODEL_NANO_BANANA_PRO,
           imageSize: parsed.imageSize ?? '4K',
         }).usd;
+        // Guard + ledger are skipped under dry-run — see checkCostGuardOrThrow's doc comment above.
+        const guard: { costWarning?: string } = client.dryRun ? {} : checkCostGuardOrThrow(estimateUsd);
         const jobId = generateJobId('nano-banana-pro');
-        const result = await withImageDebit(deps, jobId, estimateUsd, () =>
-          generateImageNanoBananaPro(parsed as never, client),
+        const result = await withImageLedger(jobId, IMAGE_MODEL_NANO_BANANA_PRO, parsed, estimateUsd, () =>
+          withImageDebit(deps, jobId, estimateUsd, () => generateImageNanoBananaPro(parsed as never, client)),
         );
-        return asResult(await maybeStoreImageArtifact(result, storage, 'nano-banana-pro'));
+        const structured = await maybeStoreImageArtifact(result, storage, 'nano-banana-pro');
+        return asResult(
+          guard.costWarning
+            ? { ...(structured as Record<string, unknown>), costWarning: guard.costWarning }
+            : structured,
+        );
       }),
     );
   }
@@ -189,16 +298,22 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Generate Image (Imagen 4 Ultra)', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const inp = input as { numberOfImages?: number };
+        const inp = input as { numberOfImages?: number; dryRun?: boolean };
         const estimateUsd = estimateImageCost({
           model: IMAGE_MODEL_IMAGEN_4_ULTRA,
           numberOfImages: inp.numberOfImages ?? 1,
         }).usd;
+        const guard: { costWarning?: string } = client.dryRun ? {} : checkCostGuardOrThrow(estimateUsd);
         const jobId = generateJobId('imagen-4-ultra');
-        const result = await withImageDebit(deps, jobId, estimateUsd, () =>
-          generateImageImagen4Ultra(input as never, client),
+        const result = await withImageLedger(jobId, IMAGE_MODEL_IMAGEN_4_ULTRA, inp, estimateUsd, () =>
+          withImageDebit(deps, jobId, estimateUsd, () => generateImageImagen4Ultra(input as never, client)),
         );
-        return asResult(await maybeStoreImageArtifact(result, storage, 'imagen-4-ultra'));
+        const structured = await maybeStoreImageArtifact(result, storage, 'imagen-4-ultra');
+        return asResult(
+          guard.costWarning
+            ? { ...(structured as Record<string, unknown>), costWarning: guard.costWarning }
+            : structured,
+        );
       }),
     );
   }
@@ -208,7 +323,21 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Edit Image', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await editImage(validateInput(t, input), client))),
+      wrap(t.name, async (input) => {
+        const parsed = validateInput<EditImageInputT>(t, input);
+        // media_edit_image has no imageSize param (unlike media_generate_image) —
+        // estimateImageCost defaults to '4K', matching the conservative default
+        // used elsewhere for this model.
+        const estimateUsd = estimateImageCost({ model: IMAGE_MODEL_NANO_BANANA_PRO }).usd;
+        const guard: { costWarning?: string } = client.dryRun ? {} : checkCostGuardOrThrow(estimateUsd);
+        const jobId = generateJobId('edit-image');
+        const result = await withImageLedger(jobId, IMAGE_MODEL_NANO_BANANA_PRO, parsed, estimateUsd, () =>
+          editImage(parsed, client),
+        );
+        return asResult(
+          guard.costWarning ? { ...(result as unknown as Record<string, unknown>), costWarning: guard.costWarning } : result,
+        );
+      }),
     );
   }
 
@@ -1000,7 +1129,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Kling Motion Brush', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const r = await handleKlingMotionBrush(input);
+        const r = await handleKlingMotionBrush(input, klingGuardOpts);
         // F-E: reserve AFTER submit, keyed on the returned jobId — the SAME id
         // media_kling_download captures with. No-op when billing off. 402 → wrap → tool error.
         await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
@@ -1048,7 +1177,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Kling Elements', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const r = await handleKlingElements(input);
+        const r = await handleKlingElements(input, klingGuardOpts);
         await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
         // SE2: attribute the job to the caller so the async webhook can record the gallery row.
         if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
@@ -1065,7 +1194,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Kling Lip-Sync', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const r = await handleKlingLipSync(input);
+        const r = await handleKlingLipSync(input, klingGuardOpts);
         await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
         // SE2: attribute the job to the caller so the async webhook can record the gallery row.
         if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
@@ -1082,7 +1211,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Kling Omni Multi-Shot', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const r = await handleKlingOmniMultiShot(input);
+        const r = await handleKlingOmniMultiShot(input, klingGuardOpts);
         await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
         // SE2: attribute the job to the caller so the async webhook can record the gallery row.
         if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
@@ -1099,7 +1228,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Kling Video Extend', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const r = await handleKlingVideoExtend(input);
+        const r = await handleKlingVideoExtend(input, klingGuardOpts);
         await reserveVideoSubmit(deps, r.jobId, r.estimatedCostUSD);
         // SE2: attribute the job to the caller so the async webhook can record the gallery row.
         if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });

@@ -18,7 +18,7 @@ media-forge exposes **only** the three highest-tier Google AI models available a
 | `imagen-4.0-ultra-generate-001` | Image generation with seed / negative-prompt / multi-image batches | 2K |
 | `veo-3.1-generate-preview` | Video generation (text-to-video, image-to-video, interpolation, extension) | 720p (1080p/4K available with `durationSeconds=8`) |
 
-Cost guards (dry-run default, confirmation prompt above $0.50, hard block above $2.00, daily cap at $25) mitigate budget exposure from this quality-first policy.
+Cost guards (dry-run default, warning above $0.50, hard block above $2.00, daily cap at $25) mitigate budget exposure from this quality-first policy.
 
 ---
 
@@ -156,17 +156,19 @@ This reads `.media-forge/cost-log.jsonl` and aggregates per-job and per-day spen
 
 ## Cost Guard
 
-media-forge applies a four-tier guard to every generation call:
+The MCP image tools (`media_generate_image`, `media_generate_imagen`, `media_edit_image`) and the five Kling video submit tools (`media_kling_motion_brush`, `media_kling_elements`, `media_kling_lip_sync`, `media_kling_omni_multishot`, `media_kling_video_extend`) are gated by a three-tier guard, evaluated against a real per-tenant SQLite ledger before every call:
 
 | Tier | Threshold | Behavior |
 |---|---|---|
-| Silent | < $0.10 per job | Proceed without interruption |
-| Notice | $0.10 – $0.50 per job | Log estimated cost to console |
-| Confirm | $0.50 – $2.00 per job | Prompt user to confirm before calling the API |
-| Block | > $2.00 per job | Hard block; requires `--force` flag |
-| Daily cap | $25 / day (configurable) | Blocks all spending past the cap; requires `--override-daily-cap` |
+| Warn | above $0.50 per call | Non-blocking — the call proceeds, and a `costWarning` string is returned in the tool's `structuredContent` |
+| Block | above $2.00 per call | Hard block — the call is refused before the provider is ever invoked |
+| Daily cap | $25/day (configurable), UTC calendar day | Hard block once today's recorded spend + this call's estimate would exceed the cap |
 
-The `--dry-run` flag returns the assembled payload and cost estimate without calling any API. Skills include a "Confirm cost" step for production runs.
+The daily cap counts **both image and video generations** for the current UTC day, and counts **pending (not-yet-settled) jobs at their estimated cost** — a job that is submitted but never completes still counts against the cap, so an unbounded number of in-flight generations cannot slip past it. There is no `--override-daily-cap` flag; raise `MEDIA_FORGE_DAILY_CAP_USD` (or the sibling `MEDIA_FORGE_CONFIRM_THRESHOLD_USD` / `MEDIA_FORGE_BLOCK_THRESHOLD_USD`) instead.
+
+The Veo (`media_generate_video_*`), Higgsfield, and Seedance MCP tools, and all CLI generation commands, are **not** currently wired to this guard — their billing is separately deferred (see the `TODO(F-E ...-billing): DEFERRED` comments in `src/mcp/handlers/register.ts`).
+
+The `--dry-run` flag returns the assembled payload and cost estimate without calling any API, and is exempt from the guard and the ledger (a dry run never reaches the provider and costs $0).
 
 ---
 

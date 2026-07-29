@@ -49,6 +49,7 @@ export {
   reserveVideoSubmit,
   captureVideoComplete,
   releaseVideoFailed,
+  preflightVideoCredit,
 } from './handlers/billing.js';
 export type { HandlersDeps } from './handlers/billing.js';
 
