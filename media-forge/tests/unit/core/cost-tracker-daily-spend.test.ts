@@ -12,6 +12,9 @@ import {
   recordImageJob,
   recordImageActualCost,
   dailySpendUsd,
+  dailySpendReport,
+  monthlySpendUsd,
+  allTimeSpendUsd,
   setJobTenant,
 } from '../../../src/core/cost-tracker.js';
 import { closeDb } from '../../../src/core/db.js';
@@ -296,5 +299,215 @@ describe('dailySpendUsd — tenant scoping (multi-tenant cost guard)', () => {
     // tenant-a's total is its video row PLUS its image row — tenant-b's $9 image
     // spend must not leak in from either table.
     expect(dailySpendUsd({ dbPath, dateUtc: today, tenantId: 'tenant-a' })).toBeCloseTo(4.24, 5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P1 fix (2026-07-29): `media-forge cost --today` always reported $0.00
+// because the CLI read a cost.jsonl file nothing in production writes. Fixed
+// by pointing the CLI at these SQLite-backed queries instead. dailySpendUsd
+// above stays number-only (its existing call sites and assertions need only
+// the bare total); these new functions additionally return the row count the
+// CLI displays as "N entries", covering BOTH video_jobs and image_jobs.
+// ---------------------------------------------------------------------------
+describe('dailySpendReport', () => {
+  it('returns { usd: 0, entries: 0 } on an empty db', () => {
+    expect(dailySpendReport({ dbPath })).toEqual({ usd: 0, entries: 0 });
+  });
+
+  it('sums usd AND counts rows across BOTH video_jobs and image_jobs for the given day', () => {
+    const today = '2026-06-15';
+    recordJob({
+      dbPath,
+      jobId: 'dr-v1',
+      provider: 'kling',
+      model: 'kling-v3-pro',
+      mode: 't2v',
+      paramsHash: 'h',
+      estUsd: 1.5,
+      createdAtOverride: `${today}T10:00:00.000Z`,
+    });
+    recordImageJob({
+      dbPath,
+      jobId: 'dr-i1',
+      provider: 'google',
+      model: 'gemini-3-pro-image-preview',
+      paramsHash: 'h',
+      estUsd: 0.24,
+      createdAtOverride: `${today}T11:00:00.000Z`,
+    });
+    recordImageJob({
+      dbPath,
+      jobId: 'dr-i2',
+      provider: 'google',
+      model: 'gemini-3-pro-image-preview',
+      paramsHash: 'h',
+      estUsd: 0.06,
+      createdAtOverride: `${today}T12:00:00.000Z`,
+    });
+    const report = dailySpendReport({ dbPath, dateUtc: today });
+    expect(report.usd).toBeCloseTo(1.8, 5);
+    expect(report.entries).toBe(3);
+  });
+
+  it('excludes rows from a different UTC day', () => {
+    recordJob({
+      dbPath,
+      jobId: 'dr-v-yesterday',
+      provider: 'kling',
+      model: 'kling-v3-pro',
+      mode: 't2v',
+      paramsHash: 'h',
+      estUsd: 5,
+      createdAtOverride: '2026-06-14T23:59:59.000Z',
+    });
+    const report = dailySpendReport({ dbPath, dateUtc: '2026-06-15' });
+    expect(report).toEqual({ usd: 0, entries: 0 });
+  });
+
+  it('scopes to a tenant when tenantId is given', () => {
+    const today = '2026-06-15';
+    recordImageJob({
+      dbPath,
+      jobId: 'dr-tenant-a',
+      provider: 'google',
+      model: 'gemini-3-pro-image-preview',
+      paramsHash: 'h',
+      estUsd: 1.0,
+      createdAtOverride: `${today}T10:00:00.000Z`,
+      tenantId: 'tenant-a',
+    });
+    recordImageJob({
+      dbPath,
+      jobId: 'dr-tenant-b',
+      provider: 'google',
+      model: 'gemini-3-pro-image-preview',
+      paramsHash: 'h',
+      estUsd: 5.0,
+      createdAtOverride: `${today}T10:00:00.000Z`,
+      tenantId: 'tenant-b',
+    });
+    expect(dailySpendReport({ dbPath, dateUtc: today, tenantId: 'tenant-a' })).toEqual({ usd: 1.0, entries: 1 });
+  });
+});
+
+describe('monthlySpendUsd', () => {
+  it('returns { usd: 0, entries: 0 } on an empty db', () => {
+    expect(monthlySpendUsd({ dbPath })).toEqual({ usd: 0, entries: 0 });
+  });
+
+  it('sums usd AND counts rows across BOTH tables for the given UTC month, excluding other months', () => {
+    recordJob({
+      dbPath,
+      jobId: 'mo-v1',
+      provider: 'kling',
+      model: 'kling-v3-pro',
+      mode: 't2v',
+      paramsHash: 'h',
+      estUsd: 2.0,
+      createdAtOverride: '2026-06-01T00:00:00.000Z',
+    });
+    recordImageJob({
+      dbPath,
+      jobId: 'mo-i1',
+      provider: 'google',
+      model: 'gemini-3-pro-image-preview',
+      paramsHash: 'h',
+      estUsd: 0.24,
+      createdAtOverride: '2026-06-30T23:59:59.000Z',
+    });
+    // Outside the month — must not count.
+    recordJob({
+      dbPath,
+      jobId: 'mo-v-other-month',
+      provider: 'kling',
+      model: 'kling-v3-pro',
+      mode: 't2v',
+      paramsHash: 'h',
+      estUsd: 99,
+      createdAtOverride: '2026-07-01T00:00:00.000Z',
+    });
+    const report = monthlySpendUsd({ dbPath, monthUtc: '2026-06' });
+    expect(report.usd).toBeCloseTo(2.24, 5);
+    expect(report.entries).toBe(2);
+  });
+
+  it('scopes to a tenant when tenantId is given', () => {
+    recordImageJob({
+      dbPath,
+      jobId: 'mo-tenant-a',
+      provider: 'google',
+      model: 'gemini-3-pro-image-preview',
+      paramsHash: 'h',
+      estUsd: 1.0,
+      createdAtOverride: '2026-06-05T00:00:00.000Z',
+      tenantId: 'tenant-a',
+    });
+    recordImageJob({
+      dbPath,
+      jobId: 'mo-tenant-b',
+      provider: 'google',
+      model: 'gemini-3-pro-image-preview',
+      paramsHash: 'h',
+      estUsd: 5.0,
+      createdAtOverride: '2026-06-05T00:00:00.000Z',
+      tenantId: 'tenant-b',
+    });
+    expect(monthlySpendUsd({ dbPath, monthUtc: '2026-06', tenantId: 'tenant-a' })).toEqual({ usd: 1.0, entries: 1 });
+  });
+});
+
+describe('allTimeSpendUsd', () => {
+  it('returns { usd: 0, entries: 0 } on an empty db', () => {
+    expect(allTimeSpendUsd({ dbPath })).toEqual({ usd: 0, entries: 0 });
+  });
+
+  it('sums usd AND counts rows across BOTH tables regardless of date', () => {
+    recordJob({
+      dbPath,
+      jobId: 'at-v1',
+      provider: 'kling',
+      model: 'kling-v3-pro',
+      mode: 't2v',
+      paramsHash: 'h',
+      estUsd: 2.0,
+      createdAtOverride: '2020-01-01T00:00:00.000Z',
+    });
+    recordImageJob({
+      dbPath,
+      jobId: 'at-i1',
+      provider: 'google',
+      model: 'gemini-3-pro-image-preview',
+      paramsHash: 'h',
+      estUsd: 0.24,
+      createdAtOverride: '2030-12-31T23:59:59.000Z',
+    });
+    const report = allTimeSpendUsd({ dbPath });
+    expect(report.usd).toBeCloseTo(2.24, 5);
+    expect(report.entries).toBe(2);
+  });
+
+  it('scopes to a tenant when tenantId is given', () => {
+    recordImageJob({
+      dbPath,
+      jobId: 'at-tenant-a',
+      provider: 'google',
+      model: 'gemini-3-pro-image-preview',
+      paramsHash: 'h',
+      estUsd: 1.0,
+      createdAtOverride: '2020-01-01T00:00:00.000Z',
+      tenantId: 'tenant-a',
+    });
+    recordImageJob({
+      dbPath,
+      jobId: 'at-tenant-b',
+      provider: 'google',
+      model: 'gemini-3-pro-image-preview',
+      paramsHash: 'h',
+      estUsd: 5.0,
+      createdAtOverride: '2020-01-01T00:00:00.000Z',
+      tenantId: 'tenant-b',
+    });
+    expect(allTimeSpendUsd({ dbPath, tenantId: 'tenant-a' })).toEqual({ usd: 1.0, entries: 1 });
   });
 });

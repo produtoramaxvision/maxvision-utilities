@@ -6,7 +6,7 @@ import { safeJoin, jobId as generateJobId } from '../../utils/paths.js';
 import { storeArtifact } from '../../output/output-storage.js';
 import { ValidationError, CostGuardError } from '../../core/errors.js';
 import { evaluateCostGuard } from '../../core/cost-guard.js';
-import type { EditImageInputT } from '../../image/image-schemas.js';
+import type { EditImageInputT, ComposeSceneInputT } from '../../image/image-schemas.js';
 import { MCP_TOOLS } from '../schemas.js';
 import { isToolAllowed } from '../../http/tier-gates.js';
 import { ListMyGenerationsInput } from '../schemas.js';
@@ -280,8 +280,13 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
         // Guard + ledger are skipped under dry-run — see checkCostGuardOrThrow's doc comment above.
         const guard: { costWarning?: string } = client.dryRun ? {} : checkCostGuardOrThrow(estimateUsd);
         const jobId = generateJobId('nano-banana-pro');
+        // The debit (reserve+capture) is skipped under dry-run for the SAME reason
+        // the guard and ledger are: a dry run never calls the provider, so there is
+        // nothing real to bill. Uses the identical `client.dryRun` check as above —
+        // not a second way of asking "is this a dry run".
+        const genExec = () => generateImageNanoBananaPro(parsed as never, client);
         const result = await withImageLedger(jobId, IMAGE_MODEL_NANO_BANANA_PRO, parsed, estimateUsd, () =>
-          withImageDebit(deps, jobId, estimateUsd, () => generateImageNanoBananaPro(parsed as never, client)),
+          client.dryRun ? genExec() : withImageDebit(deps, jobId, estimateUsd, genExec),
         );
         const structured = await maybeStoreImageArtifact(result, storage, 'nano-banana-pro');
         return asResult(
@@ -306,8 +311,10 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
         }).usd;
         const guard: { costWarning?: string } = client.dryRun ? {} : checkCostGuardOrThrow(estimateUsd);
         const jobId = generateJobId('imagen-4-ultra');
+        // Same dry-run gate as media_generate_image above — reuses client.dryRun.
+        const genExec = () => generateImageImagen4Ultra(input as never, client);
         const result = await withImageLedger(jobId, IMAGE_MODEL_IMAGEN_4_ULTRA, inp, estimateUsd, () =>
-          withImageDebit(deps, jobId, estimateUsd, () => generateImageImagen4Ultra(input as never, client)),
+          client.dryRun ? genExec() : withImageDebit(deps, jobId, estimateUsd, genExec),
         );
         const structured = await maybeStoreImageArtifact(result, storage, 'imagen-4-ultra');
         return asResult(
@@ -332,8 +339,13 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
         const estimateUsd = estimateImageCost({ model: IMAGE_MODEL_NANO_BANANA_PRO }).usd;
         const guard: { costWarning?: string } = client.dryRun ? {} : checkCostGuardOrThrow(estimateUsd);
         const jobId = generateJobId('edit-image');
+        // F-P1: media_edit_image generated without ever debiting — wire it through
+        // withImageDebit exactly like media_generate_image/media_generate_imagen,
+        // reusing the SAME estimate computed above (no second estimate). Skipped
+        // under dry-run via the identical client.dryRun check used everywhere else.
+        const genExec = () => editImage(parsed, client);
         const result = await withImageLedger(jobId, IMAGE_MODEL_NANO_BANANA_PRO, parsed, estimateUsd, () =>
-          editImage(parsed, client),
+          client.dryRun ? genExec() : withImageDebit(deps, jobId, estimateUsd, genExec),
         );
         return asResult(
           guard.costWarning ? { ...(result as unknown as Record<string, unknown>), costWarning: guard.costWarning } : result,
@@ -347,7 +359,33 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Compose Scene', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await composeScene(input as never, client))),
+      wrap(t.name, async (input) => {
+        const parsed = validateInput<ComposeSceneInputT>(t, input);
+        // F-P1: media_compose_scene generated without any cost guard, ledger row,
+        // or debit — free generation in hosted mode. ComposeSceneInput.model is
+        // locked to IMAGE_MODEL_NANO_BANANA_PRO (same as media_generate_image),
+        // and it carries the same imageSize field — reuse that estimator with the
+        // same inputs media_generate_image uses (imageSize, default '4K').
+        const estimateUsd = estimateImageCost({
+          model: IMAGE_MODEL_NANO_BANANA_PRO,
+          // ComposeSceneInput's imageSize field is a z.enum built from a widened
+          // string[] cast (see IMAGE_SIZE / ImageSizeEnum in models.ts /
+          // image-schemas.ts), so zod inference loses the '1K'|'2K'|'4K' literal
+          // union here — same cast media_generate_image's estimator input needs.
+          imageSize: parsed.imageSize as '1K' | '2K' | '4K',
+        }).usd;
+        const guard: { costWarning?: string } = client.dryRun ? {} : checkCostGuardOrThrow(estimateUsd);
+        const jobId = generateJobId('compose-scene');
+        const genExec = () => composeScene(parsed, client);
+        const result = await withImageLedger(jobId, IMAGE_MODEL_NANO_BANANA_PRO, parsed, estimateUsd, () =>
+          client.dryRun ? genExec() : withImageDebit(deps, jobId, estimateUsd, genExec),
+        );
+        return asResult(
+          guard.costWarning
+            ? { ...(result as unknown as Record<string, unknown>), costWarning: guard.costWarning }
+            : result,
+        );
+      }),
     );
   }
 

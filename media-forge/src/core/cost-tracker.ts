@@ -284,6 +284,162 @@ export function dailySpendUsd(opts: {
   return (videoRow.total ?? 0) + (imageRow.total ?? 0);
 }
 
+/**
+ * Same query as dailySpendUsd, but also returns the row count across BOTH
+ * tables — the `media-forge cost summary --today` CLI needs both the dollar
+ * total AND an "N entries" figure, and dailySpendUsd's existing number-only
+ * signature is left untouched (it already has call sites — the cost guard in
+ * handlers/register.ts — and extensive assertions in
+ * cost-tracker-daily-spend.test.ts that only need the bare number).
+ */
+export function dailySpendReport(opts: {
+  readonly dbPath: string;
+  readonly dateUtc?: string;
+  readonly tenantId?: string;
+}): { usd: number; entries: number } {
+  const db = ensureDb(opts.dbPath);
+  const day = opts.dateUtc ?? new Date().toISOString().slice(0, 10);
+
+  const videoRow = opts.tenantId
+    ? (db
+        .prepare(
+          `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total, COUNT(*) AS cnt
+             FROM video_jobs
+            WHERE substr(created_at, 1, 10) = ?
+              AND COALESCE(tenant_id, 'default') = ?`,
+        )
+        .get(day, opts.tenantId) as { total: number; cnt: number })
+    : (db
+        .prepare(
+          `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total, COUNT(*) AS cnt
+             FROM video_jobs
+            WHERE substr(created_at, 1, 10) = ?`,
+        )
+        .get(day) as { total: number; cnt: number });
+
+  const imageRow = opts.tenantId
+    ? (db
+        .prepare(
+          `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total, COUNT(*) AS cnt
+             FROM image_jobs
+            WHERE substr(created_at, 1, 10) = ?
+              AND COALESCE(tenant_id, 'default') = ?`,
+        )
+        .get(day, opts.tenantId) as { total: number; cnt: number })
+    : (db
+        .prepare(
+          `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total, COUNT(*) AS cnt
+             FROM image_jobs
+            WHERE substr(created_at, 1, 10) = ?`,
+        )
+        .get(day) as { total: number; cnt: number });
+
+  return {
+    usd: (videoRow.total ?? 0) + (imageRow.total ?? 0),
+    entries: (videoRow.cnt ?? 0) + (imageRow.cnt ?? 0),
+  };
+}
+
+/**
+ * Same shape as dailySpendReport, scoped to a UTC calendar MONTH (`YYYY-MM`,
+ * defaults to the current month) instead of a day. Backs
+ * `media-forge cost summary --month`.
+ */
+export function monthlySpendUsd(opts: {
+  readonly dbPath: string;
+  readonly monthUtc?: string;
+  readonly tenantId?: string;
+}): { usd: number; entries: number } {
+  const db = ensureDb(opts.dbPath);
+  const month = opts.monthUtc ?? new Date().toISOString().slice(0, 7);
+
+  const videoRow = opts.tenantId
+    ? (db
+        .prepare(
+          `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total, COUNT(*) AS cnt
+             FROM video_jobs
+            WHERE substr(created_at, 1, 7) = ?
+              AND COALESCE(tenant_id, 'default') = ?`,
+        )
+        .get(month, opts.tenantId) as { total: number; cnt: number })
+    : (db
+        .prepare(
+          `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total, COUNT(*) AS cnt
+             FROM video_jobs
+            WHERE substr(created_at, 1, 7) = ?`,
+        )
+        .get(month) as { total: number; cnt: number });
+
+  const imageRow = opts.tenantId
+    ? (db
+        .prepare(
+          `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total, COUNT(*) AS cnt
+             FROM image_jobs
+            WHERE substr(created_at, 1, 7) = ?
+              AND COALESCE(tenant_id, 'default') = ?`,
+        )
+        .get(month, opts.tenantId) as { total: number; cnt: number })
+    : (db
+        .prepare(
+          `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total, COUNT(*) AS cnt
+             FROM image_jobs
+            WHERE substr(created_at, 1, 7) = ?`,
+        )
+        .get(month) as { total: number; cnt: number });
+
+  return {
+    usd: (videoRow.total ?? 0) + (imageRow.total ?? 0),
+    entries: (videoRow.cnt ?? 0) + (imageRow.cnt ?? 0),
+  };
+}
+
+/**
+ * Same shape as dailySpendReport/monthlySpendUsd, with no date filter at all —
+ * every row across both tables (optionally scoped to a tenant). Backs
+ * `media-forge cost summary` (the all-time default, no --today/--month flag).
+ */
+export function allTimeSpendUsd(opts: {
+  readonly dbPath: string;
+  readonly tenantId?: string;
+}): { usd: number; entries: number } {
+  const db = ensureDb(opts.dbPath);
+
+  const videoRow = opts.tenantId
+    ? (db
+        .prepare(
+          `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total, COUNT(*) AS cnt
+             FROM video_jobs
+            WHERE COALESCE(tenant_id, 'default') = ?`,
+        )
+        .get(opts.tenantId) as { total: number; cnt: number })
+    : (db
+        .prepare(
+          `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total, COUNT(*) AS cnt
+             FROM video_jobs`,
+        )
+        .get() as { total: number; cnt: number });
+
+  const imageRow = opts.tenantId
+    ? (db
+        .prepare(
+          `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total, COUNT(*) AS cnt
+             FROM image_jobs
+            WHERE COALESCE(tenant_id, 'default') = ?`,
+        )
+        .get(opts.tenantId) as { total: number; cnt: number })
+    : (db
+        .prepare(
+          `SELECT COALESCE(SUM(COALESCE(actual_usd, est_usd)), 0) AS total, COUNT(*) AS cnt
+             FROM image_jobs`,
+        )
+        .get() as { total: number; cnt: number });
+
+  return {
+    usd: (videoRow.total ?? 0) + (imageRow.total ?? 0),
+    entries: (videoRow.cnt ?? 0) + (imageRow.cnt ?? 0),
+  };
+}
+
 export function queryReport(opts: { dbPath: string; periodDays: number }): CostReport {
   const db = ensureDb(opts.dbPath);
   const since = new Date(Date.now() - opts.periodDays * 86_400_000).toISOString();
