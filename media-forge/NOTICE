@@ -28,6 +28,18 @@ rewritten; provider-specific guidance was preserved and marked as such inline
 rather than deleted. No content from `references/migrated/v5.2-legacy-skill-bodies/`
 was absorbed.
 
+media-forge's `tests/skills/skill-structure.test.ts`, `tests/skills/
+prompt-lint.test.ts`, and `tests/skills/schema-contract.test.ts` additionally
+port the *logic* of three of the above commit's Python validators --
+`scripts/validate_skills.py` (frontmatter/structure and cross-reference
+existence), `scripts/prompt_lint.py` (draft-marker lint), and
+`scripts/schema_check.py` (JSON Schema execution against example instances)
+-- to Vitest, generalized for media-forge's own file layout and versioning
+scheme rather than upstream's. No upstream source lines were copied; the
+checks were re-derived from reading the Python and its own test suite
+(`tests/test_prompt_lint.py`, `tests/test_schema_check.py`,
+`tests/test_behavior_contract.py`).
+
 This adaptation is permitted under the MIT License. The license requires
 preserving the copyright notice and license text below for any copy or
 substantial portion of the original software — it does not require

@@ -76,6 +76,13 @@ export default defineConfig({
       // Security: scans shipped skills/**/*.md for prompt-injection content on
       // every upstream sync (re-runs after the Emily2040/seedance-2.0 absorption).
       'tests/skills-injection.test.ts',
+      // T9-b: structural/offline ports of upstream's Python skill validators
+      // (prompt_lint.py, schema_check.py, validate_skills.py). Deliberately NOT
+      // wired into test:evals -- these read markdown/JSON off disk, no network,
+      // no API keys, so they belong in the default gate that actually runs.
+      'tests/skills/skill-structure.test.ts',
+      'tests/skills/prompt-lint.test.ts',
+      'tests/skills/schema-contract.test.ts',
     ],
     exclude: ['tests/integration/live-smoke.test.ts', 'tests/golden/**', 'tests/evals/**'],
     // F-I: globalSetup launches embedded-postgres for gallery integration tests.
