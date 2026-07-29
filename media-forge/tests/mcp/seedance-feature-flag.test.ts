@@ -185,7 +185,7 @@ describe('MEDIA_FORGE_SEEDANCE_ENABLED feature flag', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', undefined, () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(55);
+        expect(names).toHaveLength(56);
       });
     });
 
@@ -193,7 +193,7 @@ describe('MEDIA_FORGE_SEEDANCE_ENABLED feature flag', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', 'true', () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(55);
+        expect(names).toHaveLength(56);
       });
     });
 
@@ -212,7 +212,7 @@ describe('MEDIA_FORGE_SEEDANCE_ENABLED feature flag', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', 'false', () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(51);
+        expect(names).toHaveLength(52);
       });
     });
 
@@ -231,7 +231,7 @@ describe('MEDIA_FORGE_SEEDANCE_ENABLED feature flag', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', '0', () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(51);
+        expect(names).toHaveLength(52);
       });
     });
 
@@ -239,7 +239,7 @@ describe('MEDIA_FORGE_SEEDANCE_ENABLED feature flag', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', '', () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(55);
+        expect(names).toHaveLength(56);
       });
     });
 

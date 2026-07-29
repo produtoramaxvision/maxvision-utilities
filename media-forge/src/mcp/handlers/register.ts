@@ -33,6 +33,7 @@ import {
   pollVideoOperation,
   downloadVideo,
 } from '../../video/video-service.js';
+import { extractLastFrame } from '../../video/last-frame.js';
 import type { GenerateVideoResult } from '../../video/video-service.js';
 import type {
   GenerateVideoT2VInputT,
@@ -526,7 +527,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     );
   }
 
-  // ---- Video tools (7) ----
+  // ---- Video tools (8) ----
 
   {
     const t = getTool('media_generate_video_t2v');
@@ -737,6 +738,26 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
             apiKey: config.apiKey,
             outputDir: inp.outputDir ?? config.outputDir,
             filename: inp.filename,
+          }),
+        );
+      }),
+    );
+  }
+
+  {
+    // T9-d: local ffmpeg call only — no provider, no cost, so no cost guard
+    // and no ledger row (unlike every submit-a-generation tool above).
+    const t = getTool('media_extract_last_frame');
+    regIfAllowed(
+      t.name,
+      { title: 'Extract Last Frame', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => {
+        const inp = input as { videoPath: string; outputPath?: string; format?: 'jpg' | 'png' };
+        return asResult(
+          await extractLastFrame({
+            videoPath: inp.videoPath,
+            outputPath: inp.outputPath,
+            format: inp.format,
           }),
         );
       }),

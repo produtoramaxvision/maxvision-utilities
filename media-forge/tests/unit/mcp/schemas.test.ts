@@ -23,7 +23,7 @@ const EXPECTED_TOOL_NAMES = [
   'media_compose_scene',
   'media_describe_image',
   'media_extract_palette',
-  // video (7)
+  // video (8 — T9-d adds media_extract_last_frame)
   'media_generate_video_t2v',
   'media_generate_video_i2v',
   'media_generate_video_interpolate',
@@ -31,6 +31,7 @@ const EXPECTED_TOOL_NAMES = [
   'media_extend_video',
   'media_poll_video_operation',
   'media_download_video',
+  'media_extract_last_frame',
   // pipeline / utility (8)
   'media_dry_run_payload',
   'media_estimate_cost',
@@ -97,8 +98,8 @@ const EXPECTED_TOOL_NAMES = [
 // Registry shape assertions
 // ---------------------------------------------------------------------------
 describe('MCP_TOOLS registry', () => {
-  it('contains exactly 55 tools', () => {
-    expect(MCP_TOOLS.length).toBe(55);
+  it('contains exactly 56 tools', () => {
+    expect(MCP_TOOLS.length).toBe(56);
   });
 
   it('is frozen (Object.isFrozen)', () => {
@@ -143,11 +144,11 @@ describe('MCP_TOOLS registry', () => {
 // listMCPToolNames()
 // ---------------------------------------------------------------------------
 describe('listMCPToolNames()', () => {
-  it('returns an array of length 55', () => {
-    expect(listMCPToolNames().length).toBe(55);
+  it('returns an array of length 56', () => {
+    expect(listMCPToolNames().length).toBe(56);
   });
 
-  it('contains all 55 expected tool names', () => {
+  it('contains all 56 expected tool names', () => {
     const names = listMCPToolNames();
     for (const expected of EXPECTED_TOOL_NAMES) {
       expect(names).toContain(expected);

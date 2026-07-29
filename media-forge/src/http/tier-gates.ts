@@ -40,6 +40,10 @@ const VIDEO_TOOLS = new Set([
   'media_extend_video',
   'media_poll_video_operation',
   'media_download_video',
+  // T9-d: local ffmpeg call, no cost — grouped with video (not utility) because
+  // it only makes sense once a caller already has a generated video, which
+  // requires creator+ in the first place.
+  'media_extract_last_frame',
 ]);
 
 // COST_TOOLS inclui media_video_webhook_status (routing/cost concern; nao e video de geracao)

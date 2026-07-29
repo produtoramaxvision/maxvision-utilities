@@ -119,10 +119,10 @@ describe('registerAllTools()', () => {
     tools = getCapturedTools(server);
   });
 
-  // Test 1: 55 tools registered (PR#11 base 54 + F-I 1 gallery = 55)
-  it('calls registerTool exactly 54 times', () => {
+  // Test 1: 56 tools registered (PR#11 base 54 + F-I 1 gallery + T9-d 1 last-frame = 56)
+  it('calls registerTool exactly 56 times', () => {
     const mock = server as unknown as { registerTool: ReturnType<typeof vi.fn> };
-    expect(mock.registerTool).toHaveBeenCalledTimes(55);
+    expect(mock.registerTool).toHaveBeenCalledTimes(56);
   });
 
   // Test 2: set equality with listMCPToolNames()

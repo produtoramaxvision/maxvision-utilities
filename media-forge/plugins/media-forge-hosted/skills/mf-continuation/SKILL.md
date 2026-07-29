@@ -42,7 +42,7 @@ Before writing any continuation prompt, require:
 
 If the source is unavailable, say: "I have the story plan, but I do not have the actual ending of the previous generation. Upload the clip or its final frame, or describe exactly what is visible at the end. I should not invent the continuation state."
 
-**Capability gap:** media-forge does not currently provide a last-frame extraction command. It bundles `ffmpeg-static` (resolved via `src/core/ffmpeg.ts`) but today only *consumes* a `lastFrameImagePath` as continuation input — it does not extract one from a video. Until this gap closes (tracked as T9-d), extract the last frame with your own local ffmpeg install (e.g. `ffmpeg -sseof -1 -i <take>.mp4 -update 1 -q:v 1 last-frame.jpg`) or another tool, then supply the resulting image path.
+media-forge extracts the last frame of a video directly: call the `media_extract_last_frame` MCP tool, or run `media-forge video last-frame <path-to-take.mp4>` on the CLI, pointing it at the previous clip. It requires ffmpeg on PATH (or `MEDIA_FORGE_FFMPEG_PATH` set) — the same requirement every other ffmpeg-backed capability in this codebase has. Feed the returned image path straight back in as the next clip's `firstFrameImage`/`--image` (i2v) or `lastFrameImage`/`--last` (interpolate); no separate local install or manual ffmpeg invocation is needed.
 
 Once a frame or clip is attached **and this client can actually open it**, run the Observation Fast Path from `[ref:continuation-handoff]`: the agent fills the observation record from what is visible and asks only about what the attachment cannot show (for a still: open motion, camera movement phase, audio phase). Never hand the sensing work back to the user when the pixels are genuinely in hand.
 

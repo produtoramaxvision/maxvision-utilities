@@ -11,6 +11,7 @@ import {
   pollVideoOperation,
   downloadVideo,
 } from '../../video/video-service.js';
+import { extractLastFrame } from '../../video/last-frame.js';
 import { estimateVideoCost } from '../../core/cost.js';
 import {
   GenerateVideoT2VInput,
@@ -118,6 +119,17 @@ export interface DownloadOpts {
   json?: boolean;
   estimateCost?: boolean;
   strict?: boolean;
+}
+
+export interface LastFrameOpts {
+  output?: string;
+  format?: string;
+  bg?: boolean;
+  dryRun?: boolean;
+  json?: boolean;
+  estimateCost?: boolean;
+  strict?: boolean;
+  outputDir?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -253,6 +265,12 @@ function parsePositiveInt(raw: string, flagName: string, minMs: number): number 
     );
   }
   return n;
+}
+
+function parseLastFrameFormat(raw: string | undefined): 'jpg' | 'png' {
+  if (raw === undefined) return 'jpg';
+  if (raw === 'jpg' || raw === 'png') return raw;
+  throw new ValidationError(`--format must be 'jpg' or 'png', got '${raw}'`);
 }
 
 function parsePollFlags(opts: PollOpts): { intervalMs: number; maxAttempts: number } {
@@ -600,6 +618,39 @@ export function registerVideoCommands(program: Command): void {
       });
 
       exitOk({ poll: pollResult, download: downloadResult }, opts);
+    } catch (err) {
+      if (err instanceof CliExit) throw err;
+      exitErr(err, opts);
+    }
+  });
+
+  // --- last-frame ---
+  // T9-d: closes the continuation gap — feed the result into `video i2v --image`
+  // or `video interpolate --last` to chain clip 1 into clip 2 without leaving
+  // media-forge.
+  const lastFrame = vid
+    .command('last-frame')
+    .description(
+      'Extract the last frame of a video as a still image (chain into i2v --image or interpolate --last)',
+    )
+    .argument('<videoPath>', 'Path to a video file (e.g. output of a previous generation)')
+    .option('--output <path>', 'Output image path (default: alongside the video)')
+    .option('--format <fmt>', 'jpg | png', 'jpg')
+    .option('--bg', 'Run in background via Claude Code session');
+  addCommonFlags(lastFrame);
+  lastFrame.action(async (videoPath: string, opts: LastFrameOpts) => {
+    try {
+      if (opts.bg) {
+        const dispatched = await handleBg(process.argv.slice(2));
+        if (dispatched) process.exit(0);
+      }
+      const format = parseLastFrameFormat(opts.format);
+      const result = await extractLastFrame({
+        videoPath,
+        outputPath: opts.output,
+        format,
+      });
+      exitOk(result, opts);
     } catch (err) {
       if (err instanceof CliExit) throw err;
       exitErr(err, opts);

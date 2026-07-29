@@ -249,6 +249,23 @@ export const VideoRouteInput = z.object({
 export type VideoRouteInputT = z.infer<typeof VideoRouteInput>;
 
 // ---------------------------------------------------------------------------
+// ExtractLastFrameInput — pull the last frame of a video as a still image.
+// T9-d: closes the continuation gap — media-forge already consumes a last
+// frame (lastFrameImagePath / lastFrameImage / CLI --last) to chain one
+// generated clip into the next, but had nothing to produce one. Local ffmpeg
+// call only: no provider, no cost, so no cost guard / ledger row here.
+// ---------------------------------------------------------------------------
+export const ExtractLastFrameInput = z
+  .object({
+    videoPath: z.string().min(1),
+    outputPath: z.string().min(1).optional(),
+    format: z.enum(['jpg', 'png']).default('jpg'),
+  })
+  .strict();
+
+export type ExtractLastFrameInputT = z.infer<typeof ExtractLastFrameInput>;
+
+// ---------------------------------------------------------------------------
 // HiggsfieldSoulIdInput — Soul ID lifecycle (create/list/find/markUsed)
 // ---------------------------------------------------------------------------
 
@@ -845,8 +862,10 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 55 tools total (PR#11 base 54 + F-I 1 gallery = 55)
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route
+// MCP_TOOLS registry — 56 tools total (PR#11 base 54 + F-I 1 gallery + T9-d
+// 1 last-frame = 56)
+// 6 image + 8 video (T9-d adds media_extract_last_frame) + 8 pipeline/utility
+// + 1 help + 4 refs + 1 webhook + 2 cost + 1 route
 // + 7 higgsfield (soul_id, dop, cinema_studio, speak, marketing_studio, recast, virality_predictor)
 // + 1 higgsfield_generate (Codex round 7 PR#10)
 // + 2 higgsfield lifecycle (poll, download — Codex round 5 PR#10)
@@ -888,7 +907,7 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     inputSchema: ExtractPaletteInput,
   },
 
-  // ---- Video (7) ----
+  // ---- Video (8) ----
   {
     name: 'media_generate_video_t2v',
     description: 'Text → video via Veo 3.1 Pro',
@@ -927,6 +946,14 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     name: 'media_download_video',
     description: 'Fetch operation result video (2-day TTL)',
     inputSchema: DownloadVideoInput,
+  },
+  {
+    name: 'media_extract_last_frame',
+    description:
+      'Extract the last frame of a video as a still image (local ffmpeg, no cost) — ' +
+      'feed the result back in as firstFrameImage/lastFrameImage (or CLI --image/--last) ' +
+      'to chain clip 1 into clip 2',
+    inputSchema: ExtractLastFrameInput,
   },
 
   // ---- Pipeline / Utility (8) ----
