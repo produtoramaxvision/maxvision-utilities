@@ -75,6 +75,56 @@ com typecheck e lint limpos.**
 | T12 fica adiado | `src/video/providers/base.ts:57` — `multiReferenceImages?: ReadonlyArray<string>`, ainda sem campo de papel | confirmado |
 | `handlers.ts` grande o bastante pra justificar PR0 | 3092 linhas (era 3049); `ADAPTED_PROVIDERS_BASE` na linha 169 (era 163) | confirmado |
 
+## Situação das PRs (atualizado 2026-07-29)
+
+Rastreia a "Ordem de execução" do fim deste documento contra o que existe em
+`git log`. Testes saíram de 1587 para 1650 verdes; nenhum teste pré-existente foi
+alterado em nenhum commit.
+
+| PR | Item | Estado | Commit |
+|---|---|---|---|
+| PR0 | 1. Split de `handlers.ts` | **feito** | `96c8751` |
+| PR0 | 2. `llm-models.ts` (registry por papel) | **não feito, premissa caiu** | — |
+| PR0 | 3. `llm-invoke.ts` (extrair dual-mode) | **não feito, tirado do PR0** | — |
+| PR1 | T1 credenciais | **bloqueado** — falta o valor da chave | — |
+| PR1 | T7 MCP remoto como sonda | pendente | — |
+| PR1 | T2 auth dual-mode | **feito** | `28d732b` |
+| PR1 | ~~T3 endpoints~~ | **retratado, não existe** | `e35ae72` |
+| PR1 | T4 rates | **bloqueado** — não verificável por context7 | — |
+| PR1 | T4-b bug do 4K | **feito** (fora do plano original) | `b84756c` |
+| PR1 | T8 smoke test | **bloqueado** — depende de T1 | — |
+| PR2 | T9 / T9-b / T9-c absorção | pendente | — |
+| PR3a | 10. Ledger de gasto + 13. os tiers consultados + 14. README | **feito** | `2688441`, `d14680f`, `bbc857b` |
+| PR3a | 11. Reserva **antes** do submit com ID próprio | **parcial** — só preflight de saldo no Kling | `2688441` |
+| PR3a | 12. Captura/liberação por poll, webhook e sweep | **não feito** | — |
+| PR3b | T15 | **em andamento** | — |
+| PR4 | T10 / T11 / T14 | pendente | — |
+| PR4 | ~~T12~~ | adiado (C5), em `TODOS.md` | — |
+| PR5 | T13 narrative planner | pendente | — |
+| PR6 | T5 / T6 como transporte | pendente | — |
+| PR7 | MuAPI · PR8 T16 Wan2GP · PR9 T17 Codex | pendente | — |
+
+### Desvios de ordem, assumidos
+
+**PR3a antes de PR1/PR2.** A ordem manda PR1 primeiro, mas PR1 começa em T1, que
+precisa do valor da chave da Kling — não disponível. Em vez de parar, avancei
+para o item de maior risco comercial (o README vendia 4 tiers de cost guard e só
+1 existia). O que dava para fazer em PR1 sem a chave (T2) foi feito.
+
+**PR0 itens 2 e 3 cortados.** O plano justificava `llm-models.ts` como
+"corrige `claude-opus-4-7`". Verificado: `claude-opus-4-7` é o modelo **mais novo**
+que o `@anthropic-ai/sdk@0.98.0` instalado conhece — é o primeiro item da união
+`Model` em `messages.d.ts:795`. Não é bug, é escolha fixa no código.
+
+O que sobra de real é menor e diferente do que o plano dizia: o modelo está
+**hardcoded** em `llm-judge.ts:297`, sem forma de escolher um mais barato por
+papel. É questão de custo, não de correção. E existe `@anthropic-ai/sdk@0.115.0`,
+17 minors à frente — subir isso mexe em toda chamada de judge e merece PR própria
+com changelog lido, não carona num refactor puro.
+
+Reclassificado: sai do PR0, vira item independente. Enquanto não subir o SDK,
+`claude-opus-4-7` continua sendo a escolha correta para o SDK instalado.
+
 ## Contexto
 
 O media-forge não é atualizado desde ~2026-05-27. Nesse intervalo:
@@ -507,16 +557,72 @@ ou não. **Nenhuma instalação ocorre na máquina do mantenedor.** Isso remove 
 bloqueio de disco (C: com 3 GB) do caminho crítico — ele deixa de ser
 pré-requisito de desenvolvimento e passa a ser responsabilidade de quem ativa.
 
-### T15 — Reconciliar billing dos 4 providers (PR2, antes de T14)
+### T15 — Reconciliar billing dos 4 providers (PR3b)
 
-- [ ] Fechar `TODO(F-E veo-cap)` em `src/mcp/handlers.ts:1717`
-- [ ] Fechar `TODO(F-E veo-billing)` em `:2057, :2071, :2081, :2091`
-- [ ] Fechar `TODO(F-E higgsfield-billing)` em `:2697`
-- [ ] Fechar `TODO(F-E seedance-billing)` em `:2965`
-- [ ] `recordActualCostUSD` chamado em todo caminho de submit, não só nos felizes
-- [ ] Teste: custo estimado vs custo reconciliado diverge menos que tolerância
+Reescrito em 2026-07-29 depois de auditar provider por provider. A versão
+anterior listava 8 TODOs por número de linha e tratava os 4 providers como se
+tivessem o mesmo problema. **Não têm.** Estado real, cada linha verificada:
 
-Sem isso, T14 reserva percentual de um número que não reflete gasto real.
+| Provider | Entra em `video_jobs`? | Reserva crédito? | Guard de custo? | Lacuna |
+|---|---|---|---|---|
+| Kling | sim (`kling.ts:221`) | sim, 5 sites | sim | nenhuma |
+| Higgsfield | sim (`higgsfield.ts:156`, só após submit OK) | **não** | **não** | reserve/capture + guard |
+| Seedance | sim (`bytedance-seedance.ts:284`, já com `nativeTaskId`) | **não** | **não** | reserve/capture + guard |
+| Veo | **não entra** | **não** | **não** | tudo |
+
+**O caso do Veo é o mais grave e não era o que o plano descrevia.**
+`GoogleVeoProvider.generate()` — que é quem chama `recordJob` — **nunca é
+invocado**. `grep -rn "\.generate(" src/mcp/` mostra 6 chamadas em
+`handlers/higgsfield.ts` e 1 em `handlers/kling.ts`, nenhuma para o Veo. A única
+referência a `GoogleVeoProvider` fora dele mesmo é `handlers/video.ts:33`, e é só
+para `estimateCostUSD` dentro de `handleVideoCostEstimate`.
+
+As tools reais (`media_generate_video_t2v/i2v/interpolate/with_refs`) chamam
+`generateVideoT2V(input, client)` direto do `video-service.ts`, que vai ao SDK do
+Google e devolve `{ operationName }`. Não passam por provider, não gravam ledger,
+não reservam.
+
+**Consequência sobre o trabalho já entregue:** o cost guard do commit `2688441`
+cobre 3 tools de imagem e 5 do Kling. Veo, Higgsfield e Seedance ficaram de fora,
+e como o Veo nem entra em `video_jobs`, `dailySpendUsd` **não conta gasto de Veo
+nenhum**. O cap diário hoje subestima. Isso é lacuna do que eu entreguei, não
+herdada — corrigir aqui.
+
+**O comentário do deferral está parcialmente errado.** Ele diz que a conclusão
+roda por "media_poll_video_operation / media_download_video (id = resolved URI,
+changes)". Mas `media_poll_video_operation` recebe `operationName`
+(`register.ts:491`) — o **mesmo** id que o submit devolveu. Só o download usa
+URI. Ou seja, a correlação submit→poll sempre existiu; o que falta é gravá-la.
+
+**A infraestrutura de correlação que o C8 pede já está construída:**
+
+- `migrations/sqlite/004-add-native-task-id.sql` — coluna `native_task_id`
+- `recordJob` aceita `nativeTaskId` (`cost-tracker.ts:15,87`)
+- `getJobRecord` devolve `nativeTaskId` (`cost-tracker.ts:203`)
+- o Seedance **já usa exatamente esse padrão**: jobId interno próprio +
+  `nativeTaskId` do provider, gravado só quando o submit dá certo
+
+Então não é preciso inventar store de correlação. É preciso aplicar ao Veo o
+padrão que o Seedance já usa.
+
+Escopo, em ordem de risco:
+
+- [ ] **Veo entra no ledger.** jobId interno gerado antes do submit; `recordJob`
+      com `nativeTaskId = operationName` após o submit retornar
+- [ ] **Veo entra no cost guard.** Sem isso o cap diário continua cego para o
+      provider mais usado
+- [ ] **Captura no poll.** `media_poll_video_operation` resolve por
+      `operationName`; quando `operation.done === true`, capturar; quando falhar,
+      liberar. Custo do Veo é determinístico por resolução/duração
+      (`VEO_PRICE` em `cost.ts:39`), então estimativa = real
+- [ ] **Higgsfield e Seedance** ganham reserve/capture e guard, reusando
+      `preflightVideoCredit` + `reserveVideoSubmit` já existentes
+- [ ] **Backstop de vazamento.** Se o usuário nunca fizer poll, a reserva expira
+      por TTL. O oracle `job-status.ts` só resolve o que está em `video_jobs` —
+      por isso gravar o Veo no ledger é pré-requisito do sweep funcionar
+- [ ] Teste: submit sem poll deixa a reserva pendente e o oracle responde
+      `unknown` (libera, nunca cobra na incerteza)
+- [ ] Teste: estimativa vs custo reconciliado diverge menos que a tolerância
 
 ### T9-b — Absorver a suíte de evals (PR2, junto com T9)
 

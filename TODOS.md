@@ -175,6 +175,24 @@ exatamente o que T15 constrói.
 **Onde:** `src/mcp/handlers/register.ts`.
 **Esforço:** S (CC ~15min)
 
+## P2 — O campo `dryRun` do request é ignorado por todos os serviços
+
+**O quê:** todo schema de imagem tem `dryRun: z.boolean().default(false)`, mas
+nenhum serviço lê esse campo. Só `client.dryRun`, definido na construção do
+cliente, controla alguma coisa.
+
+**Impacto:** quem chamar uma tool passando `dryRun: true` contra um cliente normal
+recebe geração **real** e é cobrado por ela. O parâmetro parece uma proteção e não é.
+
+**Contexto:** achado ao corrigir o P1 do dry-run cobrando crédito. Aquele fix
+fechou o caso do `client.dryRun` (guard, ledger e débito agora respeitam). Este
+aqui é a outra ponta e continua aberta.
+
+**Decisão a tomar:** ou os serviços passam a ler o campo do request, ou ele sai
+dos schemas. Manter um parâmetro que mente é pior que não ter.
+
+**Esforço:** S (CC ~20min)
+
 ## P3 — Comentário de `handleKlingElementDelete` mente sobre o contrato
 
 **O quê:** o banner diz "Requires confirm:true — irreversible on backend". O código
