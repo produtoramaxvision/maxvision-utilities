@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/Emily2040/seedance-2.0/schemas/project-state.schema.json",
-  "title": "Seedance Sequence Project State",
+  "$id": "https://github.com/produtoramaxvision/media-forge/schemas/project-state.schema.json",
+  "title": "media-forge Sequence Project State",
   "type": "object",
   "required": [
     "schema_version",

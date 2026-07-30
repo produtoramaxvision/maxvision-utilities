@@ -1258,14 +1258,23 @@ do dependabot + gitleaks, todas alheias a este trabalho.
 
 Achados pelos subagentes e **reconferidos arquivo a arquivo** nesta auditoria:
 
+### Fechados em 2026-07-30
+
+| # | O que foi feito |
+|---|---|
+| **A1** | Os 5 schemas em `skills/_shared/schemas/` tiveram `$id` reescrito para o namespace do media-forge e `title` de `Seedance …` para `media-forge …`. `grep -rn "Emily2040\|\"Seedance "` nos schemas retorna zero. Espelho do plugin fino re-sincronizado. Os 15 testes de `schema-contract.test.ts` seguem passando — nenhum afirmava nada sobre `$id`, como a evidência já previa. |
+| **A2** | Pior do que "link órfão": `commands/setup.md` documentava **todo** o subsistema de licença removido no `7b5c82a` — 5 env vars (`LICENSE_CHECK_ENABLED`, `MAXVISION_LICENSE_SERVER_URL`, `MEDIA_FORGE_LICENSE_KEY`, `MEDIA_FORGE_LICENSE_INSTANCE_ID`, `MEDIA_FORGE_LICENSE_REVALIDATE_MS`), revalidação periódica, 403 em licença revogada e período de graça offline. Verificado: `src/license/` não existe e `grep -rn "LICENSE_CHECK_ENABLED" src/` retorna zero. Quem seguisse aquilo definiria 5 variáveis e acreditaria ter gating sem ter nenhum. Seção reescrita dizendo o que existe de fato (Dockerfile, MIT, `NOTICE`) e o que não existe, apontando os cost guards e o saldo de créditos como o controle real. |
+| **A3** | Mitigação do C10 escrita em `commands/setup.md`. O texto dizia só "both can coexist"; agora traz tabela de qual controle **não** se aplica pelo conector oficial do Higgsfield (cost guard, reserva de crédito, ledger de gasto, trace/lineage, tenant gates) e as três consequências: gasto invisível ao cap diário, custo caindo na conta do operador sem atribuição em modo multi-tenant, e nada aparecendo na galeria nem no relatório de custo. |
+| **A6** | `allowed-tools: [Read, Grep]` adicionado ao frontmatter de `skills/higgsfield-prompting/SKILL.md`, igualando o irmão estrutural `kling-prompting`. Verificado antes que é skill de conhecimento puro — o único match de ferramenta de escrita no corpo era o falso-positivo "targeted-**edit**". |
+
+Gate após os quatro: `Tests 1715 passed | 8 skipped (1723)`, typecheck e lint limpos.
+
+### Ainda abertos
+
 | # | Item | Evidência reconferida | Severidade |
 |---|---|---|---|
-| A1 | Os 5 schemas absorvidos ainda carregam identidade do upstream | `skills/_shared/schemas/*.json:3-4` — `$id` aponta para `github.com/Emily2040/seedance-2.0/schemas/...` e `title` começa com `Seedance` nos 5 | alta — rebrand do T9 incompleto; `$id` público aponta pro repo de terceiro. **Custo do fix medido:** baixo — os únicos `$ref` são fragmentos do mesmo documento (`#/$defs/...`, só em `project-state.schema.json`) e `schema-contract.test.ts` não afirma nada sobre `$id`. Reescrever `$id`/`title` não quebra os 15 testes |
-| A2 | `LICENSE-COMMERCIAL/EULA.md` não existe, mas é linkado | `ls LICENSE-COMMERCIAL/` não existe; `git ls-files` filtrado por `eula` retorna vazio. `commands/setup.md:156-158` linka o arquivo. Este plano (linha 890) também afirmava que ele existe | alta — plugin comercial linkando EULA inexistente. Deletado em `7b5c82a` ("repo going private, self-host dropped"), a referência ficou |
-| A3 | C10 sem mitigação escrita | `commands/setup.md:144-151` descreve o MCP oficial do Higgsfield e diz "both can coexist" — **não** avisa que ele contorna cost ledger, reserva, trace, lineage e tenant gates | alta — é exatamente o risco que C10 apontou |
 | A4 | Seedance captura sem `actualCredits` | `src/video/providers/bytedance-seedance.ts:439` chama `recordActualCost` sem `actualCredits`; o oracle (`src/http/job-status.ts:41`) só devolve o valor quando a coluna está preenchida | alta — o sweep captura pelo valor que decidir na ausência do dado. Já em `TODOS.md` P2; **precisa de decisão de cobrança, não de código** |
 | A5 | C8 fechado só para o Veo | `register.ts:336,349` reserva **antes** do submit (Veo); `register.ts:308,1473` documentam que Kling/Higgsfield/Seedance seguem `reserve AFTER submit`, com `preflightVideoCredit` estreitando a janela sem fechá-la | alta — bloqueia o PR4, porque T14 é especificado como consumidor do ledger do PR3a |
-| A6 | `higgsfield-prompting` sem campo de tools | o frontmatter de `skills/higgsfield-prompting/SKILL.md` não tem `allowed-tools`, ao contrário do irmão estrutural `kling-prompting` (`[Read, Grep]`) | média |
 | A7 | Colisão de skills segue sem regra | `kling-prompting` (5-part spine) e `higgsfield-prompting` (MCSLA + DoP) duplicam estruturalmente `mf-video-prompt` (Director Formula) e `mf-camera` (Camera Contract). Os 4 coexistem | média — já listado em "Aberto, sem decisão ainda" |
 | A8 | T4: 2 rates ainda PLACEHOLDER | `src/core/models.ts:367` `rate: 0.18` e `:385` `rate: 0.168`, ambos com o comentário "PLACEHOLDER — verify on first live invocation" | média — **bloqueia o fechamento do PR1** |
 | A9 | `behavior_contract_check.py` não portado | T9-b descartou o validador inteiro (os paths do upstream não existem aqui); o teste de phrase-pinning equivalente é construível mas ficou fora | baixa — decisão registrada, não silenciosa |

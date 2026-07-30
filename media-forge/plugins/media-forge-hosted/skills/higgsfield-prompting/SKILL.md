@@ -1,6 +1,7 @@
 ---
 name: media-forge:higgsfield-prompting
 description: Higgsfield prompting playbook — MCSLA formula, DoP camera verbs, Cinema Studio lens dictionary, Soul ID lifecycle, Marketing Studio templates. Trigger when caller plans a Higgsfield generation.
+allowed-tools: [Read, Grep]
 when_to_invoke: video-router or higgsfield-director needs structural guidance on prompt composition
 inputs:
   - mode: t2v | i2v | lip-sync | targeted-edit | with-refs

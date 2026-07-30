@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/Emily2040/seedance-2.0/schemas/take-review.schema.json",
-  "title": "Seedance Take Review",
+  "$id": "https://github.com/produtoramaxvision/media-forge/schemas/take-review.schema.json",
+  "title": "media-forge Take Review",
   "type": "object",
   "required": [
     "project_id",

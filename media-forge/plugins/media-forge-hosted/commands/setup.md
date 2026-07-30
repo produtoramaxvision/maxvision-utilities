@@ -150,24 +150,52 @@ Higgsfield publishes an official OAuth-based MCP connector at `https://mcp.higgs
 - Both can coexist — they operate independently. The official MCP connector is not required for media-forge to call Higgsfield; it is simply another way to access Higgsfield capabilities from an MCP client.
 - To explore the official connector, visit `https://mcp.higgsfield.ai/mcp` and follow the OAuth pairing instructions provided there.
 
-## Self-host licenciado (C1 — agencias)
+**Warning — the official connector is an ungoverned surface.** "Operate
+independently" cuts both ways. A generation issued through Higgsfield's own MCP
+connector does not pass through any media-forge control, because it never touches
+media-forge at all:
 
-A imagem `ghcr.io/produtoramaxvision/media-forge-mcp` roda na sua infra. O uso
-self-host comercial e regido pelo **EULA** em
-[`LICENSE-COMMERCIAL/EULA.md`](../LICENSE-COMMERCIAL/EULA.md) (uso interno;
-nao-revenda como servico).
+| Control | Through media-forge | Through the official connector |
+|---|---|---|
+| Cost guard (block / daily cap / warning) | applied | **not applied** |
+| Credit reserve + capture | applied | **not applied** |
+| Spend ledger (`video_jobs`, `dailySpendUsd`) | recorded | **not recorded** |
+| Trace + lineage | written | **not written** |
+| Tenant gates (`src/http/auth.ts`, `tier-gates.ts`) | enforced | **not enforced** |
 
-Para ativar o gating de licenca, defina no ambiente do container:
+Consequences to be explicit about:
 
-- `LICENSE_CHECK_ENABLED=true`
-- `MAXVISION_LICENSE_SERVER_URL=https://<seu-worker>/validate`
-- `MEDIA_FORGE_LICENSE_KEY=<chave emitida pela MaxVision>`
-- `MEDIA_FORGE_LICENSE_INSTANCE_ID=<id estavel da instancia>` (opcional; default = hostname)
+- Spend through the connector is invisible to `MEDIA_FORGE_DAILY_CAP_USD`. Your
+  real daily spend can exceed the cap by whatever the connector consumed, and
+  `media-forge cost summary` will not show it.
+- In hosted multi-tenant mode the connector authenticates as the **operator's**
+  Higgsfield account, not the end tenant's. Cost lands on you with no attribution
+  and no way to bill it back.
+- Nothing generated through it appears in the gallery or the cost report.
 
-No boot e a cada `MEDIA_FORGE_LICENSE_REVALIDATE_MS` (default 1h) o servidor valida
-a chave. Licenca revogada/expirada as tools retornam **403**; `/health` segue 200.
-Ha um periodo de graca offline (`MEDIA_FORGE_LICENSE_GRACE_MS`, default 72h) se o
-servidor de licenca ficar temporariamente inacessivel.
+Use it as a manual exploration surface, or when you deliberately want to spend
+outside media-forge's accounting. Do **not** register it as a production path,
+and do not treat it as a fallback for the plugin's own Higgsfield provider.
 
-No modo **hosted** (assinatura/creditos, B), `LICENSE_CHECK_ENABLED` fica `false`
-e este gating nao se aplica.
+## Self-host
+
+O `Dockerfile` na raiz do pacote constroi a imagem do servidor MCP para rodar na
+sua infra. O codigo e **MIT** (ver `LICENSE`), e as skills absorvidas de terceiro
+tem a atribuicao obrigatoria em `NOTICE`.
+
+**Nao existe gating de licenca.** Uma versao anterior deste documento descrevia
+`LICENSE_CHECK_ENABLED`, `MAXVISION_LICENSE_SERVER_URL`, `MEDIA_FORGE_LICENSE_KEY`,
+`MEDIA_FORGE_LICENSE_INSTANCE_ID`, revalidacao periodica, resposta 403 em licenca
+revogada e periodo de graca offline. Essa camada foi **removida** no commit
+`7b5c82a` ("repo going private, self-host dropped"): `src/license/` nao existe
+mais e `grep -rn "LICENSE_CHECK_ENABLED" src/` retorna zero.
+
+Definir aquelas variaveis nao faz nada. Quem seguisse a versao anterior acreditaria
+ter controle de licenca sem ter nenhum.
+
+O mesmo documento linkava um `LICENSE-COMMERCIAL/EULA.md` que tambem nao existe —
+foi deletado no mesmo commit e o link ficou orfao.
+
+O controle de gasto que **de fato** existe sao os cost guards (`MEDIA_FORGE_DAILY_CAP_USD`,
+`MEDIA_FORGE_CONFIRM_THRESHOLD_USD`, `MEDIA_FORGE_BLOCK_THRESHOLD_USD`) e, no modo
+hospedado, o saldo de creditos via `credit-core`.
