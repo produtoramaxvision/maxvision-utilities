@@ -62,6 +62,23 @@ export async function handleVideoCostReport(rawInput: unknown): Promise<CostRepo
 //
 // P16: 'bytedance' will integrate here when SeedanceProvider lands.
 
+/**
+ * Providers that must never be chosen by the automatic cost sort (T16).
+ *
+ * The test is the PRICE, not a provider allowlist: anything that costs nothing
+ * per generation wins an ascending cost sort unconditionally, so the rule has to
+ * key on that property or it goes stale the next time a free provider is added.
+ *
+ * Callers reach these by naming them in `preferProvider`. That is the whole
+ * mechanism — deliberate selection, never inference from cost.
+ */
+export function isOptInOnlyProvider(
+  spec: { pricing: { rate: number } },
+  _input: unknown,
+): boolean {
+  return spec.pricing.rate === 0;
+}
+
 export interface VideoRouteResult {
   readonly provider: Provider;
   readonly modelId: string;
@@ -116,13 +133,49 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
   // regardless of cost. Only applies when preferProvider is NOT set (caller override wins).
   const explicit = input.preferProvider ? undefined : pickExplicitTier(input, preferred);
 
+  // T16 — zero-cost providers are OPT-IN ONLY, never picked by the cost sort.
+  //
+  // A locally-hosted provider (Wan2GP) and a subscription-included one (Codex
+  // image_gen, T17) both price at 0 because no per-generation charge exists.
+  // Under a pure ascending cost sort, 0 is unbeatable: such a provider would win
+  // EVERY route the moment it is enabled, silently replacing Veo and Kling for
+  // all work.
+  //
+  // That is wrong on quality and wrong on intent. Free does not mean equivalent —
+  // a local Wan2GP render is not a substitute for Veo, and the user enabling a
+  // local server to try it has not asked for their entire pipeline to move there.
+  // Cost is a tiebreaker among comparable options, and a zero-cost provider is
+  // not comparable; it is a different decision.
+  //
+  // So they are excluded from automatic selection and reachable only through an
+  // explicit preferProvider. `preferred` above already narrows to that provider
+  // when preferProvider is set, so filtering here removes them from the automatic
+  // path without ever blocking a deliberate request.
+  const costSortCandidates = input.preferProvider
+    ? preferred
+    : preferred.filter((spec) => !isOptInOnlyProvider(spec, input));
+
   // Sort remaining candidates by USD-equivalent cost ascending.
   // P15 (Option A): google-default tiebreaker removed — pure cost sort.
-  const sorted = [...preferred].sort((a, b) => {
+  const sorted = [...costSortCandidates].sort((a, b) => {
     const aUsd = normalizeCostUSDSafe(a, input);
     const bUsd = normalizeCostUSDSafe(b, input);
     return aUsd - bUsd;
   });
+
+  if (explicit === undefined && sorted.length === 0) {
+    // Every candidate was opt-in-only. Say so, rather than reporting the generic
+    // "no provider supports this mode" — the user has a provider that CAN do it
+    // and only needs to name it.
+    const names = [...new Set(preferred.map((s) => s.provider))].join(', ');
+    throw new Error(
+      `the only provider(s) supporting mode='${input.mode}' at durationSec=${input.durationSec} ` +
+        `resolution=${input.resolution} are opt-in only (${names}). They price at $0 and are ` +
+        `excluded from automatic cost-based routing so they cannot silently displace paid ` +
+        `providers. Pass preferProvider explicitly to use one.`,
+    );
+  }
+
   const picked = explicit ?? sorted[0]!;
 
   const estimatedCostUSD = normalizeCostUSDSafe(picked, input);

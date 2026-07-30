@@ -116,6 +116,23 @@ const MUAPI: SurfacePromptProfile = {
   verifiedAt: '2026-07-30',
 };
 
+/**
+ * T16 — Wan2GP runs locally behind a Gradio server the user hosts. There is no
+ * vendor publishing a prompt bound, and the real limit is whatever the loaded
+ * model's tokenizer accepts, which varies per model set.
+ *
+ * Null rather than a guess: an invented ceiling here would reject prompts the
+ * user's own machine would have handled.
+ */
+const WAN2GP: SurfacePromptProfile = {
+  promptMaxChars: null,
+  negativePromptMaxChars: null,
+  multiShotPromptMaxChars: null,
+  multiShotMaxShots: null,
+  source: 'self-hosted Gradio server — no vendor-published bound; varies by loaded model',
+  verifiedAt: '2026-07-30',
+};
+
 export const SURFACE_PROMPT_PROFILES: Readonly<Record<Provider, SurfacePromptProfile>> = {
   kling: KLING,
   higgsfield: HIGGSFIELD,
@@ -123,6 +140,7 @@ export const SURFACE_PROMPT_PROFILES: Readonly<Record<Provider, SurfacePromptPro
   google: GOOGLE,
   bytedance: BYTEDANCE,
   muapi: MUAPI,
+  wan2gp: WAN2GP,
 };
 
 export function promptProfileFor(provider: Provider): SurfacePromptProfile {

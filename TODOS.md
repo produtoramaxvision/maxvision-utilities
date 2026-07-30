@@ -128,6 +128,44 @@ manter-ou-remover ainda pendente — não bloqueia nada.
 Achados ao implementar os cost guards. Todos verificados no código, nenhum é
 suposição. Ordenados por impacto financeiro.
 
+## P1 — Três providers novos não são alcançáveis pelo roteador MCP
+
+**O quê:** `higgsfield-cli` (T5), `muapi` (PR7) e `wan2gp` (T16) foram implementados,
+testados e registrados em `PROVIDERS`, mas **nenhum** está em
+`ADAPTED_PROVIDERS_BASE` (`src/mcp/handlers/shared.ts:16`, hoje
+`['google', 'higgsfield', 'kling']` + `bytedance` condicional). `handleVideoRoute`
+filtra candidatos por `getAdaptedProviders().has(spec.provider)`, então os três
+são invisíveis para o roteamento — inclusive com `preferProvider` explícito.
+
+**Estado real:** são clientes funcionais e cobertos por teste, usáveis de forma
+direta pela classe. **Não** são usáveis pela superfície MCP de vídeo. Isso não
+foi declarado nos commits de T5/PR7/T16 e está sendo corrigido aqui.
+
+**Por que não foi só adicionar ao set:** o roteador escolhe entre entradas de
+`VIDEO_MODELS`, e os três não têm entrada lá — deliberadamente:
+
+| Provider | Por que não tem entrada estática |
+|---|---|
+| `muapi` | catálogo e preços vêm de `GET /api/v1/models` em runtime; hardcodar preço de agregador é justamente o bug que o adapter evita |
+| `wan2gp` | os modelos dependem de quais pesos o usuário baixou na máquina dele |
+| `higgsfield-cli` | mesma plataforma do adapter HTTP, mas `spec.provider` é `'higgsfield'`, então o filtro do roteador não os associa ao transporte CLI |
+
+**Como fechar (3 caminhos, decisão pendente):**
+1. Roteador passa a aceitar catálogo dinâmico por provider, não só `VIDEO_MODELS`.
+2. `higgsfield-cli` reusa as specs de `higgsfield` via um campo de transporte no
+   spec, em vez de um `provider` separado.
+3. Manter os três como acesso direto e documentar que não são roteáveis.
+
+**Nota:** a mitigação de custo-zero (`isOptInOnlyProvider`) está **armada mas
+inerte** hoje pelo mesmo motivo — nenhum modelo roteável tem `rate: 0`. Existe um
+teste que prova isso, para que ela deixe de ser inerte no instante em que um
+modelo $0 for registrado.
+
+**Esforço:** M (human ~4h / CC ~45min)
+**Depende de:** escolher entre os 3 caminhos acima.
+
+---
+
 ## P2 — MuAPI: shape do endpoint de estimativa não verificado ao vivo
 
 **O quê:** `src/video/providers/muapi.ts` lê o custo de um modelo com

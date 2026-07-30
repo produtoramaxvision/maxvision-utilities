@@ -9,6 +9,7 @@ import { registerPromptsCommand } from './commands/prompts.js';
 import { registerModelsCommand } from './commands/models.js';
 import { registerConfigCommand } from './commands/config.js';
 import { registerAliasesCommand } from './commands/aliases-suggest.js';
+import { registerSetupCommands } from './commands/setup.js';
 
 export function buildProgram(): Command {
   const program = new Command();
@@ -26,6 +27,7 @@ export function buildProgram(): Command {
   registerModelsCommand(program);
   registerConfigCommand(program);
   registerAliasesCommand(program);
+  registerSetupCommands(program);
 
   return program;
 }

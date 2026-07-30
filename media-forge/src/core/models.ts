@@ -66,6 +66,7 @@ export const PROVIDERS = [
   'bytedance',
   'higgsfield-cli',
   'muapi',
+  'wan2gp',
 ] as const;
 export type Provider = (typeof PROVIDERS)[number];
 // ^ Provider type derives from the runtime array. bytedance is now a shipped adapter (P16).
