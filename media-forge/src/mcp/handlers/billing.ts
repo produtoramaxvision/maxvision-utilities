@@ -4,6 +4,7 @@ import type { OutputManager } from '../../output/output-manager.js';
 import type { OutputStorageClient } from '../../output/storage.js';
 import type { Tier } from '../../http/auth.js';
 import type { GalleryStore } from '../../gallery/gallery-store.js';
+import type { SpendPurpose } from '../../core/cost-guard.js';
 import { runWithDebit, reserveForJob, captureJob, releaseJob } from '../../billing/debit.js';
 import {
   priceCredits,
@@ -27,6 +28,21 @@ export interface HandlersDeps {
   tenantId?: string;
   /** F-E: credit-core HTTP client para débito. undefined = billing OFF (self-host / hosted-sem-billing) → no-op. */
   creditClient?: CreditClient;
+  /**
+   * T11/T14: marca esta requisição como um **retake** do reviewer, não trabalho
+   * novo. Retakes podem consumir a fatia do cap diário reservada por
+   * `MEDIA_FORGE_BUDGET_RESERVE_PCT`; trabalho novo não pode.
+   *
+   * Fica em `HandlersDeps` e não no schema de cada tool de propósito: `deps` é
+   * construído fresco por requisição (`app-internal.ts:19`), então quem despacha
+   * o retake marca uma vez e **todas** as tools guardadas passam a enxergar —
+   * em vez de replicar um campo `isRetake` em mais de dez schemas e depender de
+   * cada call site lembrar de repassá-lo.
+   *
+   * `undefined` = trabalho novo. Default conservador: um despachante que ainda
+   * não conhece este campo nunca ganha acesso à reserva por omissão.
+   */
+  spendPurpose?: SpendPurpose;
 }
 
 // ---------------------------------------------------------------------------

@@ -210,7 +210,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     // T14: retakes may draw on the slice of the daily cap reserved for them.
     // Defaults to 'new' so an un-updated call site gets the conservative
     // treatment rather than silently bypassing the reserve.
-    purpose: SpendPurpose = 'new',
+    purpose: SpendPurpose = deps.spendPurpose ?? 'new',
   ): { costWarning?: string } {
     const spentTodayUsd = dailySpendUsd({ dbPath: defaultDbPath(), tenantId: deps.tenantId ?? 'default' });
     const decision = evaluateCostGuard({

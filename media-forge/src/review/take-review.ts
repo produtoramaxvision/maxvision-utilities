@@ -18,6 +18,7 @@ import {
   StateBlob,
   TakeVerdict,
 } from '../narrative/enums.js';
+import { TRIAGE_ACTIONS } from './router.js';
 
 export const TakeReview = z
   .object({
@@ -56,6 +57,33 @@ export const TakeReview = z
      * rerolls the user would not have authorised.
      */
     requires_user_confirmation: z.boolean(),
+
+    // ---------------------------------------------------------------------
+    // T11 retake protocol. Deliberate extension beyond the upstream schema —
+    // the plan requires recording "qual variável mudou" here, and the source
+    // JSON Schema has no field for it.
+    //
+    // Optional so every review written before T11 still parses. Reviews that
+    // predate the protocol legitimately do not know which variable moved, and
+    // inventing a value for them would be worse than leaving it absent.
+    // ---------------------------------------------------------------------
+
+    /** How the router triaged this take. See src/review/router.ts. */
+    retake_triage: z.enum(TRIAGE_ACTIONS).optional(),
+
+    /**
+     * The ONE variable the retake following this review is permitted to change.
+     * Null means nothing is being retried.
+     *
+     * This is what makes the attempt history a bisection rather than a list: read
+     * across a job's reviews and you get the sequence of single changes tried,
+     * so a repeat of a change that already failed is visible instead of costing
+     * another generation to rediscover.
+     */
+    retake_variable: z
+      .enum(['prompt', 'negative-prompt', 'seed', 'reference-set', 'model', 'duration', 'post-processing'])
+      .nullable()
+      .optional(),
   })
   .strict();
 
