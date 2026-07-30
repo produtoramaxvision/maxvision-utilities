@@ -86,6 +86,9 @@ export default defineConfig({
       // T10: Zod ports of skills/_shared/schemas/*.json (clip-contract, prompt-spec,
       // project-state, generation-run, take-review) plus the sqlite-backed store.
       'tests/narrative/**/*.test.ts',
+      // T17: CodexImageProvider (src/image/codex-image.ts) — was not covered by
+      // any existing glob (tests/image/ didn't exist before this suite).
+      'tests/image/**/*.test.ts',
     ],
     exclude: ['tests/integration/live-smoke.test.ts', 'tests/golden/**', 'tests/evals/**'],
     // F-I: globalSetup launches embedded-postgres for gallery integration tests.

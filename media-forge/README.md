@@ -87,6 +87,44 @@ Each provider is optional and independent: the plugin only registers the models
 whose credentials are present. Setting none of the optional keys leaves a
 working Google-only install.
 
+### Optional providers that use no API key
+
+Three providers authenticate differently and are opt-in:
+
+| Provider | Flag | How it authenticates |
+|---|---|---|
+| Higgsfield CLI | `MEDIA_FORGE_HF_CLI_ENABLED=true` | `higgsfield auth login` on this machine. Bills the logged-in user's workspace, not API credits |
+| Wan2GP | `MEDIA_FORGE_WAN2GP_ENABLED=true` | none — a Gradio server you host yourself |
+| Codex images | `MEDIA_FORGE_CODEX_IMAGE_ENABLED` (default on) | `codex login` OAuth, **or** `OPENAI_API_KEY` — see below |
+
+**Codex image generation has two credential paths**, and which one runs is
+detected automatically:
+
+- **`builtin`** — the Codex CLI's built-in `image_gen` tool, riding the OAuth
+  session created by `codex login` on your machine. Requires **no**
+  `OPENAI_API_KEY` and costs nothing beyond the ChatGPT subscription you already
+  pay. This is the path for local and personal use.
+- **`cli`** — the bundled `scripts/image_gen.py` against the OpenAI Images API.
+  Requires `OPENAI_API_KEY` and is **metered**. This is the path for multi-tenant
+  hosting, where a single machine-wide OAuth session cannot serve separate
+  tenants.
+
+`OPENAI_API_KEY` present selects `cli`; otherwise `builtin`. Override with
+`MEDIA_FORGE_CODEX_IMAGE_MODE`. In `cli` mode you must set
+`MEDIA_FORGE_CODEX_IMAGE_USD_PER_IMAGE` — there is no default, because this
+repository has no verified OpenAI image rate and a guessed one would enter the
+cost ledger looking authoritative.
+
+Codex images use `gpt-image-2` at `quality: high`. `gpt-image-1.5` is
+deliberately excluded, which means **no native transparency** — `gpt-image-2`
+does not support `background=transparent`. When you need real alpha, use Nano
+Banana Pro or Imagen 4 Ultra, which do it natively.
+
+**Zero-cost providers are never chosen automatically.** Wan2GP and Codex
+`builtin` both price at $0, which would win every cost-sorted route outright and
+silently displace Veo and Kling. They are excluded from automatic routing and
+selected only by naming them in `preferProvider`.
+
 **Kling auth precedence is not a fallback chain.** When `KLING_API_KEY` is set it
 wins outright and no JWT is ever signed, even if the access/secret pair is also
 present ([`kling-jwt.ts:93`](src/video/providers/auth/kling-jwt.ts)). Set one
