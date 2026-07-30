@@ -83,6 +83,9 @@ export default defineConfig({
       'tests/skills/skill-structure.test.ts',
       'tests/skills/prompt-lint.test.ts',
       'tests/skills/schema-contract.test.ts',
+      // T10: Zod ports of skills/_shared/schemas/*.json (clip-contract, prompt-spec,
+      // project-state, generation-run, take-review) plus the sqlite-backed store.
+      'tests/narrative/**/*.test.ts',
     ],
     exclude: ['tests/integration/live-smoke.test.ts', 'tests/golden/**', 'tests/evals/**'],
     // F-I: globalSetup launches embedded-postgres for gallery integration tests.

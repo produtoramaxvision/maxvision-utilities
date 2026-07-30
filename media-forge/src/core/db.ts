@@ -71,7 +71,7 @@ function getDbPath(db: DSInstance): string {
  * node:sqlite (Node 22.5+) does not expose a db.transaction() wrapper like
  * better-sqlite3 does; we implement one using exec() calls directly.
  */
-function withTransaction(db: DSInstance, fn: () => void): void {
+export function withTransaction(db: DSInstance, fn: () => void): void {
   db.exec('BEGIN');
   try {
     fn();
