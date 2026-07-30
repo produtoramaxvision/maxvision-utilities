@@ -98,7 +98,7 @@ pessoalmente na auditoria, não herdados de relatório de subagente.
 | PR0 | 2. `llm-models.ts` (registry por papel) | **não feito, premissa caiu** | — |
 | PR0 | 3. `llm-invoke.ts` (extrair dual-mode) | **não feito, tirado do PR0** | — |
 | PR1 | T1 credenciais | **feito** — chave no `.env`, gitignored | (sem commit: `.env` não é versionado) |
-| PR1 | T7 MCP remoto como sonda | pendente | — |
+| PR1 | T7 MCP remoto como sonda | **feito** — `KLING_API_KEY` repassado no `.mcp.json` (era descartado); MCP remoto do Higgsfield **deliberadamente não embarcado**, documentado como sonda manual por C10 | `9f55c2e` |
 | PR1 | T2 auth dual-mode | **feito** | `28d732b` |
 | PR1 | T3 endpoints (API 2.0) | **retratação revertida — T3 é real, implementação pendente** | `e35ae72` (retratou), `6e86e5e` (reverteu) |
 | PR1 | T4 rates | **feito** — 4 modelos Kling lidos ao vivo em `kling.ai/dev/pricing`, sessão autenticada; master corrigido de `0.18` para `0.42` | `models.ts` `updatedAt: '2026-07-30'` |
@@ -113,7 +113,9 @@ pessoalmente na auditoria, não herdados de relatório de subagente.
 | PR3a | 11. Reserva **antes** do submit com ID próprio | **feito** — Veo, Kling, Higgsfield e Seedance, todos com `res-{jobId}` | `c0415f9`, `59b9ea9` (A5) |
 | PR3a | 12. Captura/liberação por poll, webhook e sweep | **feito junto do T15** | `c0415f9`, `13d3d37` |
 | PR3b | T15 | **feito** (Veo + Higgsfield + Seedance) | `c0415f9`, `13d3d37` |
-| PR4 | T10 / T11 / T14 | pendente | — |
+| PR4 | T10 schemas Zod | **feito** — 5 schemas em `src/narrative/` + `src/review/take-review.ts`, migration `011`, `generation-run` reconciliado sem duplicar custo | `8576d20` |
+| PR4 | T14 reserve_pct | **feito** — `MEDIA_FORGE_BUDGET_RESERVE_PCT` + `_MODE`, default `observe` (inerte até opt-in) | `40e8316` |
+| PR4 | T11 retake protocol | **feito** — 5 saídas de triagem, uma variável por retake, orçamento pago separado do total; fecha o laço `purpose:'retake'` do T14 | `09b1222` |
 | PR4 | ~~T12~~ | adiado (C5), em `TODOS.md` | — |
 | PR5 | T13 narrative planner | pendente | — |
 | PR6 | T5 / T6 como transporte | pendente | — |

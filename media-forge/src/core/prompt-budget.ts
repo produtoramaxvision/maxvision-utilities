@@ -88,9 +88,21 @@ const BYTEDANCE: SurfacePromptProfile = {
   verifiedAt: 'unverified',
 };
 
+/**
+ * T5 — the CLI transport reaches the same Higgsfield platform as the API-key
+ * adapter, so it inherits that platform's (absent) published bound. Aliased to
+ * HIGGSFIELD rather than copied: two profiles for one platform would drift the
+ * moment Higgsfield publishes a limit and only one row gets updated.
+ *
+ * Confirmed against `higgsfield 1.1.20` on 2026-07-30 — `generate create --help`
+ * documents `--prompt` with no stated length bound.
+ */
+const HIGGSFIELD_CLI: SurfacePromptProfile = HIGGSFIELD;
+
 export const SURFACE_PROMPT_PROFILES: Readonly<Record<Provider, SurfacePromptProfile>> = {
   kling: KLING,
   higgsfield: HIGGSFIELD,
+  'higgsfield-cli': HIGGSFIELD_CLI,
   google: GOOGLE,
   bytedance: BYTEDANCE,
 };

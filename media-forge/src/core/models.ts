@@ -59,9 +59,17 @@ export type VideoDurationSeconds = (typeof VIDEO_DURATION_SECONDS)[number];
 // P14 appends `higgsfield`, P15 appends `kling`, P16 appends `bytedance`. The type
 // must NEVER promise providers without backing adapters — otherwise downstream code
 // type-checks against names that throw at runtime.
-export const PROVIDERS = ['google', 'higgsfield', 'kling', 'bytedance'] as const;
+export const PROVIDERS = ['google', 'higgsfield', 'kling', 'bytedance', 'higgsfield-cli'] as const;
 export type Provider = (typeof PROVIDERS)[number];
 // ^ Provider type derives from the runtime array. bytedance is now a shipped adapter (P16).
+//
+// T5: 'higgsfield-cli' is a SEPARATE provider from 'higgsfield', not a transport
+// flag on it. They authenticate differently and therefore bill differently — the
+// API adapter draws on API credits, the CLI on the logged-in user's workspace.
+// PROVIDERS is what the router and the cost report key on, so collapsing two
+// billing surfaces into one entry would make spend unattributable between them.
+// Registration is gated by MEDIA_FORGE_HF_CLI_ENABLED (default false); the CLI
+// holds one OAuth session per machine and so cannot serve multi-tenant hosting.
 
 export const VIDEO_MODES = [
   't2v',
