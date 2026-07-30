@@ -182,11 +182,25 @@ export class MuapiProvider {
       );
     }
 
+    // NOT VERIFIED: the docs read for this adapter document the model CATALOGUE's
+    // shape ({ cost, cost_currency, ... }) but not the estimate endpoint's
+    // response body. `cost` is assumed by symmetry with the catalogue and
+    // `cost_usd` is accepted as a defensive second guess — neither was confirmed
+    // against a live call, because that needs a MUAPI_API_KEY this repo does not
+    // have.
+    //
+    // The failure mode is safe: an unrecognised shape throws below rather than
+    // producing a number, so a wrong guess surfaces as an error instead of
+    // putting a fabricated estimate through the cost guard and into the ledger.
+    // Confirm against a real response before relying on dynamic pricing.
+    // Tracked in TODOS.md.
     const body = (await response.json()) as { cost?: number; cost_usd?: number };
     const cost = body.cost ?? body.cost_usd;
     if (typeof cost !== 'number' || !Number.isFinite(cost)) {
       throw new ApiError(
-        `MuAPI cost estimate for ${modelName} returned no usable cost`,
+        `MuAPI cost estimate for ${modelName} returned no usable cost. The estimate ` +
+          `endpoint's response shape was never verified against a live call — see the ` +
+          `note at this call site.`,
         'API',
         { provider: 'muapi' },
       );

@@ -128,6 +128,31 @@ manter-ou-remover ainda pendente — não bloqueia nada.
 Achados ao implementar os cost guards. Todos verificados no código, nenhum é
 suposição. Ordenados por impacto financeiro.
 
+## P2 — MuAPI: shape do endpoint de estimativa não verificado ao vivo
+
+**O quê:** `src/video/providers/muapi.ts` lê o custo de um modelo com
+`dynamic_pricing: true` chamando o `estimate_endpoint` do próprio MuAPI e aceita
+`{ cost }` ou `{ cost_usd }`. As docs lidas via `context7-mcp` em 2026-07-30
+documentam o shape do **catálogo** (`GET /api/v1/models`), não o da resposta do
+endpoint de estimativa. As duas chaves são suposição por simetria.
+
+**Por que não bloqueia:** o modo de falha é seguro. Shape desconhecido **lança**
+em vez de produzir número, então um palpite errado vira erro visível, não uma
+estimativa fabricada passando pelo cost guard e entrando no ledger. Não existe
+tabela de preço local do MuAPI para servir de fallback silencioso — isso é
+deliberado (agregador tem markup próprio).
+
+**Por que não foi verificado:** exige `MUAPI_API_KEY`, que este repo não tem.
+Uma chamada a `GET /api/v1/models` já resolveria — é leitura, não gasta crédito.
+
+**Como fechar:** com uma chave, chamar `estimate_endpoint` de um modelo de vídeo
+e conferir as chaves reais. Se divergir, corrigir e apontar aqui.
+
+**Esforço:** XS (human ~10min / CC ~5min)
+**Depende de:** uma credencial MuAPI.
+
+---
+
 ## P2 — Erros MCP perdem todos os campos estruturados na serialização
 
 **O quê:** `src/mcp/handlers/plumbing.ts:61` monta a resposta de erro como
