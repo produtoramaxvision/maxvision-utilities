@@ -227,7 +227,34 @@ describe('T15 part B — Seedance submit ledger (4 tools)', () => {
       expect(row!.tenantId, `${site.tool}: tenant not set`).toBe('t1');
     }
 
-    expect(spy.reserve).toHaveBeenCalledTimes(SITES.length);
+    // A5 (2026-07-30): this used to assert `spy.reserve` was called 4 times, back
+    // when the reserve lived in register.ts AFTER the submit returned. It now
+    // happens inside BytedanceSeedanceProvider.generate(), via
+    // ledgerHooks.beforeSubmit, so the credit is reserved BEFORE the provider is
+    // ever contacted (C8).
+    //
+    // This file mocks the whole bytedance-seedance module, so the real generate()
+    // — and therefore the real reserve — never executes here. That is not a
+    // regression and not a reason to weaken the assertion: it is the wrong layer
+    // to observe a provider-internal call. The ordering guarantee is proven
+    // against the REAL provider in
+    // tests/video/providers/bytedance-seedance-ledger-hooks.test.ts, which mocks
+    // only @fal-ai/client.
+    //
+    // What IS observable and worth pinning here is the wiring: every submit tool
+    // must hand the provider a hooks object carrying all three callbacks. If a
+    // future edit drops that argument, the reserve silently stops happening and
+    // only this assertion would catch it at the handler layer.
+    expect(generate).toHaveBeenCalledTimes(SITES.length);
+    for (const [i, call] of generate.mock.calls.entries()) {
+      const hooks = call[1] as
+        | { beforeSubmit?: unknown; onSubmitFailed?: unknown; onPostSubmitError?: unknown }
+        | undefined;
+      expect(hooks, `site ${i}: generate() called without ledgerHooks`).toBeDefined();
+      expect(typeof hooks!.beforeSubmit, `site ${i}: beforeSubmit missing`).toBe('function');
+      expect(typeof hooks!.onSubmitFailed, `site ${i}: onSubmitFailed missing`).toBe('function');
+      expect(typeof hooks!.onPostSubmitError, `site ${i}: onPostSubmitError missing`).toBe('function');
+    }
   });
 
   it('guard and preflight block Seedance submits the same way as Kling/Higgsfield', async () => {

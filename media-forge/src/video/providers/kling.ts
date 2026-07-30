@@ -7,6 +7,7 @@ import type {
   DownloadedAsset,
   KlingExtras,
   ProviderExtras,
+  VideoLedgerHooks,
 } from './base.js';
 import { VIDEO_MODELS, type Provider, type VideoModelSpec } from '../../core/models.js';
 import { recordJob, recordActualCost } from '../../core/cost-tracker.js';
@@ -181,7 +182,7 @@ export class KlingProvider implements VideoProvider {
     return spec.pricing.rate * multiplier * req.durationSec;
   }
 
-  async generate(req: VideoGenerationRequest): Promise<JobHandle> {
+  async generate(req: VideoGenerationRequest, ledgerHooks?: VideoLedgerHooks): Promise<JobHandle> {
     const spec = VIDEO_MODELS[req.modelId];
     if (!spec) throw new Error(`unknown model: ${req.modelId}`);
     if (spec.provider !== 'kling') {
@@ -190,6 +191,11 @@ export class KlingProvider implements VideoProvider {
 
     const klingExtras = isKlingExtras(req.extras) ? req.extras : undefined;
     const jobId = `kling-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // A5: estimateCostUSD is pure (no I/O) — moved up from post-submit (it used
+    // to run only right before recordJob, after the fetch already succeeded) so
+    // ledgerHooks.beforeSubmit has a real estimate BEFORE the network call.
+    // Same value either way; only the timing of the computation changed.
+    const estUsd = this.estimateCostUSD(req);
 
     const endpointKind = pickEndpoint(req.mode, klingExtras);
     const endpointPath = endpointPathFor(endpointKind);
@@ -203,48 +209,75 @@ export class KlingProvider implements VideoProvider {
       );
     }
 
+    // A5 (2026-07-30): reserve credit BEFORE the network submit, closing C8 for
+    // Kling. May throw (InsufficientCreditError) — that must propagate straight
+    // out of generate() and block the call; nothing has been sent to Kling yet.
+    if (ledgerHooks) {
+      await ledgerHooks.beforeSubmit(jobId, estUsd);
+    }
+
     const auth = getKlingAuthHeader(this.env);
     const url = `${KLING_API_BASE}${endpointPath}`;
-    const res = await this.doFetch(url, {
-      method: 'POST',
-      headers: { ...auth, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
 
-    if (!res.ok) {
-      const errBody = (await res.json().catch(() => ({}))) as KlingErrorBody;
-      throw new Error(
-        `Kling API ${res.status} ${errBody.code ?? 'unknown'}: ${errBody.message ?? '(no message)'}`,
-      );
+    let nativeTaskId: string;
+    try {
+      const res = await this.doFetch(url, {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => ({}))) as KlingErrorBody;
+        throw new Error(
+          `Kling API ${res.status} ${errBody.code ?? 'unknown'}: ${errBody.message ?? '(no message)'}`,
+        );
+      }
+      const payload = (await res.json()) as KlingGenerateResponseBody;
+      if (payload.code !== 0 || !payload.data?.task_id) {
+        throw new Error(
+          `Kling API returned non-zero code ${payload.code ?? 'unknown'} ${payload.message ?? ''}`.trim(),
+        );
+      }
+      nativeTaskId = payload.data.task_id;
+    } catch (err) {
+      // Kling never accepted the job — release the reservation opened above.
+      if (ledgerHooks) {
+        await ledgerHooks.onSubmitFailed(jobId, estUsd);
+      }
+      throw err;
     }
-    const payload = (await res.json()) as KlingGenerateResponseBody;
-    if (payload.code !== 0 || !payload.data?.task_id) {
-      throw new Error(
-        `Kling API returned non-zero code ${payload.code ?? 'unknown'} ${payload.message ?? ''}`.trim(),
-      );
+
+    try {
+      // Remember the endpoint kind so pollStatus knows which GET path to use
+      this.jobTypeMap.set(jobId, { endpointKind, nativeTaskId });
+
+      // Cost-tracker entry (estimate, status=pending)
+      // FIX (Codex P2 round 17, PR#11): persist endpointKind so hydrateFromDb
+      // can reconstruct the actual poll path. Without this, extras-routed jobs
+      // (base mode + elementIds/lipSync) become unpollable after a restart
+      // because pickEndpoint(mode, undefined) returns the wrong endpoint.
+      recordJob({
+        dbPath: this.dbPath,
+        jobId,
+        provider: 'kling',
+        model: req.modelId,
+        mode: req.mode,
+        paramsHash: hashParams(req),
+        estUsd,
+        nativeTaskId,
+        endpointKind,
+      });
+    } catch (err) {
+      // A5: Kling DID accept the job (nativeTaskId above) — the reservation
+      // must NOT be released here (see VideoLedgerHooks.onPostSubmitError's
+      // doc comment in base.ts). Log for manual reconciliation and propagate
+      // the original error unchanged.
+      if (ledgerHooks) {
+        ledgerHooks.onPostSubmitError(jobId, estUsd, err);
+      }
+      throw err;
     }
-    const nativeTaskId = payload.data.task_id;
-
-    // Remember the endpoint kind so pollStatus knows which GET path to use
-    this.jobTypeMap.set(jobId, { endpointKind, nativeTaskId });
-
-    // Cost-tracker entry (estimate, status=pending)
-    // FIX (Codex P2 round 17, PR#11): persist endpointKind so hydrateFromDb
-    // can reconstruct the actual poll path. Without this, extras-routed jobs
-    // (base mode + elementIds/lipSync) become unpollable after a restart
-    // because pickEndpoint(mode, undefined) returns the wrong endpoint.
-    const estUsd = this.estimateCostUSD(req);
-    recordJob({
-      dbPath: this.dbPath,
-      jobId,
-      provider: 'kling',
-      model: req.modelId,
-      mode: req.mode,
-      paramsHash: hashParams(req),
-      estUsd,
-      nativeTaskId,
-      endpointKind,
-    });
 
     // NOTE: no global request_id<->jobId map needed. The webhook handler resolves identity from
     // the URL path `/webhooks/kling/{jobId}` (P14 router extracts as `ctx.jobId`). The native

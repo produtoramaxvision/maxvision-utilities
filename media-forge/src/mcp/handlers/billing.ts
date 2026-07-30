@@ -90,17 +90,19 @@ export async function withImageDebit<T extends object>(
  * handler runs (i.e. before the provider is ever called). No-op when billing
  * is off (same guard as the other F-E functions here).
  *
- * HONESTY NOTE (do not misrepresent this as closing the gap): every Kling
- * submit handler calls the provider FIRST and reserveVideoSubmit runs AFTER
- * (see the "F-E: reserve AFTER submit" comment at each call site) — so an
- * insufficient-balance tenant could still get a provider-side charge before
- * the post-submit reserve() ever 402s. This function only NARROWS that
- * window: it catches the common case (balance already too low right now),
- * but the balance can still drop between this check and the actual submit
- * (a concurrent generation from the same tenant, another call landing in
- * between). It does NOT close the reserve-after-submit race. The real fix is
- * the submit-to-poll correlation store tracked as task T15 — until that
- * lands, this is a mitigation, not a guarantee.
+ * A5 (2026-07-30) UPDATE: Kling, Higgsfield, and Seedance now ALSO reserve
+ * credit for real BEFORE the network submit, via the `ledgerHooks.
+ * beforeSubmit` hook invoked from inside each provider's `generate()` (see
+ * `VideoLedgerHooks` in base.ts and `reserveVideoSubmit` below). That closes
+ * the reserve-after-submit race this function used to only narrow. This
+ * preflight is kept as a cheap, redundant fast-fail: it is a single balance
+ * READ (no write, no credit-core mutation), so running it before the
+ * request body is even built avoids that work for the common case (balance
+ * already too low) without waiting on the heavier reserve() call. The
+ * remaining race it does NOT close — balance dropping between this read and
+ * the real reserve a moment later, e.g. a concurrent generation from the
+ * same tenant — is caught by `beforeSubmit`'s own reserve, which 402s
+ * exactly like this function does.
  */
 export async function preflightVideoCredit(
   deps: HandlersDeps,
@@ -118,10 +120,19 @@ export async function preflightVideoCredit(
   }
 }
 
-/** Reserva crédito para um submit de VÍDEO (assíncrono) usando o jobId/operationName
- *  retornado pelo submit. No-op se billing off. Chamada APÓS o submit obter o id —
- *  reserve/capture só reconciliam quando ambos usam o MESMO id (res-{jobId}/cap-{jobId}).
- *  402 propaga (convertido em tool-error pelo wrap). */
+/** Reserva crédito para um submit de VÍDEO (assíncrono), usando o jobId que o
+ *  provider já mintou para essa geração. No-op se billing off. reserve/capture
+ *  só reconciliam quando ambos usam o MESMO id (res-{jobId}/cap-{jobId}).
+ *  402 propaga (convertido em tool-error pelo wrap).
+ *
+ *  A5 (2026-07-30): chamada de dois lugares agora — `submitVeoWithLedger`
+ *  (register.ts) chama diretamente ANTES do submit do Veo; Kling, Higgsfield
+ *  e Seedance chamam via `ledgerHooks.beforeSubmit` (também register.ts),
+ *  invocado de DENTRO de cada provider's `generate()` — depois que o jobId
+ *  próprio existe, mas ANTES do fetch de rede — ao invés de depois que
+ *  `register.ts` recebia o retorno do handler. `recordJob` continua adiado
+ *  até o submit ter sucesso (nenhuma linha 'pending' permanente em falha);
+ *  só a RESERVA de crédito passou a rodar antes. */
 export async function reserveVideoSubmit(
   deps: HandlersDeps,
   jobId: string,

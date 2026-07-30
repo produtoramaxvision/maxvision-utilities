@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { OutputStorageClient } from '../../output/storage.js';
 import { presignExistingArtifact } from '../../output/output-storage.js';
 import { KlingProvider } from '../../video/providers/kling.js';
+import type { VideoLedgerHooks } from '../../video/providers/base.js';
 import { KlingMotionBrushInput, type KlingMotionBrushInputT } from '../schemas.js';
 import {
   KlingElementCreateInput,
@@ -56,11 +57,23 @@ export interface KlingHandlerExecOpts {
   readonly checkCostGuard?: (estimateUsd: number) => { costWarning?: string } | undefined;
   /**
    * Credit preflight hook (media-forge cost guards, F-E). Called BEFORE
-   * provider.generate() to narrow (not close — see preflightVideoCredit's
-   * own doc comment) the reserve-after-submit credit gap. Throws
-   * InsufficientCreditError on insufficient balance; no-op when omitted.
+   * provider.generate() — a cheap balance read that fails fast without
+   * building the request body. Throws InsufficientCreditError on
+   * insufficient balance; no-op when omitted. Distinct from `ledgerHooks`
+   * below: this only READS the balance; `ledgerHooks.beforeSubmit` is the
+   * REAL reserve, keyed on the jobId KlingProvider.generate() mints, and
+   * also throws InsufficientCreditError on a race that slips past this
+   * pre-check (a concurrent submit from the same tenant landing in between).
    */
   readonly preflightCredit?: (estimateUsd: number) => Promise<void>;
+  /**
+   * A5 (2026-07-30): reserve-BEFORE-submit ledger hooks, forwarded verbatim
+   * to `KlingProvider.generate()` as its second argument — see
+   * `VideoLedgerHooks` in base.ts for the contract. Optional so every
+   * existing direct-provider test / direct handler call keeps working
+   * unchanged when omitted, same as `checkCostGuard`/`preflightCredit` above.
+   */
+  readonly ledgerHooks?: VideoLedgerHooks;
 }
 
 /**
@@ -114,7 +127,7 @@ export async function handleKlingMotionBrush(
   // API — estimateCostUSD is pure (no I/O), so this is genuinely pre-submit.
   const estimateUsd = provider.estimateCostUSD(req);
   const costWarning = await runCostGuards(estimateUsd, opts);
-  const handle = await provider.generate(req);
+  const handle = await provider.generate(req, opts.ledgerHooks);
   return {
     jobId: handle.jobId,
     provider: handle.provider,
@@ -274,7 +287,7 @@ export async function handleKlingElements(
   };
   const estimateUsd = provider.estimateCostUSD(req);
   const costWarning = await runCostGuards(estimateUsd, opts);
-  const handle = await provider.generate(req);
+  const handle = await provider.generate(req, opts.ledgerHooks);
   return {
     jobId: handle.jobId,
     provider: handle.provider,
@@ -323,7 +336,7 @@ export async function handleKlingLipSync(
   };
   const estimateUsd = provider.estimateCostUSD(req);
   const costWarning = await runCostGuards(estimateUsd, opts);
-  const handle = await provider.generate(req);
+  const handle = await provider.generate(req, opts.ledgerHooks);
   return {
     jobId: handle.jobId,
     provider: handle.provider,
@@ -370,7 +383,7 @@ export async function handleKlingOmniMultiShot(
   };
   const estimateUsd = provider.estimateCostUSD(req);
   const costWarning = await runCostGuards(estimateUsd, opts);
-  const handle = await provider.generate(req);
+  const handle = await provider.generate(req, opts.ledgerHooks);
   return {
     jobId: handle.jobId,
     provider: handle.provider,
@@ -434,7 +447,7 @@ export async function handleKlingVideoExtend(
       watermarkEnabled: input.watermarkEnabled,
       klingMode: 'pro',
     },
-  });
+  }, opts.ledgerHooks);
   return {
     jobId: handle.jobId,
     provider: handle.provider,

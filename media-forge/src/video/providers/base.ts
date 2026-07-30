@@ -238,6 +238,67 @@ export interface VideoGenerationRequest {
   readonly extras?: ProviderExtras;
 }
 
+/**
+ * A5 (2026-07-30) — reserve-BEFORE-submit ledger hooks for Kling, Higgsfield,
+ * and Seedance, closing C8 for the three providers where it was still open
+ * (Veo already reserves before submit — see submitVeoWithLedger in
+ * register.ts). Passed as an explicit, per-call parameter to
+ * `VideoProvider.generate()` rather than stored on the provider instance:
+ * HiggsfieldProvider and BytedanceSeedanceProvider are per-PROCESS
+ * singletons (see higgsfieldProvider() / getBytedanceSeedanceProvider()),
+ * while `src/http/app-internal.ts`'s `handleMcpRequest` builds a fresh
+ * `HandlersDeps` (distinct tenantId + creditClient) on EVERY HTTP request in
+ * hosted multi-tenant mode. Storing hooks as mutable instance/constructor
+ * state on those singletons would let one tenant's request overwrite the
+ * hooks a concurrent request from a DIFFERENT tenant is about to reserve
+ * against — a cross-tenant billing leak, not just a race. Threading hooks
+ * as a plain function argument, captured in the callee's local scope, makes
+ * that structurally impossible: each call gets exactly the hooks its own
+ * caller passed, regardless of what else runs concurrently on the same
+ * singleton. KlingProvider is constructed fresh per call and would be safe
+ * either way; the parameter is used there too for one consistent shape
+ * across all three providers.
+ *
+ * Asymmetric error contract — implementations MUST honor this:
+ *   - `beforeSubmit` is allowed to throw (e.g. InsufficientCreditError from
+ *     credit-core) — that is how insufficient credit blocks the network
+ *     call before it ever reaches the provider.
+ *   - `onSubmitFailed` and `onPostSubmitError` must NEVER throw. They run
+ *     during cleanup after a failure the caller already needs to see; if a
+ *     cleanup call itself fails (credit-core down), the implementation must
+ *     swallow that secondary error internally (log it, do not propagate) so
+ *     the ORIGINAL error — the one the caller can actually act on — is what
+ *     comes out of `generate()`. See register.ts's `videoLedgerHooks` for
+ *     the implementation and `veo-cleanup-failure-surfaces-original-error.test.ts`
+ *     for the precedent this mirrors on the Veo path.
+ */
+export interface VideoLedgerHooks {
+  /** Called with the provider's own minted jobId + pure cost estimate,
+   *  immediately BEFORE the network submit. May throw to block the call. */
+  beforeSubmit(jobId: string, estimateUsd: number): Promise<void>;
+  /** The provider's submit never succeeded (network error, non-2xx, or a
+   *  malformed success envelope) — release the reservation `beforeSubmit`
+   *  opened. Must not throw (see the asymmetric contract above). */
+  onSubmitFailed(jobId: string, estimateUsd: number): Promise<void>;
+  /**
+   * The submit SUCCEEDED (the provider accepted the job) but bookkeeping
+   * AFTER that point threw (e.g. `recordJob` hitting a locked SQLite file).
+   * The reservation must NOT be released here — the generation is actually
+   * running on the provider's side, and releasing would let it complete for
+   * free. Log at warn with the jobId (and the provider's native task id
+   * when the call site has it) so an operator can reconcile by hand; the
+   * reservation still expires by its TTL and credit-core's sweep releases
+   * it, so the bounded outcome is an unbilled generation, not a stuck lock.
+   * The real fix — Kling's deduction/usage API (TODOS.md P1, "APIs de
+   * dedução e uso do Kling não são usadas") — would let the reservation be
+   * settled from the provider's own record of the charge instead of relying
+   * on `recordJob` succeeding locally; until that lands this is a known,
+   * bounded loss requiring manual reconciliation. Synchronous — must not
+   * throw (see the asymmetric contract above).
+   */
+  onPostSubmitError(jobId: string, estimateUsd: number, err: unknown): void;
+}
+
 export type JobState = 'pending' | 'in_progress' | 'completed' | 'failed' | 'nsfw' | 'canceled';
 
 export interface JobHandle {
@@ -272,7 +333,13 @@ export interface DownloadedAsset {
 export interface VideoProvider {
   readonly name: Provider;
   readonly models: VideoModelSpec[];
-  generate(req: VideoGenerationRequest): Promise<JobHandle>;
+  /**
+   * `ledgerHooks` is optional and, when passed, MUST be invoked by the
+   * implementation per the `VideoLedgerHooks` contract above (A5). Omitting
+   * it (existing callers, direct-provider tests) preserves byte-identical
+   * behavior to before A5 — no reserve, no release, no post-submit warning.
+   */
+  generate(req: VideoGenerationRequest, ledgerHooks?: VideoLedgerHooks): Promise<JobHandle>;
   pollStatus(jobId: string): Promise<JobStatus>;
   /**
    * Fetches an asset by job id (P14+ providers resolve job → signed CDN url internally)

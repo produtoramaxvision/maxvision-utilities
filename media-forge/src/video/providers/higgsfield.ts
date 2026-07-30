@@ -7,6 +7,7 @@ import type {
   JobState,
   DownloadedAsset,
   HiggsfieldExtras,
+  VideoLedgerHooks,
 } from './base.js';
 import type { Provider, VideoModelSpec } from '../../core/models.js';
 import { VIDEO_MODELS, PRICING_OVERRIDES } from '../../core/models.js';
@@ -85,7 +86,7 @@ export class HiggsfieldProvider implements VideoProvider {
   // VideoProvider interface
   // -------------------------------------------------------------------------
 
-  async generate(req: VideoGenerationRequest): Promise<JobHandle> {
+  async generate(req: VideoGenerationRequest, ledgerHooks?: VideoLedgerHooks): Promise<JobHandle> {
     const spec = VIDEO_MODELS[req.modelId];
     if (!spec) throw new Error(`unknown model: ${req.modelId}`);
     if (spec.provider !== 'higgsfield') {
@@ -119,61 +120,88 @@ export class HiggsfieldProvider implements VideoProvider {
       ...buildHiggsfieldHeaders(),
     };
 
-    // D-5: auth resilience — try primary headers first; on 401/403, retry once with fallback.
-    let res = await this.doFetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    });
-    if (res.status === 401 || res.status === 403) {
-      process.stderr.write(
-        `[higgsfield-auth] primary auth scheme rejected (status=${res.status}) — retrying once with fallback scheme. Operator: update .env / restart so the primary path is used.\n`,
-      );
-      process.env['MEDIA_FORGE_HF_AUTH_FALLBACK_USED'] = 'true';
-      const fallbackHeaders = {
-        'content-type': 'application/json',
-        accept: 'application/json',
-        ...buildFallbackHeaders(),
-      };
-      res = await this.doFetch(url, {
+    // A5 (2026-07-30): reserve credit BEFORE the network submit, closing C8 for
+    // Higgsfield. May throw (InsufficientCreditError) — propagates straight out
+    // of generate() and blocks the call; nothing has been sent to the platform yet.
+    if (ledgerHooks) {
+      await ledgerHooks.beforeSubmit(jobId, estUsd);
+    }
+
+    let parsed: PlatformGenerateResponse;
+    try {
+      // D-5: auth resilience — try primary headers first; on 401/403, retry once with fallback.
+      let res = await this.doFetch(url, {
         method: 'POST',
-        headers: fallbackHeaders,
+        headers,
         body: JSON.stringify(body),
       });
+      if (res.status === 401 || res.status === 403) {
+        process.stderr.write(
+          `[higgsfield-auth] primary auth scheme rejected (status=${res.status}) — retrying once with fallback scheme. Operator: update .env / restart so the primary path is used.\n`,
+        );
+        process.env['MEDIA_FORGE_HF_AUTH_FALLBACK_USED'] = 'true';
+        const fallbackHeaders = {
+          'content-type': 'application/json',
+          accept: 'application/json',
+          ...buildFallbackHeaders(),
+        };
+        res = await this.doFetch(url, {
+          method: 'POST',
+          headers: fallbackHeaders,
+          body: JSON.stringify(body),
+        });
+      }
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`Higgsfield generate failed: ${res.status} ${errText.slice(0, 400)}`);
+      }
+      parsed = (await res.json()) as PlatformGenerateResponse;
+    } catch (err) {
+      // The platform never accepted the job — release the reservation opened above.
+      if (ledgerHooks) {
+        await ledgerHooks.onSubmitFailed(jobId, estUsd);
+      }
+      throw err;
     }
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Higgsfield generate failed: ${res.status} ${errText.slice(0, 400)}`);
+
+    try {
+      // FIX (Codex P2 round 14, PR#10): record the job ONLY after the upstream
+      // submit succeeds. The previous order (recordJob → POST) left a permanent
+      // 'pending' row on every failed submit (401/403 after both auth attempts,
+      // 4xx validation, network errors), polluting cost reports and forcing
+      // manual cleanup. Per-second cost rows are cheap; we lose nothing by
+      // deferring the write until we hold a real provider request_id.
+      recordJob({
+        dbPath: this.dbPath,
+        jobId,
+        provider: 'higgsfield',
+        model: req.modelId,
+        mode: req.mode,
+        paramsHash: this.hashParams(req),
+        estUsd,
+      });
+
+      recordRequestMapping({
+        dbPath: this.dbPath,
+        jobId,
+        provider: 'higgsfield',
+        providerRequestId: parsed.request_id,
+        // FIX (Codex P2 round 7, PR#10): persist the server-supplied status_url
+        // so pollStatus uses Higgsfield's authoritative URL (signed CDN URLs,
+        // alternative paths, query tokens) instead of reconstructing the wrong
+        // endpoint.
+        ...(parsed.status_url ? { statusUrl: parsed.status_url } : {}),
+      });
+    } catch (err) {
+      // A5: the platform DID accept the job (parsed.request_id above) — the
+      // reservation must NOT be released here (see VideoLedgerHooks.
+      // onPostSubmitError's doc comment in base.ts). Log for manual
+      // reconciliation and propagate the original error unchanged.
+      if (ledgerHooks) {
+        ledgerHooks.onPostSubmitError(jobId, estUsd, err);
+      }
+      throw err;
     }
-    const parsed = (await res.json()) as PlatformGenerateResponse;
-
-    // FIX (Codex P2 round 14, PR#10): record the job ONLY after the upstream
-    // submit succeeds. The previous order (recordJob → POST) left a permanent
-    // 'pending' row on every failed submit (401/403 after both auth attempts,
-    // 4xx validation, network errors), polluting cost reports and forcing
-    // manual cleanup. Per-second cost rows are cheap; we lose nothing by
-    // deferring the write until we hold a real provider request_id.
-    recordJob({
-      dbPath: this.dbPath,
-      jobId,
-      provider: 'higgsfield',
-      model: req.modelId,
-      mode: req.mode,
-      paramsHash: this.hashParams(req),
-      estUsd,
-    });
-
-    recordRequestMapping({
-      dbPath: this.dbPath,
-      jobId,
-      provider: 'higgsfield',
-      providerRequestId: parsed.request_id,
-      // FIX (Codex P2 round 7, PR#10): persist the server-supplied status_url
-      // so pollStatus uses Higgsfield's authoritative URL (signed CDN URLs,
-      // alternative paths, query tokens) instead of reconstructing the wrong
-      // endpoint.
-      ...(parsed.status_url ? { statusUrl: parsed.status_url } : {}),
-    });
 
     return {
       jobId,

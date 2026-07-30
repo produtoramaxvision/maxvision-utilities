@@ -12,7 +12,7 @@ import {
   SeedanceReferenceFusionInput,
   type SeedanceReferenceFusionInputT,
 } from '../schemas.js';
-import type { BytedanceSeedanceExtras } from '../../video/providers/base.js';
+import type { BytedanceSeedanceExtras, VideoLedgerHooks } from '../../video/providers/base.js';
 import { defaultDbPath } from './shared.js';
 import { assertPromptWithinBudget, assertMultiShotWithinBudget } from '../../core/prompt-budget.js';
 
@@ -54,14 +54,24 @@ export interface SeedanceHandlerExecOpts {
   readonly checkCostGuard?: (estimateUsd: number) => { costWarning?: string } | undefined;
   /**
    * Credit preflight hook (media-forge cost guards). Called BEFORE
-   * provider.generate() to narrow (not close — see preflightVideoCredit's own
-   * doc comment in billing.ts) the reserve-after-submit credit gap: the
-   * actual reserve still runs in register.ts AFTER generate() returns, keyed
-   * on the jobId BytedanceSeedanceProvider.generate() only records on a
-   * successful submit. Throws InsufficientCreditError on insufficient
-   * balance; no-op when omitted.
+   * provider.generate() — a cheap balance read that fails fast without
+   * building the request body. Throws InsufficientCreditError on
+   * insufficient balance; no-op when omitted. Distinct from `ledgerHooks`
+   * below: this only READS the balance; `ledgerHooks.beforeSubmit` is the
+   * REAL reserve, keyed on the jobId BytedanceSeedanceProvider.generate()
+   * mints internally, and runs BEFORE the fal.ai/ARK submit too (A5,
+   * 2026-07-30) — it also throws InsufficientCreditError on a race that
+   * slips past this pre-check.
    */
   readonly preflightCredit?: (estimateUsd: number) => Promise<void>;
+  /**
+   * A5 (2026-07-30): reserve-BEFORE-submit ledger hooks, forwarded verbatim
+   * to `BytedanceSeedanceProvider.generate()` as its second argument — see
+   * `VideoLedgerHooks` in base.ts for the contract. Optional so every
+   * existing direct-provider test / direct handler call keeps working
+   * unchanged when omitted, same as `checkCostGuard`/`preflightCredit` above.
+   */
+  readonly ledgerHooks?: VideoLedgerHooks;
 }
 
 /** Shared cost-guard + credit-preflight gate run by every Seedance submit
@@ -157,7 +167,7 @@ export async function handleSeedanceTextToVideo(
   // is pure (no I/O), so this is genuinely pre-submit.
   const estimateUsd = provider.estimateCostUSD(req);
   const costWarning = await runCostGuards(estimateUsd, opts);
-  const handle = await provider.generate(req);
+  const handle = await provider.generate(req, opts.ledgerHooks);
   const result: SeedanceHandlerResult = {
     jobId: handle.jobId,
     provider: handle.provider,
@@ -206,7 +216,7 @@ export async function handleSeedanceImageToVideo(
   };
   const estimateUsd = provider.estimateCostUSD(req);
   const costWarning = await runCostGuards(estimateUsd, opts);
-  const handle = await provider.generate(req);
+  const handle = await provider.generate(req, opts.ledgerHooks);
   const result: SeedanceHandlerResult = {
     jobId: handle.jobId,
     provider: handle.provider,
@@ -284,7 +294,7 @@ export async function handleSeedanceMultishot(
   };
   const estimateUsd = provider.estimateCostUSD(req);
   const costWarning = await runCostGuards(estimateUsd, opts);
-  const handle = await provider.generate(req);
+  const handle = await provider.generate(req, opts.ledgerHooks);
   const result: SeedanceHandlerResult = {
     jobId: handle.jobId,
     provider: handle.provider,
@@ -335,7 +345,7 @@ export async function handleSeedanceReferenceFusion(
   };
   const estimateUsd = provider.estimateCostUSD(req);
   const costWarning = await runCostGuards(estimateUsd, opts);
-  const handle = await provider.generate(req);
+  const handle = await provider.generate(req, opts.ledgerHooks);
   const result: SeedanceHandlerResult = {
     jobId: handle.jobId,
     provider: handle.provider,

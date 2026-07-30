@@ -22,6 +22,7 @@ import {
 } from '../../video/providers/auth/higgsfield-headers.js';
 import { defaultDbPath, higgsfieldProvider } from './shared.js';
 import { assertPromptWithinBudget } from '../../core/prompt-budget.js';
+import type { VideoLedgerHooks } from '../../video/providers/base.js';
 
 // ---------------------------------------------------------------------------
 // T15 part B (2026-07-29) — cost-guard + credit-preflight hooks for the 6
@@ -45,14 +46,24 @@ export interface HiggsfieldHandlerExecOpts {
   readonly checkCostGuard?: (estimateUsd: number) => { costWarning?: string } | undefined;
   /**
    * Credit preflight hook (media-forge cost guards). Called BEFORE
-   * provider.generate() to narrow (not close — see preflightVideoCredit's own
-   * doc comment in billing.ts) the reserve-after-submit credit gap: the
-   * actual reserve still runs in register.ts AFTER generate() returns, keyed
-   * on the jobId the Higgsfield platform accepted (recordJob only writes on a
-   * successful submit — see HiggsfieldProvider.generate()). Throws
-   * InsufficientCreditError on insufficient balance; no-op when omitted.
+   * provider.generate() — a cheap balance read that fails fast without
+   * building the request body. Throws InsufficientCreditError on
+   * insufficient balance; no-op when omitted. Distinct from `ledgerHooks`
+   * below: this only READS the balance; `ledgerHooks.beforeSubmit` is the
+   * REAL reserve, keyed on the jobId HiggsfieldProvider.generate() mints
+   * internally, and runs BEFORE the platform submit too (A5, 2026-07-30) —
+   * it also throws InsufficientCreditError on a race that slips past this
+   * pre-check.
    */
   readonly preflightCredit?: (estimateUsd: number) => Promise<void>;
+  /**
+   * A5 (2026-07-30): reserve-BEFORE-submit ledger hooks, forwarded verbatim
+   * to `HiggsfieldProvider.generate()` as its second argument — see
+   * `VideoLedgerHooks` in base.ts for the contract. Optional so every
+   * existing direct-provider test / direct handler call keeps working
+   * unchanged when omitted, same as `checkCostGuard`/`preflightCredit` above.
+   */
+  readonly ledgerHooks?: VideoLedgerHooks;
 }
 
 /**
@@ -163,7 +174,7 @@ export async function handleHiggsfieldGenerate(
   // Higgsfield platform — estimateCostUSD is pure (no I/O).
   const estimateUsd = provider.estimateCostUSD(req);
   const costWarning = await runCostGuards(estimateUsd, opts);
-  const handle = await provider.generate(req);
+  const handle = await provider.generate(req, opts.ledgerHooks);
   return {
     provider: handle.provider,
     jobId: handle.jobId,
@@ -223,7 +234,7 @@ export async function handleHiggsfieldDop(
   };
   const estimateUsd = provider.estimateCostUSD(req);
   const costWarning = await runCostGuards(estimateUsd, opts);
-  const handle = await provider.generate(req);
+  const handle = await provider.generate(req, opts.ledgerHooks);
   return {
     provider: handle.provider,
     jobId: handle.jobId,
@@ -271,7 +282,7 @@ export async function handleHiggsfieldCinemaStudio(
   };
   const estimateUsd = provider.estimateCostUSD(req);
   const costWarning = await runCostGuards(estimateUsd, opts);
-  const handle = await provider.generate(req);
+  const handle = await provider.generate(req, opts.ledgerHooks);
   return {
     provider: handle.provider,
     jobId: handle.jobId,
@@ -345,7 +356,7 @@ export async function handleHiggsfieldSpeak(
   };
   const estimateUsd = provider.estimateCostUSD(req);
   const costWarning = await runCostGuards(estimateUsd, opts);
-  const handle = await provider.generate(req);
+  const handle = await provider.generate(req, opts.ledgerHooks);
   return {
     provider: handle.provider,
     jobId: handle.jobId,
@@ -387,7 +398,7 @@ export async function handleHiggsfieldMarketingStudio(
   };
   const estimateUsd = provider.estimateCostUSD(req);
   const costWarning = await runCostGuards(estimateUsd, opts);
-  const handle = await provider.generate(req);
+  const handle = await provider.generate(req, opts.ledgerHooks);
   return {
     provider: handle.provider,
     jobId: handle.jobId,
@@ -428,7 +439,7 @@ export async function handleHiggsfieldRecast(
   };
   const estimateUsd = provider.estimateCostUSD(req);
   const costWarning = await runCostGuards(estimateUsd, opts);
-  const handle = await provider.generate(req);
+  const handle = await provider.generate(req, opts.ledgerHooks);
   return {
     provider: handle.provider,
     jobId: handle.jobId,
