@@ -5,7 +5,11 @@ import type { OutputStorageClient } from '../../output/storage.js';
 import { safeJoin, jobId as generateJobId } from '../../utils/paths.js';
 import { storeArtifact } from '../../output/output-storage.js';
 import { ValidationError, CostGuardError, ApiError } from '../../core/errors.js';
-import { evaluateCostGuard } from '../../core/cost-guard.js';
+import {
+  evaluateCostGuard,
+  newWorkBudgetUsd,
+  type SpendPurpose,
+} from '../../core/cost-guard.js';
 import type { EditImageInputT, ComposeSceneInputT } from '../../image/image-schemas.js';
 import { MCP_TOOLS } from '../schemas.js';
 import { isToolAllowed } from '../../http/tier-gates.js';
@@ -201,7 +205,13 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
   // just inverted. Kling has no dry-run path (provider.generate() always
   // hits the network), so no such gating is needed there.
   // ---------------------------------------------------------------------------
-  function checkCostGuardOrThrow(estimateUsd: number): { costWarning?: string } {
+  function checkCostGuardOrThrow(
+    estimateUsd: number,
+    // T14: retakes may draw on the slice of the daily cap reserved for them.
+    // Defaults to 'new' so an un-updated call site gets the conservative
+    // treatment rather than silently bypassing the reserve.
+    purpose: SpendPurpose = 'new',
+  ): { costWarning?: string } {
     const spentTodayUsd = dailySpendUsd({ dbPath: defaultDbPath(), tenantId: deps.tenantId ?? 'default' });
     const decision = evaluateCostGuard({
       estimateUsd,
@@ -209,9 +219,27 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       blockThresholdUsd: config.blockThresholdUsd,
       dailyCapUsd: config.dailyCapUsd,
       confirmThresholdUsd: config.confirmThresholdUsd,
+      reservePct: config.budgetReservePct,
+      reserveMode: config.budgetReserveMode,
+      purpose,
     });
     if (decision.action === 'block') {
       const overBlock = estimateUsd > config.blockThresholdUsd;
+      // A reserve block is neither of the two original kinds: the spend is
+      // within the daily cap, it is only outside the slice new work may use.
+      // Reporting it as 'daily-cap' against the full cap would show the user a
+      // limit their spend has not actually reached, and point them at raising a
+      // cap that was not the thing blocking them.
+      const isReserveBlock =
+        !overBlock && spentTodayUsd + estimateUsd <= config.dailyCapUsd;
+      if (isReserveBlock) {
+        throw new CostGuardError(
+          decision.reason,
+          estimateUsd,
+          newWorkBudgetUsd(config.dailyCapUsd, config.budgetReservePct),
+          'retake-reserve',
+        );
+      }
       throw new CostGuardError(
         decision.reason,
         estimateUsd,

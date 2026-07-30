@@ -100,8 +100,26 @@ implementar o cost guard:
 Além do `trace.jsonl`. Quem for fechar este TODO parte daqui, não precisa
 re-derivar.
 
-**Esforço:** S (human ~2h / CC ~15min)
-**Depende de:** T10 concluída.
+**Atualização 2026-07-30 — a parte do `generation-run` está FECHADA pelo T10.**
+Não ficaram dois registros convivendo. A divisão foi feita por granularidade e
+propriedade, não escolhendo um vencedor:
+
+- `trace.jsonl` é por **estágio** e é dono do dinheiro (`costUsd`) e do tempo.
+- `GenerationRun` (`src/narrative/generation-run.ts`) é por **tentativa** e é dono
+  da identidade narrativa: projeto, clipe, versão do prompt, referências, desfecho.
+
+`GenerationRun` **não tem** campo de custo e não pode ganhar um: `assertNoCostFields()`
+mais um teste que varre o shape Zod atrás de `/cost|price|credit|usd/i` transformam
+isso em falha de CI. A junção com o dinheiro é `run_id`, que é o mesmo id em que o
+trace e o ledger já são chaveados.
+
+**O que continua aberto neste item:** só o `OutputManager.appendCostLog` →
+`cost.jsonl`. Reverificado em 2026-07-30: segue com **zero callers de produção**
+(`src/output/output-manager.ts:273`, chamado apenas de testes). Decisão de
+manter-ou-remover ainda pendente — não bloqueia nada.
+
+**Esforço restante:** S (human ~30min / CC ~10min)
+**Depende de:** nada. T10 entregue.
 
 ---
 
@@ -109,6 +127,33 @@ re-derivar.
 
 Achados ao implementar os cost guards. Todos verificados no código, nenhum é
 suposição. Ordenados por impacto financeiro.
+
+## P2 — Erros MCP perdem todos os campos estruturados na serialização
+
+**O quê:** `src/mcp/handlers/plumbing.ts:61` monta a resposta de erro como
+`${err.name}: ${err.message}` e descarta o objeto `details` de `MediaForgeError`.
+Vale para **todo** erro, não só o cost guard.
+
+**Por quê importa:** `CostGuardError` carrega `estimateUsd`, `limitUsd` e `kind`
+(`'block' | 'daily-cap' | 'retake-reserve'`) exatamente para o cliente poder
+distinguir programaticamente qual limite bateu e oferecer a ação certa. Nada disso
+chega ao cliente. Hoje a única forma de distinguir é casar substring da mensagem,
+que é frágil e quebra em qualquer reescrita de texto.
+
+**Contexto:** encontrado em 2026-07-30 ao escrever
+`tests/mcp/cost-guard-retake-reserve.test.ts` para o T14 — o teste tentou afirmar
+`kind: 'retake-reserve'` na wire e falhou. **Pré-existente, não introduzido pelo
+T14.** O teste foi ajustado para afirmar o texto da mensagem, que é o único canal
+que o cliente realmente recebe, com o motivo escrito no ponto da asserção.
+
+**Por que não foi corrigido junto:** muda o shape de resposta de erro de todas as
+ferramentas MCP. É mudança transversal e não pertence a um commit de cost guard.
+
+**Esforço:** S (human ~1h / CC ~20min)
+**Depende de:** decidir o contrato — `structuredContent` no erro, ou `details`
+embutido no texto como JSON.
+
+---
 
 ## P2 — `maybeStoreImageArtifact` cunha um segundo jobId
 

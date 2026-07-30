@@ -219,7 +219,24 @@ The MCP image tools (`media_generate_image`, `media_generate_imagen`, `media_edi
 
 The daily cap counts **both image and video generations** for the current UTC day, and counts **pending (not-yet-settled) jobs at their estimated cost** — a job that is submitted but never completes still counts against the cap, so an unbounded number of in-flight generations cannot slip past it. There is no `--override-daily-cap` flag; raise `MEDIA_FORGE_DAILY_CAP_USD` (or the sibling `MEDIA_FORGE_CONFIRM_THRESHOLD_USD` / `MEDIA_FORGE_BLOCK_THRESHOLD_USD`) instead.
 
-The Veo (`media_generate_video_*`), Higgsfield, and Seedance MCP tools, and all CLI generation commands, are **not** currently wired to this guard — their billing is separately deferred (see the `TODO(F-E ...-billing): DEFERRED` comments in `src/mcp/handlers/register.ts`).
+All four video providers are wired to the guard and to the ledger: Veo through `submitVeoWithLedger`, and Kling, Higgsfield and Seedance through the `checkCostGuard` hook on their handler options. Each reserves credit **before** submitting and settles or releases afterwards, so an abandoned job cannot hold a reservation forever.
+
+**CLI generation commands are still not guarded.** They call the providers directly and do not consult the ledger, so spend through the CLI does not count against the daily cap and is not blocked by it. Use the MCP surface when the cap matters.
+
+### Retake reserve (`MEDIA_FORGE_BUDGET_RESERVE_PCT`)
+
+The reviewer retries a failed take up to `MEDIA_FORGE_MAX_FIX_ATTEMPTS` times, and each retry is a real paid generation. Without a reserve, a day of first-attempt generations can consume the entire cap and leave the reviewer unable to fix any of them — the job dies mid-flight having spent the full budget on output nobody accepted.
+
+The reserve holds back a slice of the daily cap that only retakes may spend:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MEDIA_FORGE_BUDGET_RESERVE_PCT` | `0.10` | Fraction of the daily cap reserved for retakes. Clamped to 0..1 |
+| `MEDIA_FORGE_BUDGET_RESERVE_MODE` | `observe` | `observe` = record only, no behaviour change · `warn` = allow and warn · `cap` = block new work once only the reserve is left |
+
+**The default mode is `observe`, so the reserve is inert until you opt in.** That is deliberate: defaulting to `cap` would quietly shrink every existing install's usable daily budget by 10% in a patch release. Set `MEDIA_FORGE_BUDGET_RESERVE_MODE=cap` to enforce it.
+
+With the defaults plus `cap`, a $25 cap leaves $22.50 for new generations and holds $2.50 for retakes. Retakes themselves are bounded by the full cap, not the reserve — the reserve is what they draw on.
 
 The `--dry-run` flag returns the assembled payload and cost estimate without calling any API, and is exempt from the guard and the ledger (a dry run never reaches the provider and costs $0).
 

@@ -104,7 +104,19 @@ export class CostGuardError extends MediaForgeError {
     message: string,
     public readonly estimateUsd: number,
     public readonly limitUsd: number,
-    public readonly kind: 'block' | 'daily-cap',
+    /**
+     * Which limit was hit. These are distinct because the user's remedy differs:
+     *   block          — one call is too expensive. Shrink the request.
+     *   daily-cap      — the day's budget is spent. Wait, or raise the cap.
+     *   retake-reserve — (T14) the day's budget is NOT spent, but this is new
+     *                    work and only the slice reserved for reviewer retakes
+     *                    is left. Lower MEDIA_FORGE_BUDGET_RESERVE_PCT or set
+     *                    MEDIA_FORGE_BUDGET_RESERVE_MODE=warn.
+     * Collapsing the third into 'daily-cap' would report a limitUsd below the
+     * configured cap under a name that says the cap was reached, and send the
+     * user off to raise a cap they had not actually hit.
+     */
+    public readonly kind: 'block' | 'daily-cap' | 'retake-reserve',
   ) {
     super(message, 'COST_GUARD', { estimateUsd, limitUsd, kind });
   }
