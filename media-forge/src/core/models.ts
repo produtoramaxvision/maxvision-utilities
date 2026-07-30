@@ -368,6 +368,46 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
     },
     ipRiskLevel: 'medium',
   },
+  // Reachable only through the API 2.0 protocol (MEDIA_FORGE_KLING_API_V2=true).
+  // It has no legacy `/v1/videos/{type}` equivalent — that is exactly why the
+  // migration matters, and why this entry is the first proof the flag does
+  // something rather than being inert.
+  'kling-3.0-turbo': {
+    id: 'kling-3.0-turbo',
+    provider: 'kling',
+    modes: ['t2v', 'i2v'],
+    // "durations (3-15 seconds)" per the model page's capability map.
+    maxDurationSec: 15,
+    resolutions: ['720p', '1080p'],
+    fps: [24, 30],
+    audioNative: true,
+    pricing: {
+      unit: 'usd-per-second',
+      // Kling bills this model in UNITS, not dollars: the 2026-06-17 API update
+      // states "0.8 units/second for 720P and 1.0 unit/second for 1080P". One
+      // unit is $0.14, read off kling.ai/dev/pricing in an authenticated session
+      // on 2026-07-30 (the same figure the other Kling rates here derive from).
+      //
+      // Written as the multiplication rather than the product so the derivation
+      // stays auditable if either number moves: 0.8 * 0.14 = 0.112.
+      rate: 0.8 * 0.14,
+      source: 'fixed-public-rate',
+      updatedAt: '2026-07-30',
+      notes:
+        'kling.ai/document-api/updates/api, 06/17/2026 entry: "Billing is based on video ' +
+        'duration: 0.8 units/second for 720P and 1.0 unit/second for 1080P." Unit = $0.14 ' +
+        'from kling.ai/dev/pricing. Requires MEDIA_FORGE_KLING_API_V2=true — this model has ' +
+        'no legacy endpoint. The 2.0 API also accepts ONLY API-key auth, so KLING_API_KEY ' +
+        'must be set; the legacy JWT is rejected.',
+      // 1.0 unit/s at 1080P over 0.8 unit/s at 720P. Kept as the quotient of the
+      // two published figures for the same reason as kling-v3-standard.
+      resolutionMultipliers: {
+        '720p': 1.0,
+        '1080p': 1.0 / 0.8,
+      },
+    },
+    ipRiskLevel: 'medium',
+  },
   'kling-v3-pro': {
     id: 'kling-v3-pro',
     provider: 'kling',

@@ -21,6 +21,7 @@ import { createSoulId, listSoulIds } from '../../core/soul-id-cache.js';
 import {
   CodexImageProvider,
   CODEX_IMAGE_SIZES,
+  CODEX_IMAGE_MODEL,
   resolveCodexImageMode,
 } from '../../image/codex-image.js';
 import {
@@ -67,7 +68,10 @@ export async function handleCodexImage(
     { isMultiTenant: opts.isMultiTenant ?? false },
   );
 
-  return { ...result, model: 'gpt-image-2' };
+  // CODEX_IMAGE_MODEL, not a literal. The two agreed, but nothing tied them
+  // together: renaming the constant would have left this reporting a model the
+  // adapter no longer sends, and the caller has no way to notice.
+  return { ...result, model: CODEX_IMAGE_MODEL };
 }
 
 /** Reports which credential path would run, without generating anything. */

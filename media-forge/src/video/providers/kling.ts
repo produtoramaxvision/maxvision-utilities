@@ -13,6 +13,17 @@ import { VIDEO_MODELS, type Provider, type VideoModelSpec } from '../../core/mod
 import { recordJob, recordActualCost } from '../../core/cost-tracker.js';
 import { openDb, runMigrations } from '../../core/db.js';
 import { getKlingAuthHeader, type KlingEnvSubset } from './auth/kling-jwt.js';
+import {
+  isKlingV2Enabled,
+  resolveV2Route,
+  isV2OnlyModel,
+  assertV2AuthAvailable,
+  submitPathFor as v2SubmitPathFor,
+  pollPathFor as v2PollPathFor,
+  buildV2Body,
+  parseV2SubmitResponse,
+  parseV2TaskResponse,
+} from './kling-v2.js';
 
 const KLING_API_BASE = 'https://api-singapore.klingai.com';
 
@@ -51,6 +62,15 @@ type KlingEndpointKind =
 interface JobTypeRecord {
   readonly endpointKind: KlingEndpointKind;
   readonly nativeTaskId: string;
+  /**
+   * Which protocol submitted this job.
+   *
+   * Recorded rather than re-derived from the flag at poll time: the flag can be
+   * toggled between submit and poll, and polling a legacy job on /tasks (or a
+   * 2.0 job on /v1/videos/{type}/{id}) returns "task not found" for a job that
+   * is running fine. The protocol is a property of the JOB, not of the process.
+   */
+  readonly protocol?: 'legacy' | 'v2';
 }
 
 interface KlingErrorBody {
@@ -198,8 +218,33 @@ export class KlingProvider implements VideoProvider {
     const estUsd = this.estimateCostUSD(req);
 
     const endpointKind = pickEndpoint(req.mode, klingExtras);
-    const endpointPath = endpointPathFor(endpointKind);
-    const body = buildRequestBody({ req, spec, jobId, extras: klingExtras, env: this.env });
+
+    // API 2.0 routing. Only engages when the flag is on AND this model has a
+    // VERIFIED 2.0 route; anything else stays on the legacy protocol untouched.
+    // A model that exists only on 2.0 (kling-3.0-turbo) fails loudly rather than
+    // silently falling back to an endpoint that does not serve it.
+    const v2Route = isKlingV2Enabled() ? resolveV2Route(req.modelId) : undefined;
+    if (v2Route === undefined && isV2OnlyModel(req.modelId)) {
+      throw new Error(
+        `${req.modelId} exists only on the Kling API 2.0 and has no legacy endpoint. ` +
+          `Set MEDIA_FORGE_KLING_API_V2=true (and KLING_API_KEY, which 2.0 requires).`,
+      );
+    }
+    if (v2Route !== undefined) assertV2AuthAvailable(this.env as NodeJS.ProcessEnv);
+
+    const endpointPath =
+      v2Route !== undefined
+        ? v2SubmitPathFor(v2Route.operation, v2Route.modelVersion)
+        : endpointPathFor(endpointKind);
+
+    const body =
+      v2Route !== undefined
+        ? buildV2Body({
+            req,
+            externalTaskId: jobId,
+            watermark: klingExtras?.watermarkEnabled === true,
+          })
+        : buildRequestBody({ req, spec, jobId, extras: klingExtras, env: this.env });
 
     const watermarkOn = klingExtras?.watermarkEnabled === true;
     if (watermarkOn) {
@@ -233,13 +278,22 @@ export class KlingProvider implements VideoProvider {
           `Kling API ${res.status} ${errBody.code ?? 'unknown'}: ${errBody.message ?? '(no message)'}`,
         );
       }
-      const payload = (await res.json()) as KlingGenerateResponseBody;
-      if (payload.code !== 0 || !payload.data?.task_id) {
-        throw new Error(
-          `Kling API returned non-zero code ${payload.code ?? 'unknown'} ${payload.message ?? ''}`.trim(),
-        );
+      const rawPayload: unknown = await res.json();
+
+      if (v2Route !== undefined) {
+        // 2.0 nests the id as data.id, not data.task_id, and reports application
+        // failures as a non-zero `code` under HTTP 200 — parseV2SubmitResponse
+        // checks the envelope before reading the id for exactly that reason.
+        nativeTaskId = parseV2SubmitResponse(rawPayload).taskId;
+      } else {
+        const payload = rawPayload as KlingGenerateResponseBody;
+        if (payload.code !== 0 || !payload.data?.task_id) {
+          throw new Error(
+            `Kling API returned non-zero code ${payload.code ?? 'unknown'} ${payload.message ?? ''}`.trim(),
+          );
+        }
+        nativeTaskId = payload.data.task_id;
       }
-      nativeTaskId = payload.data.task_id;
     } catch (err) {
       // Kling never accepted the job — release the reservation opened above.
       if (ledgerHooks) {
@@ -250,7 +304,11 @@ export class KlingProvider implements VideoProvider {
 
     try {
       // Remember the endpoint kind so pollStatus knows which GET path to use
-      this.jobTypeMap.set(jobId, { endpointKind, nativeTaskId });
+      this.jobTypeMap.set(jobId, {
+        endpointKind,
+        nativeTaskId,
+        protocol: v2Route !== undefined ? 'v2' : 'legacy',
+      });
 
       // Cost-tracker entry (estimate, status=pending)
       // FIX (Codex P2 round 17, PR#11): persist endpointKind so hydrateFromDb
@@ -301,7 +359,11 @@ export class KlingProvider implements VideoProvider {
       );
     }
     const auth = getKlingAuthHeader(this.env);
-    const url = `${KLING_API_BASE}${pollPathFor(rec.endpointKind, rec.nativeTaskId)}`;
+    // Poll the protocol this JOB was submitted with — see JobTypeRecord.protocol.
+    const isV2Job = rec.protocol === 'v2';
+    const url = isV2Job
+      ? `${KLING_API_BASE}${v2PollPathFor({ taskIds: [rec.nativeTaskId] })}`
+      : `${KLING_API_BASE}${pollPathFor(rec.endpointKind, rec.nativeTaskId)}`;
     const res = await this.doFetch(url, {
       method: 'GET',
       headers: { ...auth },
@@ -309,6 +371,12 @@ export class KlingProvider implements VideoProvider {
     if (!res.ok) {
       const errBody = (await res.json().catch(() => ({}))) as KlingErrorBody;
       throw new Error(`Kling poll API ${res.status}: ${errBody.message ?? '(no message)'}`);
+    }
+    if (isV2Job) {
+      // 2.0 returns data as an ARRAY (the endpoint serves batch queries) and
+      // nests urls under outputs[]. Reading it with the legacy shape yields
+      // undefined and looks like a job that vanished.
+      return parseV2TaskResponse(await res.json(), jobId);
     }
     const payload = (await res.json()) as KlingPollResponseBody;
     // FIX (Codex P2 round 15, PR#11): mirror the generate() envelope check.

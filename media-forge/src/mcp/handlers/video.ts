@@ -12,6 +12,7 @@ import type { Provider, VideoModelSpec } from '../../core/models.js';
 import { GoogleVeoProvider } from '../../video/providers/google-veo.js';
 import { VIDEO_MODELS } from '../../core/models.js';
 import { defaultDbPath, isSpecRoutable, providerServesSpec, getAdaptedProviders } from './shared.js';
+import { isKlingV2Enabled, isV2OnlyModel } from '../../video/providers/kling-v2.js';
 
 // ---------------------------------------------------------------------------
 // handleVideoCostEstimate — estimate USD cost for a video generation request
@@ -100,6 +101,12 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
     // transport to the Higgsfield platform, so it can execute specs registered
     // under 'higgsfield'. A plain identity check left that flag inert.
     .filter((spec) => isSpecRoutable(spec.provider))
+    // A model that exists ONLY on the Kling API 2.0 is unreachable while the
+    // protocol flag is off. It must be excluded from routing rather than merely
+    // failing at submit: kling-3.0-turbo is cheaper than the models it sits
+    // beside, so a pure cost sort picks it every time and every one of those
+    // routes would die at the network call, after the cost guard has run.
+    .filter((spec) => !isV2OnlyModel(spec.id) || isKlingV2Enabled())
     // FIX (Codex P2, PR#10): filter candidates by requested duration +
     // resolution BEFORE cost sort. Without this, sorter could pick cheapest
     // model that fails downstream validation (e.g. higgsfield-speak with
