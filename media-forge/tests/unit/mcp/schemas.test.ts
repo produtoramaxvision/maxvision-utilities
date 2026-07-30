@@ -96,19 +96,26 @@ const EXPECTED_TOOL_NAMES = [
   // shipped with fifteen tested modules and no way to invoke any of them)
   'media_narrative_plan',
   'media_narrative_assemble',
+  // opt-in providers (3 — T17 Codex images, T6 Higgsfield Soul-ID). T6's two
+  // tools are on the plan's own checklist and had never been exposed, so the
+  // soul-id cache that has existed since P14 had no way to be populated.
+  'media_image_codex',
+  'media_higgsfield_soul_id_train',
+  'media_higgsfield_soul_id_list',
 ] as const;
 
 // ---------------------------------------------------------------------------
 // Registry shape assertions
 // ---------------------------------------------------------------------------
 describe('MCP_TOOLS registry', () => {
-  // 56 -> 58 with T13's media_narrative_plan and media_narrative_assemble.
-  // The count is asserted so a tool cannot be added or dropped silently; it is
-  // bumped here because two were deliberately added, and EXPECTED_TOOL_NAMES
-  // gained both names in the same change. Bumping the number without the names
-  // would leave this reading "all 58 expected" while checking 56.
-  it('contains exactly 58 tools', () => {
-    expect(MCP_TOOLS.length).toBe(58);
+  // 56 -> 58 (T13's two narrative tools) -> 61 (T17 Codex images + T6's two
+  // Soul-ID tools). The count is asserted so a tool cannot appear or vanish
+  // unnoticed; it moves only when tools are deliberately added, and
+  // EXPECTED_TOOL_NAMES gains every new name in the same change. Bumping the
+  // number alone would leave the sibling test reading "all 61 expected" while
+  // actually checking fewer.
+  it('contains exactly 61 tools', () => {
+    expect(MCP_TOOLS.length).toBe(61);
   });
 
   it('is frozen (Object.isFrozen)', () => {
@@ -153,11 +160,11 @@ describe('MCP_TOOLS registry', () => {
 // listMCPToolNames()
 // ---------------------------------------------------------------------------
 describe('listMCPToolNames()', () => {
-  it('returns an array of length 58', () => {
-    expect(listMCPToolNames().length).toBe(58);
+  it('returns an array of length 61', () => {
+    expect(listMCPToolNames().length).toBe(61);
   });
 
-  it('contains all 58 expected tool names', () => {
+  it('contains all 61 expected tool names', () => {
     const names = listMCPToolNames();
     for (const expected of EXPECTED_TOOL_NAMES) {
       expect(names).toContain(expected);

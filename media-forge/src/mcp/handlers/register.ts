@@ -11,6 +11,11 @@ import {
   type SpendPurpose,
 } from '../../core/cost-guard.js';
 import { handleNarrativePlan, handleNarrativeAssemble } from './narrative.js';
+import {
+  handleCodexImage,
+  handleSoulIdTrain,
+  handleSoulIdList,
+} from './optional-providers.js';
 import type { EditImageInputT, ComposeSceneInputT } from '../../image/image-schemas.js';
 import { MCP_TOOLS } from '../schemas.js';
 import { isToolAllowed } from '../../http/tier-gates.js';
@@ -1908,6 +1913,52 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           tenantId: deps.tenantId ?? null,
         });
         return asResult(state as unknown as Record<string, unknown>);
+      }),
+    );
+  }
+
+  // ---- Opt-in providers (T17 Codex images, T6 Higgsfield Soul-ID) ----
+  //
+  // Registered unconditionally so the tool is discoverable and can explain
+  // itself. Each handler enforces its own flag and credential requirements and
+  // fails with an actionable message -- a tool that is simply absent leaves the
+  // user with nothing to read.
+  {
+    const t = getTool('media_image_codex');
+    regIfAllowed(
+      t.name,
+      { title: 'Generate Image (Codex)', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => {
+        // deps.tenantId being set is what marks a hosted, multi-tenant request;
+        // the OAuth path is refused there.
+        const result = await handleCodexImage(input, {
+          isMultiTenant: deps.tenantId !== undefined,
+        });
+        return asResult(result as unknown as Record<string, unknown>);
+      }),
+    );
+  }
+
+  {
+    const t = getTool('media_higgsfield_soul_id_train');
+    regIfAllowed(
+      t.name,
+      { title: 'Train Soul-ID', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => {
+        const result = await handleSoulIdTrain(input, { dbPath: defaultDbPath() });
+        return asResult(result as unknown as Record<string, unknown>);
+      }),
+    );
+  }
+
+  {
+    const t = getTool('media_higgsfield_soul_id_list');
+    regIfAllowed(
+      t.name,
+      { title: 'List Soul-IDs', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => {
+        const result = await handleSoulIdList(input, { dbPath: defaultDbPath() });
+        return asResult(result as unknown as Record<string, unknown>);
       }),
     );
   }

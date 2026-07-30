@@ -5,6 +5,12 @@ import { VIDEO_MODELS, PROVIDERS } from '../core/models.js';
 // handler is the only thing that can act on them. Re-exported into MCP_TOOLS
 // here so tool discovery stays a single list.
 import { NarrativePlanInput, NarrativeAssembleInput } from './handlers/narrative.js';
+// T17 / T6: same reasoning — the input schemas live beside the handler that acts
+// on them, and are re-exported into MCP_TOOLS so discovery stays one list.
+import { CodexImageInput, SoulIdTrainInput } from './handlers/optional-providers.js';
+
+/** No parameters — reconciliation reads both sides and reports. */
+export const SoulIdListInput = z.object({}).strict();
 
 // Image schemas (P3.1)
 export {
@@ -1285,6 +1291,26 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description:
       'Join already-collected narrative agent results (cast, screenplay, scenes, storyboards) into a validated ProjectState. Pure and offline: no LLM calls, no network, no cost. This is the path to use inside Claude Code, where the six narrative agents run as subagents you dispatch yourself. Enforces the same cross-document integrity rules as media_narrative_plan — referential integrity across clips/scenes/beats, parent-chain depth, disjoint beat lists — so a plan assembled this way is not a weaker plan.',
     inputSchema: NarrativeAssembleInput,
+  },
+
+  // ---- Opt-in providers (3 — T17 Codex images, T6 Higgsfield Soul-ID) ----
+  {
+    name: 'media_image_codex',
+    description:
+      'Generate one image through the Codex CLI at quality "high" with gpt-image-2. TWO credential paths, auto-detected: with no OPENAI_API_KEY it uses the built-in image_gen tool riding your local `codex login` OAuth session, which costs nothing beyond your ChatGPT plan; with OPENAI_API_KEY set it uses the bundled CLI against the OpenAI Images API, which is METERED and requires MEDIA_FORGE_CODEX_IMAGE_USD_PER_IMAGE to be configured. The OAuth path is refused under multi-tenant hosting, where one machine-wide session cannot serve separate tenants. No native transparency: gpt-image-2 does not support transparent backgrounds and gpt-image-1.5 is excluded — use Nano Banana Pro or Imagen 4 Ultra when you need real alpha.',
+    inputSchema: CodexImageInput,
+  },
+  {
+    name: 'media_higgsfield_soul_id_train',
+    description:
+      'Train a Higgsfield Soul-ID character reference from 5-20 images, so the same person renders consistently across shots. Requires the Higgsfield CLI (MEDIA_FORGE_HF_CLI_ENABLED=true plus `higgsfield auth login`) because it bills the logged-in workspace. The returned id is recorded in the local cache only after the remote call succeeds.',
+    inputSchema: SoulIdTrainInput,
+  },
+  {
+    name: 'media_higgsfield_soul_id_list',
+    description:
+      'List Soul-IDs, reconciling the local cache against what the Higgsfield account actually holds. Reports differences (inBoth / localOnly / remoteOnly) rather than resolving them: a local id missing remotely may have been deleted in the web app, or the listing may be paginated, and deleting cache rows on that evidence would discard the record of training you paid for. Without the CLI enabled it returns the local cache alone.',
+    inputSchema: SoulIdListInput,
   },
 ] as const) as readonly MCPTool[];
 
