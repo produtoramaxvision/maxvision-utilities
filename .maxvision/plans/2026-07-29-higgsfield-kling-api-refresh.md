@@ -121,7 +121,7 @@ pessoalmente na auditoria, não herdados de relatório de subagente.
 | PR6 | T5 / T6 como transporte | **feito** — provider `higgsfield-cli` + soul-id, interface lida do binário `1.1.20`, `generate cost` exercitado ao vivo (0 créditos) | `42ccbb8` |
 | PR7 | Adapter MuAPI | **feito** — custo real vindo do header `X-MuAPI-Cost-USD`; sem tabela de preço local (agregador) | `5aeb25a` |
 | PR8 | T16 Wan2GP opt-in | **feito** — provider + `media-forge setup wan2gp` + guarda de roteamento custo-zero | `cf6f19b` |
-| PR9 | T17 Codex `image_gen` | **BLOQUEADO** — duas premissas caíram na verificação; ver a seção do T17 | — |
+| PR9 | T17 Codex `image_gen` | **feito** — dois modos de credencial (OAuth local / `OPENAI_API_KEY` multi-tenant); minha análise de bloqueio estava errada, retratada na seção do T17 | `3efb6a8`, `cece7fc` |
 
 ### Desvios de ordem, assumidos
 
@@ -1245,7 +1245,56 @@ não-interativo. A doc descreve a tool em contexto de sessão; não testei a cha
 programática. **Primeira tarefa do T17 é um spike de 1 geração** confirmando forma
 de chamada e formato de saída, antes de escrever qualquer adapter.
 
-### T17 — BLOQUEADO em 2026-07-30. Duas premissas centrais caíram.
+### T17 — DESBLOQUEADO e implementado em 2026-07-30. Minha análise de bloqueio estava errada.
+
+**A retratação vem primeiro.** Eu registrei abaixo que duas premissas do plano
+tinham caído. **Estava errado nas duas.** A fonte autoritativa é o
+`$CODEX_HOME/skills/.system/imagegen/SKILL.md` do `codex-cli 0.146.0`, que diz
+textualmente:
+
+> *"**Default built-in tool mode (preferred):** built-in `image_gen` tool for
+> normal image generation, editing, and simple transparent-image requests.
+> **Does not require `OPENAI_API_KEY`.**"*
+>
+> *"**Fallback CLI mode:** `scripts/image_gen.py` CLI. ... **Requires
+> `OPENAI_API_KEY`.**"*
+
+Os dois modos existem. O que eu achei foi a linha do **fallback CLI** dentro de
+um rollout arquivado, e reportei como se fosse o único caminho. O skill fica em
+`skills/.system/`, e é por isso que um `ls ~/.codex/skills/imagegen` deu vazio e
+me levou à conclusão de "não instalado".
+
+Isso bate exatamente com o que o usuário descreveu: local usa OAuth do
+`codex login`, multi-tenant usa `OPENAI_API_KEY`.
+
+**Implementado** em `src/image/codex-image.ts` (`cece7fc`, `3efb6a8`):
+
+| Modo | Credencial | Preço |
+|---|---|---|
+| `builtin` | `codex login` (OAuth) | `0` — assinatura já paga |
+| `cli` | `OPENAI_API_KEY` | metrado; **exige** `MEDIA_FORGE_CODEX_IMAGE_USD_PER_IMAGE`, sem default |
+
+Detecção automática: chave presente → `cli`; senão → `builtin`. A ordem importa —
+deployment hospedado define a chave, e cair em `builtin` ali usaria a sessão OAuth
+de quem montou o container para servir todos os tenants.
+
+**Contrato da wire verificado de graça:** `scripts/image_gen.py --dry-run` não
+precisa de chave nem rede e imprimiu o payload exato — endpoint
+`/v1/images/generations`, modelo `gpt-image-2`, `quality` default `"medium"`. O
+adapter força `high` e não expõe os tiers baixos.
+
+**Achado colateral confirmado:** `codex exec --output-schema <FILE>` existe, então
+há sim contrato determinístico via JSON Schema, ao contrário do que o plano dizia.
+
+**Superfície de prompt-injection fechada:** o caminho `builtin` entrega texto a um
+**agente** com sandbox `workspace-write`. Interpolar o prompt do usuário cru na
+instrução colocava texto controlado pelo usuário no mesmo canal das instruções.
+Agora o prompt vai cercado por marcadores, rotulado como não-confiável, e as regras
+são repetidas **depois** da cerca. É mitigação, não garantia.
+
+---
+
+#### Registro histórico — a análise errada de bloqueio (mantida para auditoria)
 
 Investigado contra o `codex-cli 0.146.0` realmente instalado, sem gastar nada.
 

@@ -200,7 +200,45 @@ brief + alvo e devolva um `ProjectState`, despachando os agentes pelo caminho
 
 ---
 
-## P1 — Três providers novos não são alcançáveis pelo roteador MCP
+## P2 — MuAPI e Wan2GP: acesso direto, ainda não roteáveis
+
+**`higgsfield-cli` FECHADO.** Era o caso com correção limpa e foi feito: ele é um
+segundo **transporte** para a mesma plataforma Higgsfield, então
+`providerServesSpec` (`src/mcp/handlers/shared.ts`) o mapeia sobre as specs
+`higgsfield`. Antes disso a flag `MEDIA_FORGE_HF_CLI_ENABLED` **não mudava nada** —
+o roteador filtrava por identidade de `spec.provider` e nenhuma spec é registrada
+sob `higgsfield-cli`. Flag que não faz nada é pior que flag ausente.
+
+Dois bugs vizinhos caíram junto, ambos achados pelo teste da correção:
+- O enum de `preferProvider` estava hardcoded com os 4 providers originais
+  enquanto `PROVIDERS` tinha 6, então `higgsfield-cli` era rejeitado no schema
+  antes do roteador ver. Agora é derivado de `PROVIDERS`.
+- Com a flag **desligada**, nomear `higgsfield-cli` ainda resolvia, porque as
+  specs que ele mapeia pertencem a um provider habilitado. A preferência agora
+  exige o adapter ativo.
+
+Provado por `tests/mcp/higgsfield-cli-routing.test.ts`: mesma chamada passa com a
+flag ligada e falha com ela desligada.
+
+**O que continua aberto:** `muapi` e `wan2gp`. Não é o mesmo problema — o catálogo
+dos dois é genuinamente dinâmico:
+
+| Provider | Origem do catálogo |
+|---|---|
+| `muapi` | `GET /api/v1/models` em runtime — hardcodar preço de agregador é o bug que o adapter evita |
+| `wan2gp` | depende de quais pesos o usuário baixou na máquina dele |
+
+O roteador é síncrono sobre `VIDEO_MODELS`. Torná-lo assíncrono e ciente de
+catálogo dinâmico mexe no caminho que **todos** os testes de roteamento cobrem —
+é PR própria, não enxerto. Os dois seguem usáveis por acesso direto à classe.
+
+**Esforço:** M (human ~4h / CC ~1h)
+**Depende de:** decidir se o roteador ganha catálogo assíncrono ou se os dois
+ficam como acesso direto por design.
+
+---
+
+## (fechado) P1 — Três providers novos não eram alcançáveis pelo roteador MCP
 
 **O quê:** `higgsfield-cli` (T5), `muapi` (PR7) e `wan2gp` (T16) foram implementados,
 testados e registrados em `PROVIDERS`, mas **nenhum** está em
@@ -263,7 +301,22 @@ e conferir as chaves reais. Se divergir, corrigir e apontar aqui.
 
 ---
 
-## P2 — Erros MCP perdem todos os campos estruturados na serialização
+## (fechado) P2 — Erros MCP perdiam todos os campos estruturados
+
+**FECHADO em 2026-07-30** (`3efb6a8`). `src/mcp/handlers/plumbing.ts` agora
+serializa `MediaForgeError.context` + `code` + `name` em `structuredContent`.
+O texto continua byte-idêntico em `content[0]`, então nada que já lia dali
+quebrou — a mudança é aditiva.
+
+Efeito imediato: `tests/mcp/cost-guard-retake-reserve.test.ts` deixou de casar
+substring e passou a afirmar `kind` e `limitUsd` direto. Era esse teste que tinha
+sido enfraquecido por causa deste gap.
+
+Registro do que era, para auditoria:
+
+---
+
+## (histórico) P2 — Erros MCP perdem todos os campos estruturados na serialização
 
 **O quê:** `src/mcp/handlers/plumbing.ts:61` monta a resposta de erro como
 `${err.name}: ${err.message}` e descarta o objeto `details` de `MediaForgeError`.
