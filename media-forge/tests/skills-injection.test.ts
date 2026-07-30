@@ -152,6 +152,17 @@ const EXFIL_PATTERNS: RegExp[] = [
 // targets embedded in an instruction. Extend this list only after the same
 // classification exercise on the new host; do not bulk-approve a sync.
 const ALLOWED_HOSTS = new Set<string>([
+  // Provider API domains that src/ ALREADY calls, cited in
+  // _shared/references/surface-prompt-profiles.md as the verified "Domain" and
+  // "Endpoints" rows of a provider profile -- factual table cells, not inside an
+  // instruction telling the agent to fetch anything. Classified per the rule
+  // above rather than bulk-approved: both are first-party provider domains
+  // hardcoded in our own source, so documenting them adds no reachable host that
+  // the plugin did not already contact.
+  //   api-singapore.klingai.com -> src/video/providers/kling.ts:16 KLING_API_BASE
+  //   platform.higgsfield.ai    -> src/video/providers/higgsfield.ts:33 BASE_URL
+  'api-singapore.klingai.com',
+  'platform.higgsfield.ai',
   // Repo / packaging metadata
   'github.com',
   'json-schema.org',

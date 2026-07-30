@@ -759,6 +759,90 @@ Bloqueia o merge do T9. Não é opcional.
 - [ ] Erro acionável quando a flag está ligada e o servidor não responde
 - [ ] Documentar requisito real: 6 GB VRAM mínimo, 30–80 GB de disco
 
+### T18 — Perfis de superfície por provider (escopo novo, 2026-07-30)
+
+Pedido do usuário: cada plataforma moldada à própria documentação, e a API do
+Kling usável **direto**, não só via Higgsfield. Investigado antes de implementar.
+
+**O que a auditoria achou.** A frase "verified active-provider prompt budget"
+aparece em 6 lugares — `mf-video-prompt:79`, `references/quick-ref.md:28`,
+`prompt-examples.md:3`, `prompt-compiler.md:14` e `:18`,
+`allocation-model.md:45` — e **em nenhum deles existia um número**. O arquivo que
+deveria carregá-los, `references/surface-prompt-profiles.md`, era um *template*:
+listava os campos a resolver e o fallback dizia literalmente *"avoid asserting
+prompt limits"*. Correto para um pacote público provider-agnóstico; errado para o
+media-forge, que conhece seus quatro providers.
+
+Em paralelo, **zero enforcement no código**: todo campo de prompt em
+`src/mcp/schemas.ts` era `z.string().min(1)`, sem `.max()`. Prompt longo demais
+viajava até o provider e falhava lá — depois do cost guard e da linha de ledger.
+
+**Verificado via `context7-mcp`, com data e fonte:**
+
+| | Kling (API direta) | Higgsfield | Veo | Seedance |
+|---|---|---|---|---|
+| Prompt | **2.500 chars** | não publica | não publica | não verificado |
+| Negative | **2.500 chars** | não publica | existe, sem limite publicado | — |
+| Multi-shot | **≤6 shots, 512 chars cada**, durações somam o total | — | — | suportado |
+| Referências | `element_list` (`element_id`, ≤3) + `image_list` (`first_frame`/`end_frame`); `voice_list` ≤2, mutualmente exclusivo com `element_list` | Soul ID | `referenceImages` — Veo 2: ≤3 asset **ou** 1 style, não ambos | `@Image1`/`@Video1`/`@Audio1` |
+| Modo → resolução | `std`=720P, `pro`=1080P, `4k`=4K | — | `resolution` 720p/1080p | — |
+
+Fontes: `kling.ai/document-api` (`api/video/2-6`, `3-0-omni`, `o1`),
+`docs.higgsfield.ai` (`guides/video`, `guides/images`), referência do
+`@google/genai` (`GenerateVideosConfig`).
+
+**Entregue:**
+
+- [x] `references/surface-prompt-profiles.md` preenchido com os quatro perfis,
+      cada linha com fonte e data. O que não foi verificado está marcado como não
+      verificado, com o comando para verificar — número inventado é pior que
+      lacuna admitida, porque o modelo confia nele
+- [x] `src/core/prompt-budget.ts` — gêmeo em código do documento acima.
+      `promptMaxChars: null` significa "o provider não publica limite", e
+      `assertPromptWithinBudget` é no-op nesse caso, deliberadamente
+- [x] Enforcement em 17 sites de submit: 5 do Kling (incluindo
+      `assertMultiShotWithinBudget` no omni), 6 do Higgsfield, 4 do Seedance,
+      e os caminhos do Veo. Roda **antes** da chamada ao provider
+- [x] **`enhancePrompt` decidido em vez de herdado.** Confirmado no SDK instalado
+      (`@google/genai@2.6.0`, `genai.d.ts:5048`, `enhancePrompt?: boolean`,
+      *"Whether to use the prompt rewriting logic"*). Ficava sem definir, então
+      valia um default não documentado — o Google podia estar reescrevendo o
+      prompt e desfazendo a Director Formula sem ninguém saber. Agora
+      `VEO_ENHANCE_PROMPT_DEFAULT = false`, explícito
+- [x] Teste que compara o **documento com o código**: extrai os números da seção
+      Kling do markdown e afirma igualdade com `SURFACE_PROMPT_PROFILES.kling`.
+      É o que impede doc e código de divergirem
+- [x] `api-singapore.klingai.com` e `platform.higgsfield.ai` adicionados à
+      allowlist de `skills-injection.test.ts`, com a classificação exigida pela
+      regra do próprio arquivo: são domínios first-party que `src/` já chama
+      (`kling.ts:16`, `higgsfield.ts:33`), citados como célula de tabela e não
+      dentro de instrução de fetch
+
+Gate: `Tests 1738 passed | 8 skipped (1746)`, +23. typecheck e lint limpos.
+
+**Conflito documentado, não resolvido em silêncio.** A doc de imagens do
+Higgsfield recomenda oficialmente *"quality modifiers like 'highly detailed' or
+'8k'"*. A `mf-antislop` existe para remover exatamente essa classe de palavra.
+Registrado no perfil do Higgsfield que o passe anti-slop é **escopado** e não vale
+para prompt de imagem do Higgsfield. Generalizar anti-slop entre providers seria
+contrariar a documentação de um deles.
+
+**Higgsfield é também agregador.** Confirmado: expõe
+`/kling-video/v2.1/pro/image-to-video` e
+`/bytedance/seedance/v1/pro/image-to-video`. O mesmo modelo é alcançável por dois
+caminhos, a preços e contratos de prompt diferentes. Escrito no perfil: quando o
+caller pediu Kling explicitamente, vale o perfil direto do Kling. **O roteador
+ainda não sabe disso** — ver `TODOS.md`.
+
+**Falta do T18:**
+
+- [ ] Corrigir a afirmação "30-80 tokens" da `kling-prompting` (limite oficial é
+      2.500 chars) e marcar a ordem câmera-primeiro como craft empírico, já que os
+      exemplos oficiais da Kling começam por sujeito/ação em frases com ponto
+- [ ] Delegação bidirecional: `kling-prompting` e `higgsfield-prompting` não
+      apontam de volta para `mf-video-prompt`
+- [ ] Roteador ciente do Higgsfield-como-agregador
+
 ## Ordem de execução
 
 Resequenciada em 2026-07-29 após a voz externa. A ordem anterior colocava T15

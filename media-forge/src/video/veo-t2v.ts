@@ -2,6 +2,7 @@ import { ApiError } from '../core/errors.js';
 import { logger } from '../core/logger.js';
 import type { MediaForgeClient } from '../core/client.js';
 import type { GenerateVideoT2VInputT } from './video-schemas.js';
+import { assertPromptWithinBudget, VEO_ENHANCE_PROMPT_DEFAULT } from '../core/prompt-budget.js';
 
 export interface GenerateVideoResult {
   operationName: string;
@@ -14,11 +15,21 @@ export async function generateVideoT2V(
   input: GenerateVideoT2VInputT,
   client: MediaForgeClient,
 ): Promise<GenerateVideoResult> {
+  assertPromptWithinBudget({ provider: 'google', prompt: input.prompt, field: 'prompt' });
+  if (input.negativePrompt) {
+    assertPromptWithinBudget({
+      provider: 'google',
+      prompt: input.negativePrompt,
+      kind: 'negativePrompt',
+      field: 'negativePrompt',
+    });
+  }
   const config = {
     aspectRatio: input.aspectRatio,
     durationSeconds: input.durationSeconds,
     resolution: input.resolution,
     numberOfVideos: 1,
+    enhancePrompt: VEO_ENHANCE_PROMPT_DEFAULT,
     ...(client.mode === 'vertex' ? { personGeneration: input.personGeneration } : {}),
     ...(client.mode === 'vertex' ? { generateAudio: input.generateAudio ?? true } : {}),
     ...(input.seed !== undefined ? { seed: input.seed } : {}),

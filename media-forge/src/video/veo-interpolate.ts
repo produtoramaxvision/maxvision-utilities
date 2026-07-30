@@ -5,11 +5,13 @@ import { readBase64 } from '../utils/files.js';
 import { mimeFromExt } from '../utils/mime.js';
 import type { GenerateVideoInterpolateInputT } from './video-schemas.js';
 import type { GenerateVideoResult } from './veo-t2v.js';
+import { assertPromptWithinBudget, VEO_ENHANCE_PROMPT_DEFAULT } from '../core/prompt-budget.js';
 
 export async function generateVideoInterpolate(
   input: GenerateVideoInterpolateInputT,
   client: MediaForgeClient,
 ): Promise<GenerateVideoResult> {
+  assertPromptWithinBudget({ provider: 'google', prompt: input.prompt, field: 'prompt' });
   if (client.dryRun) {
     return {
       operationName: 'dry-run-op',
@@ -44,6 +46,7 @@ export async function generateVideoInterpolate(
       durationSeconds: input.durationSeconds,
       resolution: input.resolution,
       numberOfVideos: 1,
+      enhancePrompt: VEO_ENHANCE_PROMPT_DEFAULT,
       ...(client.mode === 'vertex' ? { personGeneration: input.personGeneration } : {}),
       ...(client.mode === 'vertex' ? { generateAudio: input.generateAudio ?? true } : {}),
     },

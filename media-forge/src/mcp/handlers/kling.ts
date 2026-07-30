@@ -33,6 +33,7 @@ import { openDb, runMigrations } from '../../core/db.js';
 import { recordActualCost } from '../../core/cost-tracker.js';
 import { videoActualCredits } from '../../billing/pricing.js';
 import { defaultDbPath } from './shared.js';
+import { assertPromptWithinBudget, assertMultiShotWithinBudget } from '../../core/prompt-budget.js';
 
 // ---------------------------------------------------------------------------
 // handleKlingMotionBrush — Kling V3 Pro motion brush: paint regions with motion vectors (P15 Task 6)
@@ -87,6 +88,7 @@ export async function handleKlingMotionBrush(
   opts: KlingHandlerExecOpts = {},
 ): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number; costWarning?: string }> {
   const input: KlingMotionBrushInputT = KlingMotionBrushInput.parse(rawInput);
+  assertPromptWithinBudget({ provider: 'kling', prompt: input.prompt, field: 'prompt' });
   const provider = new KlingProvider({
     dbPath: defaultDbPath(),
     env: process.env as never,
@@ -249,6 +251,7 @@ export async function handleKlingElements(
   opts: KlingHandlerExecOpts = {},
 ): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number; costWarning?: string }> {
   const input: KlingElementsInputT = KlingElementsInput.parse(rawInput);
+  assertPromptWithinBudget({ provider: 'kling', prompt: input.prompt, field: 'prompt' });
   const provider = new KlingProvider({
     dbPath: defaultDbPath(),
     env: process.env as never,
@@ -291,6 +294,9 @@ export async function handleKlingLipSync(
   opts: KlingHandlerExecOpts = {},
 ): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number; costWarning?: string }> {
   const input: KlingLipSyncInputT = KlingLipSyncInput.parse(rawInput);
+  if (input.text) {
+    assertPromptWithinBudget({ provider: 'kling', prompt: input.text, field: 'text' });
+  }
   const provider = new KlingProvider({
     dbPath: defaultDbPath(),
     env: process.env as never,
@@ -337,6 +343,7 @@ export async function handleKlingOmniMultiShot(
   opts: KlingHandlerExecOpts = {},
 ): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number; costWarning?: string }> {
   const input: KlingOmniMultiShotInputT = KlingOmniMultiShotInput.parse(rawInput);
+  assertMultiShotWithinBudget({ provider: 'kling', prompts: input.shots.map((s) => s.prompt) });
   const totalDuration = input.shots.reduce((sum, s) => sum + s.duration, 0);
   const provider = new KlingProvider({
     dbPath: defaultDbPath(),
@@ -393,6 +400,7 @@ export async function handleKlingVideoExtend(
   costWarning?: string;
 }> {
   const input: KlingVideoExtendInputT = KlingVideoExtendInput.parse(rawInput);
+  assertPromptWithinBudget({ provider: 'kling', prompt: input.prompt, field: 'prompt' });
   const provider = new KlingProvider({
     dbPath: defaultDbPath(),
     env: process.env as never,

@@ -175,6 +175,64 @@ exatamente o que T15 constrói.
 **Onde:** `src/mcp/handlers/register.ts`.
 **Esforço:** S (CC ~15min)
 
+## P1 — Roteador não sabe que o Higgsfield revende Kling e Seedance
+
+**O quê:** confirmado na doc oficial (`docs.higgsfield.ai/guides/video`) que a
+plataforma do Higgsfield expõe modelos de terceiros nos próprios paths:
+`POST /kling-video/v2.1/pro/image-to-video` e
+`POST /bytedance/seedance/v1/pro/image-to-video`.
+
+**Impacto:** o mesmo modelo subjacente é alcançável por **dois** caminhos com
+preços diferentes — direto pela API do provider, ou via Higgsfield. O
+`handleVideoRoute` (`src/mcp/handlers/video.ts`) ordena por custo tratando cada
+provider como uma fonte distinta, então ele pode escolher o caminho mais caro para
+o mesmo modelo sem perceber que são o mesmo modelo.
+
+**Por que não corrigi junto:** precisa das tarifas do Higgsfield para os modelos
+revendidos, que não estão no registry. Sem elas, comparar os dois caminhos é
+chute. Depende do mesmo levantamento de preço do A8.
+
+**Contexto:** registrado no perfil do Higgsfield em
+`skills/_shared/references/surface-prompt-profiles.md` — quando o caller pediu
+Kling explicitamente, vale o perfil direto. Falta o roteador saber.
+
+**Esforço:** M (CC ~45min) depois das tarifas.
+
+## P2 — Orçamento de prompt do Seedance não verificado
+
+**O quê:** `src/core/prompt-budget.ts` tem `promptMaxChars: null` para
+`bytedance`, com `verifiedAt: 'unverified'`. Kling é o único dos quatro que
+publica limite (2.500 chars).
+
+**Impacto:** baixo hoje — `assertPromptWithinBudget` é no-op quando o limite é
+null, então nada é rejeitado indevidamente. Mas um prompt longo demais para o
+Seedance só falha no provider.
+
+**Como fechar:** ler a doc da superfície ativa — fal.ai na rota default, BytePlus
+ModelArk na rota `ARK`-direta — e gravar o número com a data em
+`prompt-budget.ts` **e** na tabela de `surface-prompt-profiles.md`. O teste
+doc-vs-código já garante que os dois não divirjam.
+
+**Não copiar o 2.500 do Kling.** São plataformas sem relação, que o media-forge
+apenas roteia lado a lado.
+
+**Esforço:** S (CC ~20min)
+
+## P3 — `veo-interpolate` e `veo-with-refs` aceitam `negativePrompt` e nunca enviam
+
+**O quê:** os schemas Zod das duas aceitam `negativePrompt`, mas o código nunca
+repassa o campo para o config do `generateVideos`.
+
+**Impacto:** o usuário escreve uma negativa, ela é aceita sem erro, e não tem
+efeito nenhum na geração. Parâmetro que mente, mesma classe do campo `dryRun` do
+request logo abaixo.
+
+**Contexto:** achado ao ligar o enforcement de orçamento de prompt (T18) — as duas
+foram os únicos caminhos do Veo onde não havia o que checar, porque nada é
+submetido. Pré-existente.
+
+**Esforço:** XS (CC ~10min)
+
 ## P2 — Sweep do Seedance captura sem valor de crédito
 
 **O quê:** o caminho de sucesso do Seedance chama `recordActualCost`

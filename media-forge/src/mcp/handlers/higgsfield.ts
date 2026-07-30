@@ -21,6 +21,7 @@ import {
   buildFallbackHeaders,
 } from '../../video/providers/auth/higgsfield-headers.js';
 import { defaultDbPath, higgsfieldProvider } from './shared.js';
+import { assertPromptWithinBudget } from '../../core/prompt-budget.js';
 
 // ---------------------------------------------------------------------------
 // T15 part B (2026-07-29) — cost-guard + credit-preflight hooks for the 6
@@ -142,6 +143,7 @@ export async function handleHiggsfieldGenerate(
   costWarning?: string;
 }> {
   const input: HiggsfieldGenerateInputT = HiggsfieldGenerateInput.parse(rawInput);
+  assertPromptWithinBudget({ provider: 'higgsfield', prompt: input.prompt, field: 'prompt' });
   const provider = higgsfieldProvider();
   const req = {
     modelId: input.modelId,
@@ -204,6 +206,7 @@ export async function handleHiggsfieldDop(
   costWarning?: string;
 }> {
   const input: HiggsfieldDopInputT = HiggsfieldDopInput.parse(rawInput);
+  assertPromptWithinBudget({ provider: 'higgsfield', prompt: input.prompt, field: 'prompt' });
   const provider = higgsfieldProvider();
   const req = {
     modelId: input.modelId,
@@ -245,6 +248,7 @@ export async function handleHiggsfieldCinemaStudio(
   costWarning?: string;
 }> {
   const input: HiggsfieldCinemaStudioInputT = HiggsfieldCinemaStudioInput.parse(rawInput);
+  assertPromptWithinBudget({ provider: 'higgsfield', prompt: input.prompt, field: 'prompt' });
   const provider = higgsfieldProvider();
   const req = {
     modelId: 'higgsfield-cinema-studio-3.5',
@@ -297,6 +301,7 @@ export async function handleHiggsfieldSpeak(
   costWarning?: string;
 }> {
   const input: HiggsfieldSpeakInputT = HiggsfieldSpeakInput.parse(rawInput);
+  assertPromptWithinBudget({ provider: 'higgsfield', prompt: input.prompt, field: 'prompt' });
   const provider = higgsfieldProvider();
 
   // Task 1.5 decision wiring: when SIGNED_UPLOAD was the empirical outcome, the local
@@ -365,6 +370,7 @@ export async function handleHiggsfieldMarketingStudio(
   costWarning?: string;
 }> {
   const input: HiggsfieldMarketingStudioInputT = HiggsfieldMarketingStudioInput.parse(rawInput);
+  assertPromptWithinBudget({ provider: 'higgsfield', prompt: input.prompt, field: 'prompt' });
   const provider = higgsfieldProvider();
   const req = {
     modelId: 'higgsfield-marketing-studio',
@@ -406,6 +412,7 @@ export async function handleHiggsfieldRecast(
   costWarning?: string;
 }> {
   const input: HiggsfieldRecastInputT = HiggsfieldRecastInput.parse(rawInput);
+  assertPromptWithinBudget({ provider: 'higgsfield', prompt: input.prompt, field: 'prompt' });
   const provider = higgsfieldProvider();
   const req = {
     modelId: 'higgsfield-recast',

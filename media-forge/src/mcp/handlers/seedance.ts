@@ -14,6 +14,7 @@ import {
 } from '../schemas.js';
 import type { BytedanceSeedanceExtras } from '../../video/providers/base.js';
 import { defaultDbPath } from './shared.js';
+import { assertPromptWithinBudget, assertMultiShotWithinBudget } from '../../core/prompt-budget.js';
 
 // ---------------------------------------------------------------------------
 // Seedance 2.0 (ByteDance) handlers — P16 Task 7 (4 tools per A0.5)
@@ -129,6 +130,7 @@ export async function handleSeedanceTextToVideo(
   opts: SeedanceHandlerExecOpts = {},
 ): Promise<SeedanceHandlerResult> {
   const input: SeedanceTextToVideoInputT = SeedanceTextToVideoInput.parse(rawInput);
+  assertPromptWithinBudget({ provider: 'bytedance', prompt: input.prompt, field: 'prompt' });
   const provider = seedanceProvider();
   const modelId = seedanceModelIdFor(input.modelTier);
   const duration = seedanceDurationOrDefault(input.durationSec);
@@ -177,6 +179,7 @@ export async function handleSeedanceImageToVideo(
   opts: SeedanceHandlerExecOpts = {},
 ): Promise<SeedanceHandlerResult> {
   const input: SeedanceImageToVideoInputT = SeedanceImageToVideoInput.parse(rawInput);
+  assertPromptWithinBudget({ provider: 'bytedance', prompt: input.prompt, field: 'prompt' });
   const provider = seedanceProvider();
   const modelId = seedanceModelIdFor(input.modelTier);
   const duration = seedanceDurationOrDefault(input.durationSec);
@@ -225,6 +228,11 @@ export async function handleSeedanceMultishot(
   opts: SeedanceHandlerExecOpts = {},
 ): Promise<SeedanceHandlerResult> {
   const input: SeedanceMultishotInputT = SeedanceMultishotInput.parse(rawInput);
+  assertPromptWithinBudget({ provider: 'bytedance', prompt: input.prompt, field: 'prompt' });
+  assertMultiShotWithinBudget({
+    provider: 'bytedance',
+    prompts: input.shots.map((s) => s.shotPrompt),
+  });
   const provider = seedanceProvider();
   const modelId = seedanceModelIdFor(input.modelTier);
   // FIX (Codex P2 round 5, PR#12): use max(endSec) - min(startSec) for the
@@ -298,6 +306,7 @@ export async function handleSeedanceReferenceFusion(
   opts: SeedanceHandlerExecOpts = {},
 ): Promise<SeedanceHandlerResult> {
   const input: SeedanceReferenceFusionInputT = SeedanceReferenceFusionInput.parse(rawInput);
+  assertPromptWithinBudget({ provider: 'bytedance', prompt: input.prompt, field: 'prompt' });
   const provider = seedanceProvider();
   const modelId = seedanceModelIdFor(input.modelTier);
   const duration = seedanceDurationOrDefault(input.durationSec);
