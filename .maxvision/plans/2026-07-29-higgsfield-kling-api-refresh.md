@@ -261,7 +261,68 @@ Arquivo: `src/video/providers/auth/kling-jwt.ts`
 Testes (`tests/`): API-key vence JWT quando ambos presentes; JWT preservado quando
 só AccessKey/SecretKey; erro lista as duas alternativas; nenhum segredo na mensagem.
 
-### T3 — Kling endpoints API 2.0 — **RETRATADO, não implementar**
+### T3 — Kling endpoints API 2.0 — **RETRATAÇÃO REVERTIDA. O T3 ESTAVA CERTO.**
+
+**Correção de 2026-07-30, lida ao vivo no browser autenticado.** A retratação
+abaixo (commit `e35ae72`) está **errada** e fica registrada apenas como histórico
+do erro. O T3 original descrevia a API corretamente.
+
+O que a doc **ao vivo** mostra, página por página:
+
+```
+POST https://api-singapore.klingai.com/image-to-video/kling-3.0-turbo
+POST https://api-singapore.klingai.com/image-to-video/kling-3.0
+POST https://api-singapore.klingai.com/image-to-video/kling-2.6
+POST https://api-singapore.klingai.com/omni-video/kling-o1
+POST https://api-singapore.klingai.com/motion-control/kling-3.0
+GET  https://api-singapore.klingai.com/tasks?external_task_ids=...
+POST https://api-singapore.klingai.com/tasks
+```
+
+Padrão: `POST /{operação}/{versão-do-modelo}`, **sem `/v1/`**, **sem `model_name`
+no body**, e poll **unificado** em `/tasks` em vez de um path por tipo. Exatamente
+o que o T3 dizia: "versão no path", "body sem `model_name`".
+
+E o próprio site anuncia num modal:
+
+> **Kling API 2.0 is now available** — *"**Model-specific endpoints** — Separate
+> endpoints for each model version, with fully decoupled parameters and clearer
+> request structures."*
+
+**Por que eu errei.** Usei o `context7-mcp` como fonte e ele serviu um snapshot
+**defasado** de `kling.ai/document-api`, mostrando `/v1/videos/text2video` com
+`model_name`. Concluí "não existe API 2.0" a partir de uma cópia velha, e escrevi
+isso com confiança. A lição é a regra zero do CLAUDE.md aplicada a uma ferramenta
+que eu tratei como primária: **context7 é cache, não a página**. Para afirmar que
+algo *não existe* na doc, tem que abrir a doc.
+
+**Estado real, verificado com sonda de custo zero e a chave do usuário:**
+
+```
+legado  GET /v1/videos/text2video/{id}   HTTP 400  code 1201 "Task not found"
+novo    GET /tasks?external_task_ids=... HTTP 200  code 0 SUCCEED  data: []
+```
+
+Os **dois** esquemas respondem e autenticam com a mesma API key. Ou seja o
+media-forge funciona hoje sobre um path **legado e não mais documentado**, enquanto
+o esquema documentado é outro. Nada está quebrado, mas:
+
+- os modelos novos (**Kling 3.0 Turbo**, **O1**, **2.6**, **2.5 Turbo**,
+  **Motion Control**, **Avatar**, **Audio Generation**, **Effect Templates**) só
+  existem no esquema novo — hoje são **inalcançáveis** pelo plugin
+- existem **APIs de dedução e uso** (`/api/assets/billing-deduction`,
+  `/api/assets/account-usage`) que dariam **custo real** em vez de estimativa,
+  fechando de verdade a reconciliação que o T15 aproxima
+- a doc lista `api.klingai.com` **e** `api-singapore.klingai.com`; minha afirmação
+  anterior de que o primeiro foi "aposentado" precisa ser reconferida
+
+Escopo do T3 reaberto está em `TODOS.md` como P1. Não implementar às cegas: é
+migração de superfície inteira, com os dois esquemas vivos, então dá para fazer
+atrás de flag com o legado como default.
+
+---
+
+#### Histórico do erro — a retratação equivocada de 2026-07-29
 
 A tarefa original mandava mapear "o path 2.0 de cada um dos 6 endpoints", tirar
 `model_name` do body e criar a flag `MEDIA_FORGE_KLING_API_VERSION = 2 | legacy`.

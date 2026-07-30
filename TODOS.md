@@ -118,6 +118,63 @@ suposição. Ordenados por impacto financeiro.
 **Onde:** `src/mcp/handlers/register.ts`.
 **Esforço:** S (CC ~15min)
 
+## P1 — media-forge fala a API legada do Kling, não a documentada (T3 reaberto)
+
+**O quê:** verificado ao vivo em 2026-07-30 na doc autenticada. Todas as páginas de
+modelo do Kling documentam o esquema **API 2.0**:
+
+```
+POST /image-to-video/kling-3.0-turbo      POST /omni-video/kling-o1
+POST /image-to-video/kling-3.0            POST /motion-control/kling-3.0
+POST /image-to-video/kling-2.6            GET|POST /tasks
+```
+
+`POST /{operação}/{versão-do-modelo}`, **sem `/v1/`**, **sem `model_name` no body**,
+poll unificado em `/tasks`. O media-forge usa `/v1/videos/{tipo}` com `model_name`
+no body — que **não é mais documentado em lugar nenhum**.
+
+**Nada está quebrado.** Sonda de custo zero com a chave real:
+
+```
+legado  GET /v1/videos/text2video/{id}   HTTP 400  code 1201 "Task not found"
+novo    GET /tasks?external_task_ids=... HTTP 200  code 0 SUCCEED
+```
+
+Os dois respondem. O legado funciona, só não é documentado.
+
+**Impacto real:** os modelos novos são **inalcançáveis** — Kling 3.0 Turbo, O1,
+2.6, 2.5 Turbo, Motion Control, Avatar, Audio Generation, Effect Templates. O
+plugin está preso à geração anterior de modelos do provider.
+
+**Como fazer:** os dois esquemas estão vivos, então dá para migrar atrás de flag
+com o legado como default, em vez de virada única. Não é troca de string: o corpo
+da requisição muda (parâmetros "fully decoupled" segundo o anúncio deles) e o poll
+deixa de ser por tipo.
+
+**Por que não foi feito antes:** eu retratei o T3 em `e35ae72` afirmando que a API
+2.0 não existia, baseado num snapshot **defasado** servido pelo `context7-mcp`. A
+retratação está revertida no plano, com o erro documentado. Lição: context7 é
+cache; para afirmar que algo não existe na doc, abrir a doc.
+
+**Esforço:** L (CC ~3h) — superfície inteira do provider.
+
+## P1 — APIs de dedução e uso do Kling não são usadas
+
+**O quê:** a doc expõe `/api/assets/billing-deduction` (Deduction Query) e
+`/api/assets/account-usage` (Account Usage). O anúncio da API 2.0 as descreve como
+*"Retrieve unit and balance deduction records via API, with filtering and
+cursor-based pagination for reconciliation and automation."*
+
+**Por que importa:** hoje o custo real do Kling é **derivado** — `rate × multiplier ×
+duração` a partir do registry. Essas APIs dão o valor que o Kling **efetivamente
+debitou**. Isso fecha de verdade a reconciliação que o T15 só aproxima, e detecta
+deriva de tarifa sem depender de alguém reler a página de preços.
+
+**Contexto:** conecta com o TODO de reconciliação de ledger e com o P2 do sweep do
+Seedance. Se o provider informa o débito real, a estimativa deixa de ser a fonte.
+
+**Esforço:** M (CC ~1h)
+
 ## P1 — Roteador não sabe que o Higgsfield revende Kling e Seedance
 
 **O quê:** confirmado na doc oficial (`docs.higgsfield.ai/guides/video`) que a
