@@ -99,12 +99,30 @@ const BYTEDANCE: SurfacePromptProfile = {
  */
 const HIGGSFIELD_CLI: SurfacePromptProfile = HIGGSFIELD;
 
+/**
+ * PR7 — MuAPI is an aggregator: the effective prompt bound is whatever the
+ * underlying vendor enforces, and that differs per model in its catalogue.
+ *
+ * Left null rather than guessed. Copying Kling's 2500 here would be wrong for
+ * every non-Kling model MuAPI resells, and a bound that is wrong in the
+ * restrictive direction rejects prompts the provider would have accepted.
+ */
+const MUAPI: SurfacePromptProfile = {
+  promptMaxChars: null,
+  negativePromptMaxChars: null,
+  multiShotPromptMaxChars: null,
+  multiShotMaxShots: null,
+  source: 'muapi.ai/docs — aggregator; the real bound is the resold vendor\'s, per model',
+  verifiedAt: '2026-07-30',
+};
+
 export const SURFACE_PROMPT_PROFILES: Readonly<Record<Provider, SurfacePromptProfile>> = {
   kling: KLING,
   higgsfield: HIGGSFIELD,
   'higgsfield-cli': HIGGSFIELD_CLI,
   google: GOOGLE,
   bytedance: BYTEDANCE,
+  muapi: MUAPI,
 };
 
 export function promptProfileFor(provider: Provider): SurfacePromptProfile {

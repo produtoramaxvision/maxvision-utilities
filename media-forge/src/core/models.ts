@@ -59,7 +59,14 @@ export type VideoDurationSeconds = (typeof VIDEO_DURATION_SECONDS)[number];
 // P14 appends `higgsfield`, P15 appends `kling`, P16 appends `bytedance`. The type
 // must NEVER promise providers without backing adapters — otherwise downstream code
 // type-checks against names that throw at runtime.
-export const PROVIDERS = ['google', 'higgsfield', 'kling', 'bytedance', 'higgsfield-cli'] as const;
+export const PROVIDERS = [
+  'google',
+  'higgsfield',
+  'kling',
+  'bytedance',
+  'higgsfield-cli',
+  'muapi',
+] as const;
 export type Provider = (typeof PROVIDERS)[number];
 // ^ Provider type derives from the runtime array. bytedance is now a shipped adapter (P16).
 //
@@ -70,6 +77,14 @@ export type Provider = (typeof PROVIDERS)[number];
 // billing surfaces into one entry would make spend unattributable between them.
 // Registration is gated by MEDIA_FORGE_HF_CLI_ENABLED (default false); the CLI
 // holds one OAuth session per machine and so cannot serve multi-tenant hosting.
+//
+// PR7: 'muapi' is an AGGREGATOR — it resells Kling, Veo and others under its own
+// endpoints with its own markup. It therefore has NO entry in VIDEO_MODELS and no
+// rate in this file, deliberately: its catalogue and prices come from its own
+// /api/v1/models endpoint at runtime. Pricing a MuAPI job from the direct-vendor
+// rates below would under-report spend by the margin, which is the same
+// "aggregator blindness" already filed as P1 for Higgsfield. Gated by
+// MEDIA_FORGE_MUAPI_ENABLED (default false).
 
 export const VIDEO_MODES = [
   't2v',
