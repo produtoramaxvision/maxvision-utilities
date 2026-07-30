@@ -162,7 +162,23 @@ export class KlingProvider implements VideoProvider {
     if (spec.pricing.unit !== 'usd-per-second') {
       throw new Error(`Kling pricing unit expected usd-per-second, got ${spec.pricing.unit}`);
     }
-    return spec.pricing.rate * req.durationSec;
+    // A8 (2026-07-30): apply resolutionMultipliers, which this method previously
+    // ignored. Kling's official pricing is per-second AND per-resolution — a
+    // Kling 3.0 second costs $0.126 at 720P but $0.168 at 1080P — so a flat
+    // `rate * durationSec` under-estimates every 1080p clip by 25%.
+    //
+    // That mattered because this is the billing path: every Kling MCP handler
+    // calls estimateCostUSD() directly, and its result feeds the cost guard, the
+    // ledger row and the credit reservation. normalizeCostUSD (pricing.ts:50)
+    // already applied the multiplier, but that is the cross-provider ROUTER path
+    // and is ranking-only — so the registry data was correct and inert where it
+    // actually spent money.
+    //
+    // Mirrors BytedanceSeedanceProvider (bytedance-seedance.ts:249), which has
+    // read the multiplier since PR#12. Absent multipliers default to 1, so models
+    // priced flat across resolutions are unaffected.
+    const multiplier = spec.pricing.resolutionMultipliers?.[req.resolution] ?? 1;
+    return spec.pricing.rate * multiplier * req.durationSec;
   }
 
   async generate(req: VideoGenerationRequest): Promise<JobHandle> {

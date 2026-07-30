@@ -95,9 +95,18 @@ describe('P15 — video-router prefers Kling for specific cases', () => {
       durationSec: 10,
       resolution: '1080p',
     });
-    // After P15 with only V3 tiers registered, V3 Standard at $0.126/s vs Veo at $0.50/s wins
-    expect(result.modelId).toBe('kling-v3-standard');
-    expect(result.estimatedCostUSD).toBeCloseTo(0.126 * 10, 4);
+    // A8 (2026-07-30): the winner changed, and the change is correct rather than a
+    // regression. This used to expect kling-v3-standard at a flat $0.126/s. Two
+    // corrections moved it:
+    //   1. Standard's $0.126 is the official 720P rate; 1080P is $0.168. It now
+    //      carries resolutionMultipliers, so its real 1080p cost is $1.68/10s.
+    //   2. Omni's rate was a PLACEHOLDER of 0.168 and is really $0.14/s for this
+    //      entry's condition, so $1.40/10s.
+    // The router's documented rule is a pure cheapest-USD sort, and $1.40 < $1.68,
+    // so Omni legitimately wins at 1080p once both rates are right. Both models
+    // support plain t2v, so nothing is being routed to an incapable model.
+    expect(result.modelId).toBe('kling-v3-omni');
+    expect(result.estimatedCostUSD).toBeCloseTo(0.14 * 10, 4);
   });
 
   it('honors preferProvider: "google" override even when Kling would win on cost', async () => {
