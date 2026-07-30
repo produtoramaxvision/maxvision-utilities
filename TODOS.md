@@ -128,6 +128,44 @@ manter-ou-remover ainda pendente — não bloqueia nada.
 Achados ao implementar os cost guards. Todos verificados no código, nenhum é
 suposição. Ordenados por impacto financeiro.
 
+## P1 — O planner narrativo (T10+T13) não tem consumidor de produção
+
+**O quê:** 15 arquivos em `src/narrative/` e `src/review/take-review.ts` são
+biblioteca testada sem ponto de entrada. **Nenhuma ferramenta MCP e nenhum
+comando de CLI os invoca.** Um usuário do plugin não consegue alcançar o
+narrative planner de forma alguma hoje.
+
+**Como foi provado (2026-07-30, não suposição):**
+
+```
+pnpm exec fallow audit --base origin/homolog --production
+  verdict: fail · dead_code_introduced: 134 · 20 unused_files introduzidos
+```
+
+Confirmado à mão depois: `grep -rn "from '.*narrative/" src/ | grep -v "^src/narrative/"`
+retorna **uma** linha, e ela é intra-feature (`take-review.ts` importando `enums.ts`).
+
+**O que NÃO é isso:** `src/cli/commands/setup.ts` também aparece na lista, mas é
+artefato — está registrado em `cli.ts:12,30` e o comando
+`node bin/media-forge setup wan2gp` foi **executado com sucesso**. O `fallow` não
+rastreia o entry `bin/media-forge`, e por isso marca `cli.ts`, `cost.ts` e
+`video.ts` como não-usados também, os três com `introduced: false` — ou seja, o
+padrão é anterior a este trabalho.
+
+**Por que aconteceu:** o T13 no plano especifica os 6 agentes e a saída
+alimentando `project-state`, mas **não** especifica superfície de invocação.
+Foi entregue conforme escrito; o que falta nunca foi pedido em lugar nenhum.
+
+**Como fechar:** uma ferramenta MCP (ex.: `media_narrative_plan`) que receba
+brief + alvo e devolva um `ProjectState`, despachando os agentes pelo caminho
+`subagent | sdk` que `invoke.ts` já implementa. É o par natural do
+`project-state-store` que já persiste o resultado.
+
+**Esforço:** M (human ~3h / CC ~40min)
+**Depende de:** nada. Todas as peças existem e estão testadas.
+
+---
+
 ## P1 — Três providers novos não são alcançáveis pelo roteador MCP
 
 **O quê:** `higgsfield-cli` (T5), `muapi` (PR7) e `wan2gp` (T16) foram implementados,
