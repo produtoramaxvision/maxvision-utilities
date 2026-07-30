@@ -444,7 +444,47 @@ cache; para afirmar que algo não existe na doc, abrir a doc.
 
 **Esforço:** L (CC ~3h) — superfície inteira do provider.
 
-## P1 — APIs de dedução e uso do Kling não são usadas
+## (fechado) P1 — APIs de dedução e uso do Kling não são usadas
+
+**FECHADO em 2026-07-30.** `src/video/providers/kling-billing.ts` +
+`KlingProvider.reconcileBillingWindow`. O custo do Kling deixa de ser derivado do
+registry e passa a vir do que o provider **efetivamente cobrou**.
+
+**Correção de precisão sobre o texto original abaixo:** o endpoint
+`/api/assets/billing-deduction` que citei **não apareceu** na doc ao verificar via
+`context7-mcp`. O que existe e foi usado:
+
+| Endpoint | O que dá |
+|---|---|
+| `GET /tasks` (forma de **listagem**) | `billing[]` por tarefa: `charge_type` (`cash` ou `unit`), `amount`, `package_type` |
+| `GET /account/costs` | pacotes de recurso: `total_quantity`, `remaining_quantity` |
+
+**O risco central:** `amount` não significa nada sem `charge_type`. Tarefa cobrada
+em 8 **unidades** custa $1,12; o mesmo número lido como `cash` vira $8,00 — erro de
+~7x, e o ledger pareceria autoritativo nas duas direções por ter vindo do provider.
+`chargeToUsd` **recusa** `charge_type` desconhecido em vez de escolher um ramo.
+
+`/account/costs` **não** é usado para liquidar job individual: a doc diz que
+`remaining_quantity` atrasa 12h, então comparar cobrança fresca com saldo velho
+reportaria deriva inexistente. O retorno carrega `remainingIsDelayed: true`.
+
+**Dois bugs meus, achados no test pass:**
+- `findJobByNativeTaskId` abria o banco sem `runMigrations`. Processo que só
+  reconcilia (cron que nunca submete) batia em banco novo e estourava
+  `no such table: video_jobs`.
+- A reconciliação buscava **uma página só** e reportava sucesso. Com `has_more`
+  verdadeiro, tudo além da primeira página ficava sem liquidar para sempre. Agora
+  segue `next_cursor`, com teto de 50 páginas e aviso alto se truncar.
+
+Ambos provados: RED com o bug reintroduzido, GREEN sem.
+
+**Deriva:** divergência acima de 1% entra em `drift` e vai para `warn`. Deriva
+significa que `src/core/models.ts` discorda do provider — o que torna errada também
+toda **estimativa** futura, inclusive a que o cap diário usa antes do submit.
+
+---
+
+## (histórico) P1 — APIs de dedução e uso do Kling não são usadas
 
 **O quê:** a doc expõe `/api/assets/billing-deduction` (Deduction Query) e
 `/api/assets/account-usage` (Account Usage). O anúncio da API 2.0 as descreve como

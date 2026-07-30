@@ -12,6 +12,7 @@ import type {
 import { VIDEO_MODELS, type Provider, type VideoModelSpec } from '../../core/models.js';
 import { recordJob, recordActualCost } from '../../core/cost-tracker.js';
 import { openDb, runMigrations } from '../../core/db.js';
+import { logger } from '../../core/logger.js';
 import { getKlingAuthHeader, type KlingEnvSubset } from './auth/kling-jwt.js';
 import {
   isKlingV2Enabled,
@@ -24,6 +25,7 @@ import {
   parseV2SubmitResponse,
   parseV2TaskResponse,
 } from './kling-v2.js';
+import { fetchTaskBillingPage, compareEstimateToActual } from './kling-billing.js';
 
 const KLING_API_BASE = 'https://api-singapore.klingai.com';
 
@@ -483,6 +485,164 @@ export class KlingProvider implements VideoProvider {
 
   async recordActualCostUSD(jobId: string, usd: number): Promise<void> {
     recordActualCost({ dbPath: this.dbPath, jobId, actualUsd: usd });
+  }
+
+  /**
+   * Settles jobs against what Kling ACTUALLY charged, not what this repo
+   * estimated.
+   *
+   * Everything else here records `rate x multiplier x duration` from the local
+   * rate table — an estimate wearing the costume of a fact, correct only while
+   * that table matches Kling's real pricing and silent when it stops. Kling
+   * reports the charge per task; this reads it and overwrites the estimate.
+   *
+   * Deliberately a SEPARATE method rather than folded into the poll path:
+   * settlement is a reconciliation pass over a window, not a per-job side effect,
+   * and billing is not populated the instant a job completes.
+   *
+   * Returns what it settled and what it could not, rather than throwing on a
+   * partial result — a window where one task is uninterpretable should still
+   * settle every other task in it.
+   */
+  async reconcileBillingWindow(args: {
+    readonly startTimeMs: number;
+    readonly endTimeMs: number;
+    readonly limit?: number;
+    readonly fetchImpl?: typeof fetch;
+  }): Promise<{
+    settled: ReadonlyArray<{ taskId: string; actualUsd: number }>;
+    drift: ReadonlyArray<{ taskId: string; estimateUsd: number; actualUsd: number; ratio: number }>;
+  }> {
+    const apiKey = this.env.KLING_API_KEY;
+    if (apiKey === undefined || apiKey.length === 0) {
+      throw new Error(
+        'Kling billing reconciliation needs KLING_API_KEY — the billing endpoints are part ' +
+          'of the API 2.0 surface, which accepts API-key auth only.',
+      );
+    }
+
+    // Paginate. A single page settles at most `limit` tasks (default 100, max
+    // 500), and stopping there while has_more is true would leave real charges
+    // unsettled while REPORTING success — the reconciliation would look complete
+    // and the ledger would stay wrong for everything past the first page.
+    //
+    // MAX_PAGES is a bound on a loop whose exit condition comes from the server.
+    // Same discipline as the narrative planner's runBoundedLoop: a provider that
+    // never stops returning has_more must not hang a cron job. 50 pages at the
+    // 500 ceiling is 25,000 tasks, far past any real window.
+    const MAX_PAGES = 50;
+    const allTasks: Array<{ taskId: string; actualUsd: number }> = [];
+    let cursor: string | undefined;
+    let pagesFetched = 0;
+    let truncated = false;
+
+    for (;;) {
+      const page = await fetchTaskBillingPage(
+        {
+          startTimeMs: args.startTimeMs,
+          endTimeMs: args.endTimeMs,
+          ...(args.limit !== undefined ? { limit: args.limit } : {}),
+          ...(cursor !== undefined ? { cursor } : {}),
+        },
+        {
+          apiKey,
+          ...(args.fetchImpl !== undefined ? { fetchImpl: args.fetchImpl } : {}),
+        },
+      );
+
+      allTasks.push(...page.tasks);
+      pagesFetched += 1;
+
+      if (!page.hasMore || page.nextCursor === undefined) break;
+      if (pagesFetched >= MAX_PAGES) {
+        truncated = true;
+        break;
+      }
+      cursor = page.nextCursor;
+    }
+
+    if (truncated) {
+      // Said out loud rather than returned as a quiet partial. A caller that
+      // believes a window is fully settled when it is not will not come back.
+      logger.warn('kling billing: stopped at the page cap with more results pending', {
+        pagesFetched,
+        maxPages: MAX_PAGES,
+        settledSoFar: allTasks.length,
+      });
+    }
+
+    const page = { tasks: allTasks };
+
+    const settled: Array<{ taskId: string; actualUsd: number }> = [];
+    const drift: Array<{
+      taskId: string;
+      estimateUsd: number;
+      actualUsd: number;
+      ratio: number;
+    }> = [];
+
+    for (const task of page.tasks) {
+      const local = this.findJobByNativeTaskId(task.taskId);
+      if (local === undefined) {
+        // A task Kling billed that this install has no row for. Not an error —
+        // the same key may be used from more than one machine — but recording it
+        // against a guessed job would attribute someone else's spend here.
+        continue;
+      }
+
+      recordActualCost({ dbPath: this.dbPath, jobId: local.jobId, actualUsd: task.actualUsd });
+      settled.push({ taskId: task.taskId, actualUsd: task.actualUsd });
+
+      if (local.estimateUsd !== undefined) {
+        const cmp = compareEstimateToActual({
+          estimateUsd: local.estimateUsd,
+          actualUsd: task.actualUsd,
+        });
+        // 1% is wide enough to ignore rounding and narrow enough that a real
+        // rate change shows up rather than being averaged away.
+        if (Math.abs(cmp.ratio - 1) > 0.01) {
+          drift.push({
+            taskId: task.taskId,
+            estimateUsd: local.estimateUsd,
+            actualUsd: task.actualUsd,
+            ratio: cmp.ratio,
+          });
+        }
+      }
+    }
+
+    if (drift.length > 0) {
+      // Loud on purpose. Drift means src/core/models.ts disagrees with what the
+      // provider charges, which makes every future ESTIMATE wrong too — including
+      // the ones the daily cap gates on before submit.
+      logger.warn('kling billing: estimate disagrees with the provider charge', {
+        count: drift.length,
+        sample: drift.slice(0, 3),
+      });
+    }
+
+    return { settled, drift };
+  }
+
+  /** Local job row for a Kling native task id, if this install submitted it. */
+  private findJobByNativeTaskId(
+    nativeTaskId: string,
+  ): { jobId: string; estimateUsd?: number } | undefined {
+    // runMigrations, matching ensureDb() in cost-tracker.ts. Without it a
+    // reconcile-only process — a cron job that never submits anything — hits a
+    // fresh db and throws "no such table: video_jobs" instead of cleanly
+    // reporting that the task has no local row.
+    const db = openDb(this.dbPath);
+    runMigrations(db);
+    const row = db
+      .prepare('SELECT id, est_usd FROM video_jobs WHERE native_task_id = ?')
+      .get(nativeTaskId) as { id?: string; est_usd?: number } | undefined;
+
+    if (row?.id === undefined) return undefined;
+    return {
+      jobId: row.id,
+      ...(typeof row.est_usd === 'number' ? { estimateUsd: row.est_usd } : {}),
+    };
   }
 }
 
