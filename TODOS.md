@@ -118,6 +118,35 @@ suposição. Ordenados por impacto financeiro.
 **Onde:** `src/mcp/handlers/register.ts`.
 **Esforço:** S (CC ~15min)
 
+## P3 — Complexidade de `generate()` no Kling e Higgsfield subiu com o A5
+
+**O quê:** auditado com `fallow audit --base origin/homolog`. Contra a base correta a
+branch tem **`dead_code_introduced: 0`** e `complexity_introduced: 4`:
+
+| Arquivo | Função | Ciclomática | Nota |
+|---|---|---|---|
+| `src/mcp/handlers/register.ts:842` | `<arrow>` | 24 | artefato de atribuição — arquivo novo do split do PR0, o código veio do monolito |
+| `src/mcp/handlers/register.ts:924` | `<arrow>` | 16 | idem |
+| `src/video/providers/kling.ts:185` | `generate` | 19 | **real**, subiu com os hooks do A5 |
+| `src/video/providers/higgsfield.ts:89` | `generate` | 15 | **real**, idem |
+
+**Julgado no código, não na métrica.** O que o A5 adicionou é a forma mínima do
+contrato: `if (ledgerHooks) await beforeSubmit(...)` antes da rede, `try` em volta
+do submit com `onSubmitFailed` no `catch` e re-throw do erro original, e um segundo
+`try` para o bookkeeping pós-submit. Cada branch tem uma razão declarada. Não é
+complexidade acidental.
+
+**Por que não reduzi agora:** extrair submit+parse para método privado derrubaria a
+contagem, mas é refactor além do escopo do A5, e o PR0 já ensinou que misturar
+relocação com mudança semântica torna a revisão pior. Além disso a **migração para a
+API 2.0** (P1 acima) reescreve exatamente essas funções — o momento certo de
+simplificar é lá, de uma vez, não agora e de novo depois.
+
+**Contexto:** o veredito global do `fallow` é `fail` desde antes desta branch
+(`max_cyclomatic: 55` num arquivo que ela não toca). Ver A11 no plano.
+
+**Esforço:** absorvido pela migração da API 2.0.
+
 ## P2 — Perda limitada e conhecida: erro após submit bem-sucedido
 
 **O quê:** entre um submit que deu certo e o `recordJob`, existe código que pode
