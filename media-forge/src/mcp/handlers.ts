@@ -55,4 +55,12 @@ export {
 } from './handlers/billing.js';
 export type { HandlersDeps } from './handlers/billing.js';
 
+export {
+  handleNarrativePlan,
+  handleNarrativeAssemble,
+  NarrativePlanInput,
+  NarrativeAssembleInput,
+} from './handlers/narrative.js';
+export type { NarrativeHandlerOpts } from './handlers/narrative.js';
+
 export { registerAllTools } from './handlers/register.js';

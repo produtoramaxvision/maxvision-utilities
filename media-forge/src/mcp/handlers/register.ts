@@ -10,6 +10,7 @@ import {
   newWorkBudgetUsd,
   type SpendPurpose,
 } from '../../core/cost-guard.js';
+import { handleNarrativePlan, handleNarrativeAssemble } from './narrative.js';
 import type { EditImageInputT, ComposeSceneInputT } from '../../image/image-schemas.js';
 import { MCP_TOOLS } from '../schemas.js';
 import { isToolAllowed } from '../../http/tier-gates.js';
@@ -1868,6 +1869,45 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           pageSize: parsed.data.page_size,
         });
         return { content: [{ type: 'text', text: JSON.stringify(page) }] };
+      }),
+    );
+  }
+
+  // ---- Narrative planner (T13) ----
+  //
+  // Deliberately NOT wired to checkCostGuardOrThrow. The guard and the ledger
+  // meter per-generation provider spend in USD; these are Anthropic token calls,
+  // which the reviewer in src/review/llm-judge.ts has always made outside the
+  // guard too. Metering tokens is a real design change, not a line to add here,
+  // and both tool descriptions say so rather than leaving it ambiguous.
+  //
+  // Planning produces no video and consumes no provider credit.
+  {
+    const t = getTool('media_narrative_plan');
+    regIfAllowed(
+      t.name,
+      { title: 'Plan a Narrative Video', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => {
+        const state = await handleNarrativePlan(input, {
+          dbPath: defaultDbPath(),
+          tenantId: deps.tenantId ?? null,
+        });
+        return asResult(state as unknown as Record<string, unknown>);
+      }),
+    );
+  }
+
+  {
+    const t = getTool('media_narrative_assemble');
+    regIfAllowed(
+      t.name,
+      { title: 'Assemble a Narrative Plan', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => {
+        const state = await handleNarrativeAssemble(input, {
+          dbPath: defaultDbPath(),
+          tenantId: deps.tenantId ?? null,
+        });
+        return asResult(state as unknown as Record<string, unknown>);
       }),
     );
   }

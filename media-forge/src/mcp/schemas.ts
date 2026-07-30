@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import type { ZodTypeAny } from 'zod';
 import { VIDEO_MODELS } from '../core/models.js';
+// T13: the narrative tools' input schemas live with their handler, since the
+// handler is the only thing that can act on them. Re-exported into MCP_TOOLS
+// here so tool discovery stays a single list.
+import { NarrativePlanInput, NarrativeAssembleInput } from './handlers/narrative.js';
 
 // Image schemas (P3.1)
 export {
@@ -1258,6 +1262,20 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description:
       'List completed generations for the authenticated tenant (paginated, newest first). tenantId is read from server-side AuthContext — never from client input.',
     inputSchema: ListMyGenerationsInput,
+  },
+
+  // ---- Narrative planner (2 — T13: the entry point into src/narrative/) ----
+  {
+    name: 'media_narrative_plan',
+    description:
+      'Plan a multi-shot video from a creative brief: extracts the cast, writes beats, groups them into scenes (narrative | motion | montage), storyboards each scene into shots, and returns a validated ProjectState. Runs six Anthropic calls via the SDK and REQUIRES ANTHROPIC_API_KEY — inside a Claude Code session it refuses and points you at media_narrative_assemble instead, because the agents there are dispatched by the orchestrator. These planning calls are NOT metered by the media-forge cost guard, which tracks per-generation provider spend (Veo/Kling/Higgsfield/Seedance) rather than token billing. Planning alone generates no video and costs no provider credit.',
+    inputSchema: NarrativePlanInput,
+  },
+  {
+    name: 'media_narrative_assemble',
+    description:
+      'Join already-collected narrative agent results (cast, screenplay, scenes, storyboards) into a validated ProjectState. Pure and offline: no LLM calls, no network, no cost. This is the path to use inside Claude Code, where the six narrative agents run as subagents you dispatch yourself. Enforces the same cross-document integrity rules as media_narrative_plan — referential integrity across clips/scenes/beats, parent-chain depth, disjoint beat lists — so a plan assembled this way is not a weaker plan.',
+    inputSchema: NarrativeAssembleInput,
   },
 ] as const) as readonly MCPTool[];
 

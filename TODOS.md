@@ -128,7 +128,41 @@ manter-ou-remover ainda pendente — não bloqueia nada.
 Achados ao implementar os cost guards. Todos verificados no código, nenhum é
 suposição. Ordenados por impacto financeiro.
 
-## P1 — O planner narrativo (T10+T13) não tem consumidor de produção
+## P2 — Não existe executor de plano: 4 schemas do T10 seguem sem consumidor
+
+**FECHADO em parte.** O planner narrativo passou a ser alcançável via
+`media_narrative_plan` e `media_narrative_assemble` (`src/mcp/handlers/narrative.ts`).
+Medido: `fallow audit --base origin/homolog --production` caiu de **20 para 10**
+arquivos novos sem uso, e todo o pipeline de planejamento (`invoke`, `bounds`,
+os 4 agentes de decomposição, `planner`, `project-state`, `project-state-store`,
+`enums`) saiu da lista.
+
+**O que sobrou, e por quê.** Estes 4 continuam sem consumidor:
+
+| Arquivo | Quando seria usado |
+|---|---|
+| `narrative/clip-contract.ts` | ao converter um clipe do plano em pedido de geração |
+| `narrative/prompt-spec.ts` | ao compilar o prompt daquele clipe |
+| `narrative/generation-run.ts` | ao registrar a tentativa |
+| `review/take-review.ts` | ao revisar o take gerado |
+| `narrative/agents/image-selector.ts` | escolher referências antes, e o melhor take depois |
+
+Todos pertencem ao laço **executar um plano**, não a **fazer um plano**. Nenhuma
+PR deste plano especifica um executor — o T13 termina no `ProjectState` e o T11
+estendeu o `router.ts`, não um executor. Então não é regressão nem esquecimento:
+é uma etapa que nunca foi pedida.
+
+**Como fechar:** uma ferramenta que pegue um `ProjectState` e execute clipe a
+clipe — `clip-contract` → `prompt-spec` → submit no provider → `generation-run`
+→ `take-review` → protocolo de retake do T11. É o próximo item natural, e
+grande o bastante para ser uma PR própria.
+
+**Esforço:** L (human ~2 dias / CC ~2h)
+**Depende de:** decidir se o executor vive no plugin ou no orquestrador.
+
+---
+
+## P1 — (histórico) O planner narrativo não tinha consumidor de produção
 
 **O quê:** 15 arquivos em `src/narrative/` e `src/review/take-review.ts` são
 biblioteca testada sem ponto de entrada. **Nenhuma ferramenta MCP e nenhum

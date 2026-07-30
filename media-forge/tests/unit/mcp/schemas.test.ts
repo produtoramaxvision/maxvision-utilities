@@ -92,14 +92,23 @@ const EXPECTED_TOOL_NAMES = [
   'media_seedance_reference_fusion',
   // gallery (1 — F-I: list tenant's own generation history)
   'list_my_generations',
+  // narrative planner (2 — T13: the entry point into src/narrative/, which
+  // shipped with fifteen tested modules and no way to invoke any of them)
+  'media_narrative_plan',
+  'media_narrative_assemble',
 ] as const;
 
 // ---------------------------------------------------------------------------
 // Registry shape assertions
 // ---------------------------------------------------------------------------
 describe('MCP_TOOLS registry', () => {
-  it('contains exactly 56 tools', () => {
-    expect(MCP_TOOLS.length).toBe(56);
+  // 56 -> 58 with T13's media_narrative_plan and media_narrative_assemble.
+  // The count is asserted so a tool cannot be added or dropped silently; it is
+  // bumped here because two were deliberately added, and EXPECTED_TOOL_NAMES
+  // gained both names in the same change. Bumping the number without the names
+  // would leave this reading "all 58 expected" while checking 56.
+  it('contains exactly 58 tools', () => {
+    expect(MCP_TOOLS.length).toBe(58);
   });
 
   it('is frozen (Object.isFrozen)', () => {
@@ -144,11 +153,11 @@ describe('MCP_TOOLS registry', () => {
 // listMCPToolNames()
 // ---------------------------------------------------------------------------
 describe('listMCPToolNames()', () => {
-  it('returns an array of length 56', () => {
-    expect(listMCPToolNames().length).toBe(56);
+  it('returns an array of length 58', () => {
+    expect(listMCPToolNames().length).toBe(58);
   });
 
-  it('contains all 56 expected tool names', () => {
+  it('contains all 58 expected tool names', () => {
     const names = listMCPToolNames();
     for (const expected of EXPECTED_TOOL_NAMES) {
       expect(names).toContain(expected);
