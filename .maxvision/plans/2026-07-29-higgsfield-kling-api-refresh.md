@@ -118,7 +118,7 @@ pessoalmente na auditoria, não herdados de relatório de subagente.
 | PR4 | T11 retake protocol | **feito** — 5 saídas de triagem, uma variável por retake, orçamento pago separado do total; fecha o laço `purpose:'retake'` do T14 | `09b1222` |
 | PR4 | ~~T12~~ | adiado (C5), em `TODOS.md` | — |
 | PR5 | T13 narrative planner | pendente | — |
-| PR6 | T5 / T6 como transporte | pendente | — |
+| PR6 | T5 / T6 como transporte | **feito** — provider `higgsfield-cli` + soul-id, interface lida do binário `1.1.20`, `generate cost` exercitado ao vivo (0 créditos) | `42ccbb8` |
 | PR7 | MuAPI · PR8 T16 Wan2GP · PR9 T17 Codex | pendente | — |
 
 ### Desvios de ordem, assumidos
