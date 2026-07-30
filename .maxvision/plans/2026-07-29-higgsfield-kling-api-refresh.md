@@ -834,14 +834,33 @@ caminhos, a preços e contratos de prompt diferentes. Escrito no perfil: quando 
 caller pediu Kling explicitamente, vale o perfil direto do Kling. **O roteador
 ainda não sabe disso** — ver `TODOS.md`.
 
+**Fechado depois:**
+
+- [x] Afirmação "30-80 tokens" da `kling-prompting` corrigida para os 2.500 chars
+      oficiais, com os 512/storyboard do `multi_prompt`. A ordem câmera-primeiro
+      passa a ser rotulada **craft empírico, não requisito documentado**, citando o
+      exemplo oficial da Kling que começa por sujeito/ação em frases com ponto
+- [x] Delegação bidirecional. `kling-prompting` e `higgsfield-prompting` agora
+      apontam para `[skill:mf-video-prompt]` como dona do craft compartilhado, com
+      regra de precedência explícita: quando as duas carregam e divergem em forma
+      de prompt, a específica do provider vence para aquele provider
+- [x] MCSLA rotulado como **comportamento documentado**, citando a página "Writing
+      Effective Motion Prompts" do Higgsfield, que prescreve exatamente
+      movimento-depois-câmera. Deixa claro por que ela tem precedência sobre a
+      Director Formula quando o alvo é Higgsfield
+- [x] Anti-slop escopado no ponto de uso: prompt de **imagem** do Higgsfield não
+      passa pelo anti-slop, porque a doc oficial deles pede os modificadores que a
+      skill remove. Vídeo continua passando
+
+Gate depois desses: `Tests 1738 passed | 8 skipped (1746)`. Os ponteiros novos
+resolvem — quem prova é o teste de cross-reference do `skill-structure.test.ts`.
+
 **Falta do T18:**
 
-- [ ] Corrigir a afirmação "30-80 tokens" da `kling-prompting` (limite oficial é
-      2.500 chars) e marcar a ordem câmera-primeiro como craft empírico, já que os
-      exemplos oficiais da Kling começam por sujeito/ação em frases com ponto
-- [ ] Delegação bidirecional: `kling-prompting` e `higgsfield-prompting` não
-      apontam de volta para `mf-video-prompt`
-- [ ] Roteador ciente do Higgsfield-como-agregador
+- [ ] Roteador ciente do Higgsfield-como-agregador. Depende das tarifas do
+      Higgsfield para os modelos revendidos, que não estão no registry — sem elas,
+      comparar os dois caminhos é chute. Mesmo levantamento de preço do A8. Em
+      `TODOS.md` como P1
 
 ## Ordem de execução
 

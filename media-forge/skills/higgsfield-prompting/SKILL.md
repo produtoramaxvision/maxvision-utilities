@@ -13,7 +13,41 @@ outputs:
 
 # Higgsfield Prompting Playbook
 
-## 1. MCSLA Formula (universal)
+For the provider-neutral craft that applies before any of this — mode gate
+(T2V/I2V/V2V/R2V/FLF2V/edit/extend), the director formula, compression order, and
+the output contract — load `[skill:mf-video-prompt]`. This skill owns Higgsfield's
+own mechanisms; that one owns the shared discipline. When both are loaded and they
+differ on prompt shape, the provider-specific guidance here wins for Higgsfield.
+
+Verified surface facts — endpoints, auth, prompt budget, aggregator behaviour —
+live in `[ref:surface-prompt-profiles]` with sources and dates.
+
+**Two things to know before writing a Higgsfield prompt:**
+
+Higgsfield publishes **no prompt character limit**. The conservative profile
+applies: keep it compact because compactness sharpens intent, not because an API
+bound forces it.
+
+**The anti-slop pass is scoped here, and this is the one place it does not apply.**
+Higgsfield's own image documentation recommends quality modifiers such as
+`"highly detailed"` or `"8k"`. `[skill:mf-antislop]` exists to strip exactly that
+class of word. For Higgsfield **image** prompts, follow the platform's
+documentation and keep the modifiers; do not run the anti-slop pass over them.
+Video prompts still get the anti-slop pass. Generalising anti-slop across every
+provider would mean contradicting a platform's published guidance.
+
+## 1. MCSLA Formula (grounded in Higgsfield's own guidance)
+
+Higgsfield's "Writing Effective Motion Prompts" prescribes exactly this shape:
+describe the movement specifically, set the pace ("slowly", "smoothly"), specify
+camera movement explicitly, then add atmospheric detail. Their own better-example
+is camera-first and comma-separated:
+
+> `"Smooth cinematic camera pan from left to right, golden hour lighting, gentle wind rustling through leaves, shallow depth of field"`
+
+So MCSLA's motion-then-camera ordering is documented behaviour, not a guess —
+which is why it takes precedence over the subject-first director formula when the
+target is Higgsfield.
 
 Every Higgsfield prompt benefits from these five concentric layers, in order:
 
