@@ -118,6 +118,30 @@ suposição. Ordenados por impacto financeiro.
 **Onde:** `src/mcp/handlers/register.ts`.
 **Esforço:** S (CC ~15min)
 
+## P2 — Perda limitada e conhecida: erro após submit bem-sucedido
+
+**O quê:** entre um submit que deu certo e o `recordJob`, existe código que pode
+lançar — `res.json()`, o próprio `recordJob`, `recordRequestMapping` no Higgsfield,
+o `recordOnSuccess` da rota ARK do Seedance.
+
+**Nesse caso:** o provider **aceitou** o job (ele vai rodar e custar), o crédito
+**está** reservado, e não existe linha de ledger. O oracle responde `unknown`, o
+sweep libera, e uma geração que aconteceu de verdade fica **sem cobrança**.
+
+**O que foi feito:** o hook `onPostSubmitError` (A5, commit `59b9ea9`) loga jobId,
+id nativo e estimativa para reconciliação manual. Deliberadamente **não** libera,
+porque o job está rodando. O erro original continua propagando.
+
+**Por que não foi fechado:** não dá para criar a linha de ledger quando foi
+justamente ela que falhou. É perda limitada, conhecida e logada — melhor que cobrar
+errado em silêncio ou não cobrar em silêncio.
+
+**O fecho real** é a API de dedução do Kling (P1 acima): se o provider informa o
+débito, a gente descobre a cobrança pelo lado dele em vez de depender da nossa
+própria escrita ter dado certo.
+
+**Esforço:** depende da API de dedução.
+
 ## P1 — media-forge fala a API legada do Kling, não a documentada (T3 reaberto)
 
 **O quê:** verificado ao vivo em 2026-07-30 na doc autenticada. Todas as páginas de
