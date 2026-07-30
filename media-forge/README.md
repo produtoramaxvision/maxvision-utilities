@@ -74,9 +74,23 @@ node bin/media-forge doctor
 
 | Variable | Required | Purpose | Where to get it |
 |---|---|---|---|
-| `GOOGLE_API_KEY` | Yes (or Vertex AI) | All image and video generation | [AI Studio](https://aistudio.google.com/app/apikey) |
+| `GOOGLE_API_KEY` | Yes (or Vertex AI) | Google Veo image and video generation | [AI Studio](https://aistudio.google.com/app/apikey) |
 | `ANTHROPIC_API_KEY` | Optional | Standalone MCP LLM judge (fallback when not inside Claude Code) | [Anthropic Console](https://console.anthropic.com/settings/keys) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Optional | Cloud Vision OCR for text validation in reviewer Stage 1 | [GCP IAM](https://console.cloud.google.com/iam-admin/serviceaccounts) |
+| `KLING_API_KEY` | Optional | Kling video generation, **API 2.0 auth (preferred)**. Sent as `Bearer <key>` | [Kling dev console](https://app.klingai.com/global/dev/) |
+| `KLING_ACCESS_KEY` + `KLING_SECRET_KEY` | Optional | Kling **legacy** auth. Signs a short-lived JWT. Only consulted when `KLING_API_KEY` is empty | same console |
+| `HF_API_KEY` + `HF_API_SECRET` | Optional | Higgsfield generation (Soul, DoP, Speak, Recast) | [Higgsfield platform](https://platform.higgsfield.ai/) |
+| `FAL_KEY` | Optional | Seedance 2.0 via fal.ai | [fal.ai keys](https://fal.ai/dashboard/keys) |
+| `BYTEPLUS_ARK_API_KEY` | Optional | Seedance 2.0 via BytePlus Ark (alternative route) | BytePlus console |
+
+Each provider is optional and independent: the plugin only registers the models
+whose credentials are present. Setting none of the optional keys leaves a
+working Google-only install.
+
+**Kling auth precedence is not a fallback chain.** When `KLING_API_KEY` is set it
+wins outright and no JWT is ever signed, even if the access/secret pair is also
+present ([`kling-jwt.ts:93`](src/video/providers/auth/kling-jwt.ts)). Set one
+scheme or the other, not both, or the one you think is active may not be.
 
 Alternative to `GOOGLE_API_KEY`: set `GOOGLE_GENAI_USE_VERTEXAI=true` + `GOOGLE_CLOUD_PROJECT` + `GOOGLE_CLOUD_LOCATION` for Vertex AI mode.
 
@@ -87,6 +101,45 @@ Set keys in one of three ways:
 3. `.mcp.json` env interpolation: `"GOOGLE_API_KEY": "${GOOGLE_API_KEY}"`
 
 > SynthID watermarks are applied by Google to all generated outputs. This cannot be disabled and is not controlled by the plugin.
+
+---
+
+## Higgsfield remote MCP — manual probe, not a production path
+
+Higgsfield publishes its own remote MCP server. media-forge **deliberately does
+not ship it** in `.mcp.json`, and that omission is the design, not an oversight.
+
+The reason is governance. Everything media-forge routes through its own
+Higgsfield provider is metered: it is priced before submit, reserved against the
+credit ledger, captured on completion and swept if abandoned. A second, direct
+MCP surface to the same account bypasses all of it. Generations would land on
+your Higgsfield bill with no corresponding row in the local ledger, so the daily
+cap and the block threshold would both be computing against an incomplete
+picture of what you actually spent.
+
+Add it only as a temporary probe — to inspect Higgsfield's own parameter surface
+or confirm an account state — and remove it afterwards:
+
+```jsonc
+{
+  "mcpServers": {
+    "higgsfield": {
+      "type": "http",
+      "url": "https://mcp.higgsfield.ai/mcp"
+    }
+  }
+}
+```
+
+Authentication is OAuth in the client; there is no secret to place in the config.
+
+**Plan credits do not carry over.** Unlimited and free-tier generations included
+with a Higgsfield subscription apply to the web app. Work dispatched through the
+API or the remote MCP is billed against your credit balance at standard rates.
+Budget for API work as a separate line from the subscription.
+
+<sub>Source: footnote on higgsfield.ai/pricing, read 2026-07-29. Verify before
+relying on it for a budget — provider pricing terms change without notice.</sub>
 
 ---
 

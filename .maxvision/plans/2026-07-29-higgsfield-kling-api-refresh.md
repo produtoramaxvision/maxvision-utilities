@@ -100,17 +100,17 @@ pessoalmente na auditoria, não herdados de relatório de subagente.
 | PR1 | T1 credenciais | **feito** — chave no `.env`, gitignored | (sem commit: `.env` não é versionado) |
 | PR1 | T7 MCP remoto como sonda | pendente | — |
 | PR1 | T2 auth dual-mode | **feito** | `28d732b` |
-| PR1 | ~~T3 endpoints~~ | **retratado, não existe** | `e35ae72` |
-| PR1 | T4 rates | **bloqueado** — não verificável por context7 | — |
+| PR1 | T3 endpoints (API 2.0) | **retratação revertida — T3 é real, implementação pendente** | `e35ae72` (retratou), `6e86e5e` (reverteu) |
+| PR1 | T4 rates | **feito** — 4 modelos Kling lidos ao vivo em `kling.ai/dev/pricing`, sessão autenticada; master corrigido de `0.18` para `0.42` | `models.ts` `updatedAt: '2026-07-30'` |
 | PR1 | T4-b bug do 4K | **feito** (fora do plano original) | `b84756c` |
 | PR1 | T8 auth | **feito e validado na API real**, 0 créditos | — |
 | PR1 | T8 geração | **não executado** — gasta crédito, decisão do usuário | — |
 | PR2 | T9-c scan de injection | **feito** (gate do PR2, liberou) | `ff746e5` |
 | PR2 | T9 absorção | **feito** — 27 skills `mf-*` + 60 references + 5 schemas; mirror thin ressincronizado no mesmo commit | `7fba029` |
-| PR2 | T9-b evals | **implementado, NÃO commitado** — 3 arquivos em `tests/skills/`, 28 testes verdes; ver "Interrupção" abaixo | working tree |
+| PR2 | T9-b evals | **feito e commitado** — 3 arquivos em `tests/skills/` | `ec30c49` |
 | PR2 | T9-d last-frame | **feito** | `adb955c` |
 | PR3a | 10. Ledger de gasto + 13. os tiers consultados + 14. README | **feito** | `2688441`, `d14680f`, `bbc857b` |
-| PR3a | 11. Reserva **antes** do submit com ID próprio | **parcial** — só preflight de saldo no Kling | `2688441` |
+| PR3a | 11. Reserva **antes** do submit com ID próprio | **feito** — Veo, Kling, Higgsfield e Seedance, todos com `res-{jobId}` | `c0415f9`, `59b9ea9` (A5) |
 | PR3a | 12. Captura/liberação por poll, webhook e sweep | **feito junto do T15** | `c0415f9`, `13d3d37` |
 | PR3b | T15 | **feito** (Veo + Higgsfield + Seedance) | `c0415f9`, `13d3d37` |
 | PR4 | T10 / T11 / T14 | pendente | — |
@@ -932,10 +932,15 @@ dentro do PR2 com base numa estimativa de 40min que se mostrou errada (ver C1).
 1. Extrair `handlers.ts` (3.092 linhas) em módulos por domínio
 2. `src/core/llm-models.ts` — registry de modelo por papel (corrige `claude-opus-4-7`)
 3. `src/core/llm-invoke.ts` — extrair o dual-mode `subagent | sdk` de `llm-judge.ts`
-   - Gate: `pnpm test` continua em **`1587 passed | 8 skipped (1595)`** e
-     **`169 passed | 4 skipped (173)`** arquivos, **sem uma linha de teste alterada**,
-     com `pnpm typecheck` e `pnpm lint` limpos. Qualquer desvio nesses números
-     reprova o PR — inclusive testes *a mais*, que indicariam mudança de escopo.
+   - Gate **(histórico — cumprido e encerrado em `96c8751`)**: à época do PR0,
+     `pnpm test` tinha de continuar em **`1587 passed | 8 skipped (1595)`** e
+     **`169 passed | 4 skipped (173)`** arquivos, **sem uma linha de teste alterada**.
+     O gate era de *refatoração pura*: testes a mais indicariam mudança de escopo
+     dentro do PR0 especificamente. **Não é regra viva.** Os PRs seguintes
+     adicionam comportamento e portanto adicionam testes por design — a baseline
+     atual é `1771 passed | 8 skipped (1779)`. O que continua valendo para todo
+     PR é: `pnpm typecheck` e `pnpm lint` limpos, e nenhum teste pré-existente
+     enfraquecido sem justificativa escrita no ponto da asserção.
 
 **PR1 — Kling + sonda de crédito** (risco baixo, urgente)
 4. **T1** — credenciais em `.env` (manual, bloqueante)
