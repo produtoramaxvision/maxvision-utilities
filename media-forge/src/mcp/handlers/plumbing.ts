@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ZodTypeAny } from 'zod';
 import { logger } from '../../core/logger.js';
+import { MediaForgeError } from '../../core/errors.js';
 import { MCP_TOOLS, type MCPTool } from '../schemas.js';
 import {
   IMAGE_MODEL_NANO_BANANA_PRO,
@@ -60,8 +61,34 @@ export function wrap(name: string, fn: ToolHandler): ToolHandler {
     } catch (err) {
       const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
       logger.warn('mcp tool error', { name, msg, durationMs: Date.now() - start });
+
+      // Carry the structured fields, not just the sentence.
+      //
+      // This used to return the message alone and drop MediaForgeError.context
+      // entirely. Every typed error in this codebase exists BECAUSE it carries
+      // data a caller should branch on -- CostGuardError has estimateUsd,
+      // limitUsd and kind ('block' | 'daily-cap' | 'retake-reserve') precisely so
+      // a client can tell "this one call is too expensive" from "today's budget
+      // is spent" from "only the retake reserve is left". Those are three
+      // different things for the user to do, and with only the text the client
+      // has to match substrings to tell them apart, which breaks on any rewording.
+      //
+      // The text stays first and byte-identical, so anything already reading
+      // content[0] is unaffected; structuredContent is additive.
+      const structured: Record<string, unknown> = { error: true, message: msg };
+      if (err instanceof MediaForgeError) {
+        structured['name'] = err.name;
+        structured['code'] = err.code;
+        if (err.context !== undefined) {
+          Object.assign(structured, err.context);
+        }
+      } else if (err instanceof Error) {
+        structured['name'] = err.name;
+      }
+
       return {
         content: [{ type: 'text' as const, text: msg }],
+        structuredContent: structured,
         isError: true,
       };
     }

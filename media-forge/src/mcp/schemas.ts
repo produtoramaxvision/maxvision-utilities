@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { ZodTypeAny } from 'zod';
-import { VIDEO_MODELS } from '../core/models.js';
+import { VIDEO_MODELS, PROVIDERS } from '../core/models.js';
 // T13: the narrative tools' input schemas live with their handler, since the
 // handler is the only thing that can act on them. Re-exported into MCP_TOOLS
 // here so tool discovery stays a single list.
@@ -247,7 +247,16 @@ export const VideoRouteInput = z.object({
   // rejecting every 480p routing request before it could consider those models.
   resolution: z.enum(['480p', '720p', '1080p', '2k', '4k']),
   aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']).optional(),
-  preferProvider: z.enum(['google', 'higgsfield', 'kling', 'bytedance']).optional(),
+  // Derived from PROVIDERS rather than restated. The literal list here had
+  // drifted: it still held the original four while PROVIDERS had grown to six,
+  // so naming 'higgsfield-cli' was rejected at the schema before the router
+  // could consider it — the flag looked broken for a reason that had nothing to
+  // do with routing. Deriving it means the two cannot disagree again.
+  //
+  // The comment above already states the intent: this accepts the full Provider
+  // union including names with no wired adapter yet, and the handler returns a
+  // clear error when a preference has no candidate.
+  preferProvider: z.enum(PROVIDERS as unknown as [string, ...string[]]).optional(),
 });
 
 export type VideoRouteInputT = z.infer<typeof VideoRouteInput>;

@@ -59,6 +59,20 @@ import type {
 const HF_BIN = 'higgsfield';
 
 /**
+ * Opt-in gate. Default FALSE.
+ *
+ * Read at call time rather than captured at import so a test, or a hosted
+ * deployment turning it off, is not fighting a value frozen at module load.
+ *
+ * Only the exact string 'true' enables it. A permissive parse ('1', 'yes') would
+ * make it easier to switch on by accident, and switching this on in a hosted
+ * deployment routes every tenant's work through one machine's OAuth session.
+ */
+export function isHiggsfieldCliEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env['MEDIA_FORGE_HF_CLI_ENABLED'] === 'true';
+}
+
+/**
  * Default ceiling on a submit.
  *
  * This provider deliberately does NOT pass `--wait`: it submits, returns a

@@ -11,7 +11,7 @@ import { normalizeCostUSD } from '../../core/pricing.js';
 import type { Provider, VideoModelSpec } from '../../core/models.js';
 import { GoogleVeoProvider } from '../../video/providers/google-veo.js';
 import { VIDEO_MODELS } from '../../core/models.js';
-import { defaultDbPath, getAdaptedProviders } from './shared.js';
+import { defaultDbPath, isSpecRoutable, providerServesSpec, getAdaptedProviders } from './shared.js';
 
 // ---------------------------------------------------------------------------
 // handleVideoCostEstimate — estimate USD cost for a video generation request
@@ -96,7 +96,10 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
     // future providers (Kling P15, Seedance P16) must not be selected until
     // their adapter is available in getAdaptedProviders(). When
     // MEDIA_FORGE_SEEDANCE_ENABLED=false, 'bytedance' is excluded here.
-    .filter((spec) => getAdaptedProviders().has(spec.provider))
+    // isSpecRoutable rather than a bare set lookup: 'higgsfield-cli' is a second
+    // transport to the Higgsfield platform, so it can execute specs registered
+    // under 'higgsfield'. A plain identity check left that flag inert.
+    .filter((spec) => isSpecRoutable(spec.provider))
     // FIX (Codex P2, PR#10): filter candidates by requested duration +
     // resolution BEFORE cost sort. Without this, sorter could pick cheapest
     // model that fails downstream validation (e.g. higgsfield-speak with
@@ -119,8 +122,25 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
     );
   }
 
-  const preferred = input.preferProvider
-    ? allByMode.filter((c) => c.provider === input.preferProvider)
+  // providerServesSpec, not equality: naming 'higgsfield-cli' must select the
+  // Higgsfield specs it can actually run, otherwise an explicit preference for
+  // it yields "no model supporting mode" for models it plainly supports.
+  //
+  // Gated on the adapter being ACTIVE first. Without that check, naming a
+  // disabled transport would still resolve — because the specs it maps onto
+  // belong to a provider that is enabled — and the caller would get a route
+  // through an adapter their configuration had switched off.
+  const preferredAdapter = input.preferProvider as Provider | undefined;
+  if (preferredAdapter !== undefined && !getAdaptedProviders().has(preferredAdapter)) {
+    throw new Error(
+      `preferProvider ${preferredAdapter} is not enabled in this configuration. ` +
+        `Providers behind a feature flag must be switched on before they can be selected ` +
+        `(e.g. MEDIA_FORGE_HF_CLI_ENABLED=true for higgsfield-cli).`,
+    );
+  }
+
+  const preferred = preferredAdapter
+    ? allByMode.filter((c) => providerServesSpec(preferredAdapter, c.provider))
     : allByMode;
   if (preferred.length === 0) {
     throw new Error(

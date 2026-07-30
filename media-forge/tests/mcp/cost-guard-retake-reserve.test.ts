@@ -146,15 +146,10 @@ describe('T14 retake reserve — MCP integration', () => {
   });
 
   it('names the new-work budget rather than the daily cap as the limit that was hit', async () => {
-    // NOTE ON WHAT THIS CAN ASSERT.
-    // CostGuardError carries kind:'retake-reserve' and limitUsd:1.00, but the MCP
-    // envelope in src/mcp/handlers/plumbing.ts:61 serializes errors as
-    // `${err.name}: ${err.message}` and drops every structured field. That is
-    // pre-existing and applies to all error types, not something T14 introduced,
-    // so the wire is asserted here through the message text -- the only channel
-    // the client actually receives. The structured kind is covered where it is
-    // observable, in the unit tests over evaluateCostGuard.
-    // Recorded as an open item in TODOS.md (MCP errors lose their details).
+    // This originally asserted only the message text, because the MCP envelope
+    // dropped every structured field and `kind` never reached the client. That
+    // gap has since been closed in plumbing.ts, so the structured assertion below
+    // is the real one and this stays as the human-readable half.
     const result = await callMotionBrush(
       makeFakeConfig({
         dailyCapUsd: 2.0,
@@ -170,6 +165,45 @@ describe('T14 retake reserve — MCP integration', () => {
     expect(text).toContain('$1.00 of the $2.00 daily cap');
     // The remedy offered must be the reserve, not "raise the cap you did not hit".
     expect(text).toContain('MEDIA_FORGE_BUDGET_RESERVE_MODE=warn');
+  });
+
+  it('surfaces kind "retake-reserve" and the new-work budget as structured fields', async () => {
+    // The machine-readable half. A client shown kind:'daily-cap' with
+    // limitUsd equal to the full cap would tell the user to raise a cap they
+    // never reached; the three kinds exist because the remedies differ.
+    const result = await callMotionBrush(
+      makeFakeConfig({
+        dailyCapUsd: 2.0,
+        blockThresholdUsd: 5.0,
+        budgetReservePct: 0.5,
+        budgetReserveMode: 'cap',
+      }),
+    );
+
+    const structured = result.structuredContent as {
+      error?: boolean;
+      code?: string;
+      kind?: string;
+      limitUsd?: number;
+      estimateUsd?: number;
+    };
+
+    expect(structured.error).toBe(true);
+    expect(structured.code).toBe('COST_GUARD');
+    expect(structured.kind).toBe('retake-reserve');
+    // $2.00 cap with 50% reserved -> $1.00 was what new work could spend.
+    expect(structured.limitUsd).toBeCloseTo(1.0, 6);
+    expect(structured.limitUsd).not.toBeCloseTo(2.0, 6);
+    expect(structured.estimateUsd).toBeCloseTo(ESTIMATE_USD, 6);
+  });
+
+  it('a hard per-call block reports kind "block", distinguishable without parsing text', async () => {
+    const result = await callMotionBrush(
+      makeFakeConfig({ dailyCapUsd: 25, blockThresholdUsd: 1.0 }),
+    );
+    const structured = result.structuredContent as { kind?: string; limitUsd?: number };
+    expect(structured.kind).toBe('block');
+    expect(structured.limitUsd).toBeCloseTo(1.0, 6);
   });
 
   it('is inert in the default observe mode even when the estimate is inside the reserve', async () => {
