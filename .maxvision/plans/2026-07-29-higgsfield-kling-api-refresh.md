@@ -117,9 +117,11 @@ pessoalmente na auditoria, não herdados de relatório de subagente.
 | PR4 | T14 reserve_pct | **feito** — `MEDIA_FORGE_BUDGET_RESERVE_PCT` + `_MODE`, default `observe` (inerte até opt-in) | `40e8316` |
 | PR4 | T11 retake protocol | **feito** — 5 saídas de triagem, uma variável por retake, orçamento pago separado do total; fecha o laço `purpose:'retake'` do T14 | `09b1222` |
 | PR4 | ~~T12~~ | adiado (C5), em `TODOS.md` | — |
-| PR5 | T13 narrative planner | pendente | — |
+| PR5 | T13 narrative planner | **feito** — 6 agentes + `planner.ts`, structured outputs do SDK, cap defensivo `runBoundedLoop` | `466a144` |
 | PR6 | T5 / T6 como transporte | **feito** — provider `higgsfield-cli` + soul-id, interface lida do binário `1.1.20`, `generate cost` exercitado ao vivo (0 créditos) | `42ccbb8` |
-| PR7 | MuAPI · PR8 T16 Wan2GP · PR9 T17 Codex | pendente | — |
+| PR7 | Adapter MuAPI | **feito** — custo real vindo do header `X-MuAPI-Cost-USD`; sem tabela de preço local (agregador) | `5aeb25a` |
+| PR8 | T16 Wan2GP opt-in | **feito** — provider + `media-forge setup wan2gp` + guarda de roteamento custo-zero | `cf6f19b` |
+| PR9 | T17 Codex `image_gen` | **BLOQUEADO** — duas premissas caíram na verificação; ver a seção do T17 | — |
 
 ### Desvios de ordem, assumidos
 
@@ -1242,6 +1244,53 @@ por necessidade, em vez de forçar um a fazer o que não faz bem.
 não-interativo. A doc descreve a tool em contexto de sessão; não testei a chamada
 programática. **Primeira tarefa do T17 é um spike de 1 geração** confirmando forma
 de chamada e formato de saída, antes de escrever qualquer adapter.
+
+### T17 — BLOQUEADO em 2026-07-30. Duas premissas centrais caíram.
+
+Investigado contra o `codex-cli 0.146.0` realmente instalado, sem gastar nada.
+
+**O que foi checado (tudo leitura):**
+
+| Checagem | Resultado |
+|---|---|
+| `codex --version` | `codex-cli 0.146.0`, instalado e autenticado (`codex doctor` verde) |
+| `codex exec --help` | `-s/--sandbox`, `-C/--cd`, `--add-dir`, **`--output-schema <FILE>`** |
+| `[features]` em `~/.codex/config.toml` | só `multi_agent` e `js_repl`. **Sem `image_gen`** |
+| `codex plugin list` | documents, pdf, spreadsheets, presentations, template-creator, browser, visualize, maxvision. **Sem imagegen** |
+| `~/.codex/skills/imagegen/` | **não existe** |
+| String `image_gen` no disco | aparece no binário e em rollouts arquivados de 2026-02-06 |
+
+**Premissa 1 caiu — não é tool built-in.** O rollout arquivado descreve
+`imagegen` como um **skill** em `~/.codex/skills/imagegen/SKILL.md` que roda um
+CLI Python empacotado (`scripts/image_gen.py`). O plano dizia "tool `image_gen`,
+built-in do Codex CLI". O skill **não está mais instalado** nesta máquina.
+
+**Premissa 2 caiu, e essa custa dinheiro.** O mesmo rollout diz textualmente que
+o skill *"require `OPENAI_API_KEY` for live calls"*. O plano afirma
+"Credencial: login ChatGPT — **não** requer `OPENAI_API_KEY`" e monta todo o
+custo em cima disso: *"sem custo marginal: já paga dentro da assinatura ChatGPT"*,
+com `pricing.rate: 0`.
+
+Se a chamada real passa por `OPENAI_API_KEY`, é **API OpenAI metrada**, não a
+assinatura. `pricing.rate: 0` estaria errado e o provider entraria no ledger
+gastando dinheiro real registrado como zero — pior que não existir.
+
+**Por que não foi adiante:** o próprio plano exige spike antes do adapter, e o
+spike é impossível — a ferramenta não está instalada. Construir contra uma
+interface não confirmada seria invenção.
+
+**Para desbloquear, nesta ordem:**
+1. Confirmar se `imagegen` ainda é distribuído com o Codex e como instalá-lo.
+2. Confirmar a credencial real. Se for `OPENAI_API_KEY`, **refazer a análise de
+   custo do T17 do zero** — `rate: 0` sai, e o provider passa a precisar de preço
+   por imagem como qualquer outro.
+3. Só então o spike de 1 geração, e só então o adapter.
+
+**Achado colateral útil:** `codex exec --output-schema <FILE>` existe. Isso
+contradiz a afirmação do plano de que *"não há contrato de request determinístico
+como numa API REST"* — há, via JSON Schema, igual ao que o T13 usa no SDK da
+Anthropic. Quando o T17 for retomado, o adapter deve usar isso em vez de parsear
+saída livre.
 
 ## O que já existe e é reaproveitado
 
