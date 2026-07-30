@@ -73,12 +73,19 @@ detail. Their own better-example is comma-separated and camera-first:
 This is why `[skill:higgsfield-prompting]`'s MCSLA order (Motion, Camera,
 Subject, Lighting, Aesthetic) is grounded rather than invented.
 
-**Conflict to respect, not resolve silently.** For *images*, Higgsfield's
+**Latent conflict, guarded — not an active bug.** For *images*, Higgsfield's
 "Writing Effective Prompts" recommends quality modifiers such as
-`"highly detailed"` or `"8k"`. `[skill:mf-antislop]` strips exactly that class of
-word. The anti-slop pass is therefore **scoped**: it does not apply to Higgsfield
-image prompts, where the platform's own documentation asks for those modifiers.
-Do not generalise anti-slop into a universal rule across providers.
+`"highly detailed"` or `"8k"`. Slop class 2 in `[skill:mf-antislop]` deletes
+exactly those as "borrowed image-model tokens".
+
+They do not collide today: `mf-antislop` scopes itself to video prompts, and its
+only invokers are `[skill:mf-video-prompt]` and `[skill:mf-troubleshoot]`, both
+video. No image skill invokes it. So nothing currently strips a word Higgsfield
+asks for.
+
+Recorded because the obvious future consistency change — run anti-slop over image
+prompts as well — would contradict one provider's published guidance. Do not
+generalise anti-slop into a universal cross-provider rule.
 
 **Higgsfield is also an aggregator.** It exposes other vendors' models under its
 own paths — `/kling-video/v2.1/pro/image-to-video`,

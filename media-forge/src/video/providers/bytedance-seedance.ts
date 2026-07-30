@@ -10,6 +10,7 @@ import type {
 } from './base.js';
 import { VIDEO_MODELS, type Provider, type VideoModelSpec } from '../../core/models.js';
 import { recordJob, recordActualCost, getJobRecord } from '../../core/cost-tracker.js';
+import { videoActualCredits } from '../../billing/pricing.js';
 import { getFalApiKey, type FalEnvSubset } from './auth/fal-key.js';
 import {
   submitArkTask,
@@ -436,10 +437,26 @@ export class BytedanceSeedanceProvider implements VideoProvider {
         const spec = VIDEO_MODELS[row.model];
         if (spec?.pricing.unit === 'per-second') {
           const multiplier = spec.pricing.resolutionMultipliers?.[route.resolution] ?? 1;
+          const actualUsd = spec.pricing.rate * multiplier * route.durationSec;
+          // A4 (2026-07-30, product-owner decision): persist actualCredits too.
+          // Seedance is the ONLY provider whose credit capture is sweep-driven —
+          // it registers no poll or download tool, so completion runs through the
+          // webhook and this method, neither of which has a per-request
+          // creditClient. credit-core's sweep reads this row through
+          // src/http/job-status.ts, which only returns actualCredits when the
+          // column is populated. Leaving it null made the sweep capture whatever
+          // it defaults to (the reserved estimate), so any divergence between
+          // estimate and real cost was never reconciled — and Seedance is the
+          // provider that diverges most, being priced per second with a
+          // resolution multiplier.
+          //
+          // Derived with the same videoActualCredits() helper the Kling download
+          // path uses, so both providers convert USD to credits identically.
           recordActualCost({
             dbPath: this.dbPath,
             jobId,
-            actualUsd: spec.pricing.rate * multiplier * route.durationSec,
+            actualUsd,
+            actualCredits: videoActualCredits(actualUsd),
           });
         }
       }

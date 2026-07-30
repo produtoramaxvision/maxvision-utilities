@@ -28,13 +28,21 @@ Higgsfield publishes **no prompt character limit**. The conservative profile
 applies: keep it compact because compactness sharpens intent, not because an API
 bound forces it.
 
-**The anti-slop pass is scoped here, and this is the one place it does not apply.**
-Higgsfield's own image documentation recommends quality modifiers such as
-`"highly detailed"` or `"8k"`. `[skill:mf-antislop]` exists to strip exactly that
-class of word. For Higgsfield **image** prompts, follow the platform's
-documentation and keep the modifiers; do not run the anti-slop pass over them.
-Video prompts still get the anti-slop pass. Generalising anti-slop across every
-provider would mean contradicting a platform's published guidance.
+**Do not extend the anti-slop pass to Higgsfield image prompts.** Higgsfield's own
+image documentation recommends quality modifiers such as `"highly detailed"` or
+`"8k"`, and slop class 2 in `[skill:mf-antislop]` deletes exactly those as
+"borrowed image-model tokens".
+
+This is a guard, not a live fix. Today the two never meet: `mf-antislop` scopes
+itself to video prompts in its own description, and its only invokers are
+`[skill:mf-video-prompt]` and `[skill:mf-troubleshoot]` — both video paths. No
+image skill invokes it. So nothing is currently stripping words that Higgsfield
+asks for.
+
+The note exists because the obvious future "improvement" is to run anti-slop over
+image prompts too, for consistency. Doing that would contradict a platform's
+published guidance for one of the four providers. Video prompts keep the pass;
+Higgsfield image prompts must not get it.
 
 ## 1. MCSLA Formula (grounded in Higgsfield's own guidance)
 

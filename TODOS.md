@@ -95,7 +95,7 @@ implementar o cost guard:
 |---|---|---|
 | `cost-tracker.recordJob` (4 providers de vídeo) | SQLite `video_jobs` | `queryReport`, `dailySpendUsd`, sweep do credit-core |
 | `cost-tracker.recordImageJob` (novo, 3 tools de imagem) | SQLite `image_jobs` | `dailySpendUsd` |
-| `OutputManager.appendCostLog` | `<jobDir>/cost.jsonl` | **ninguém** (ver P1 abaixo) |
+| `OutputManager.appendCostLog` | `<jobDir>/cost.jsonl` | **ninguém** — nenhum caller de produção. O CLI foi repontado para o SQLite em `bbc857b`; o helper e seus testes ficaram de pé aguardando esta decisão de manter-ou-remover |
 
 Além do `trace.jsonl`. Quem for fechar este TODO parte daqui, não precisa
 re-derivar.
@@ -109,63 +109,6 @@ re-derivar.
 
 Achados ao implementar os cost guards. Todos verificados no código, nenhum é
 suposição. Ordenados por impacto financeiro.
-
-## P1 — Dry-run cobra créditos por geração que nunca acontece
-
-**O quê:** com billing ligado, `withImageDebit` roda incondicionalmente, inclusive
-em dry-run. Reserva e captura crédito de uma chamada que nunca chega ao provider.
-
-**Impacto:** o cliente paga por simulação. É cobrança indevida, não só desperdício.
-
-**Contexto:** o cost guard novo já é pulado sob `client.dryRun` justamente para não
-poluir o ledger com linha fantasma. O caminho de crédito ficou de fora porque já
-era incondicional antes e estava fora do escopo daquele PR.
-
-**Onde:** `src/mcp/handlers/register.ts`, os 3 sites de imagem.
-**Esforço:** S (CC ~15min)
-
-## P1 — `media_edit_image` e `media_compose_scene` geram sem debitar
-
-**O quê:** nenhuma das duas chama `withImageDebit`. Geram, entregam o resultado,
-não reservam nem capturam crédito.
-
-**Impacto:** em modo hospedado é geração gratuita. Vazamento de receita direto.
-
-**Onde:** `src/mcp/handlers/register.ts`. `media_edit_image` agora tem cost guard e
-ledger (do PR dos guards), mas continua sem débito.
-**Esforço:** S (CC ~20min)
-
-## P1 — `media-forge cost --today` sempre reporta $0.00
-
-**O quê:** três defeitos em cadeia:
-
-1. `OutputManager.appendCostLog` (`src/output/output-manager.ts:273`) não tem
-   nenhum caller de produção — só testes chamam
-2. ele grava em `<jobDir>/cost.jsonl`, um arquivo por job
-3. o CLI (`src/cli/commands/cost.ts:83,189`) lê `<projectDir>/cost.jsonl`, um
-   caminho diferente que ninguém escreve
-
-**Impacto:** comando documentado que sempre responde zero. O usuário conclui que
-não gastou nada.
-
-**Correção provável:** apontar o CLI para `dailySpendUsd` / `queryReport` no
-SQLite, que agora tem imagem e vídeo, e decidir se o `cost.jsonl` continua
-existindo. Ver o TODO de reconciliação acima.
-**Esforço:** S (CC ~20min)
-
-## P2 — Veo, Higgsfield generate e Seedance submetem sem reserva
-
-**O quê:** só os 5 submits do Kling chamam `reserveVideoSubmit`. Os 4 tools do Veo,
-o generate do Higgsfield e os 4 do Seedance carregam `TODO(F-E ...-billing):
-DEFERRED` e não reservam nada.
-
-**Impacto:** mesma classe do item acima, em modo hospedado. O preflight de crédito
-novo também só cobre os 5 sites do Kling.
-
-**Contexto:** o deferral é estrutural, não preguiça — `handlers.ts` documenta que a
-reserva do Veo não é reconciliável sem um store de correlação submit→poll. É
-exatamente o que T15 constrói.
-**Depende de:** T15.
 
 ## P2 — `maybeStoreImageArtifact` cunha um segundo jobId
 
@@ -233,30 +176,6 @@ submetido. Pré-existente.
 
 **Esforço:** XS (CC ~10min)
 
-## P2 — Sweep do Seedance captura sem valor de crédito
-
-**O quê:** o caminho de sucesso do Seedance chama `recordActualCost`
-(`src/video/providers/bytedance-seedance.ts:439`) **sem** `actualCredits`. O
-oracle (`src/http/job-status.ts:41`) só devolve `actualCredits` quando a coluna
-está preenchida, então o sweep do credit-core recebe `{ status: 'completed' }`
-sem valor.
-
-**Impacto:** a captura acontece, mas pelo valor que o sweep decidir na ausência
-do dado — provavelmente o reservado. Se o custo real divergir da estimativa, a
-diferença não é reconciliada. O caminho de falha (`:452`) não tem esse problema
-porque libera.
-
-**Por que não corrigi junto:** mudar **o que o sweep captura** é decisão de
-cobrança, não refactor. Precisa da confirmação de qual valor vale: o reservado
-ou o real recalculado.
-
-**Contexto:** achado ao fechar o T15 parte B. O Seedance é o único provider cuja
-captura é dirigida pelo sweep, porque não registra tool de poll nem de download —
-só os 4 submits. Ver o comentário no site do Seedance em
-`src/mcp/handlers/register.ts`.
-
-**Esforço:** S (CC ~20min) depois da decisão.
-
 ## P2 — O campo `dryRun` do request é ignorado por todos os serviços
 
 **O quê:** todo schema de imagem tem `dryRun: z.boolean().default(false)`, mas
@@ -291,3 +210,16 @@ ramifica em `input.alsoDeleteRemote`. Não existe campo `confirm`.
 **Contexto:** provavelmente vira vivo com T15, que é quem passa a ter a estimativa
 no momento da falha. Se T15 fechar e ele continuar sem caller, deletar.
 **Depende de:** T15.
+
+---
+# Fechados e verificados
+
+Cada linha reconferida no código, não propagada do relatório que a levantou.
+
+| Item | Commit | Prova |
+|---|---|---|
+| P1 — Dry-run cobra créditos por geração que nunca acontece | `bbc857b` | withImageDebit agora gated em `client.dryRun` (register.ts:269, 333, 401). |
+| P1 — `media_edit_image` e `media_compose_scene` geram sem debitar | `bbc857b` | as duas passam por withImageDebit; 6 sites no total em register.ts. |
+| P1 — `media-forge cost --today` sempre reporta $0.00 | `bbc857b` | o CLI lê `cost.db` via dailySpendReport/monthlySpendUsd/allTimeSpendUsd, não mais o cost.jsonl que ninguém escreve. |
+| P2 — Veo, Higgsfield generate e Seedance submetem sem reserva | `c0415f9 + 13d3d37` | 21 sites de reserveVideoSubmit; Veo reserva ANTES do submit (submitVeoWithLedger); o poll do Higgsfield captura/libera. |
+| P2 — Sweep do Seedance captura sem valor de crédito | `pendente de commit` | recordActualCost passa actualCredits via videoActualCredits(); o oracle devolve o valor; 5 testes, 4 ficam vermelhos se a linha sair. |
