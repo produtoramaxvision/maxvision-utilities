@@ -330,9 +330,14 @@ media-forge não gasta de qualquer forma.
 Achados ao implementar os cost guards. Todos verificados no código, nenhum é
 suposição. Ordenados por impacto financeiro.
 
-## P2 — Não existe executor de plano: 4 schemas do T10 seguem sem consumidor
+## (histórico) P2 — Não existe executor de plano: 4 schemas do T10 seguem sem consumidor
 
-**FECHADO em parte.** O planner narrativo passou a ser alcançável via
+**SUPERSEDIDO.** Fechado por completo em 2026-07-31 — ver
+"(fechado) P1 — Executor de plano: os 5 módulos T10/T13 sem consumidor" no topo
+deste arquivo. O texto abaixo é o estado intermediário, quando só o planner tinha
+porta de entrada e os schemas ainda não tinham consumidor.
+
+**FECHADO em parte (estado da época).** O planner narrativo passou a ser alcançável via
 `media_narrative_plan` e `media_narrative_assemble` (`src/mcp/handlers/narrative.ts`).
 Medido: `fallow audit --base origin/homolog --production` caiu de **20 para 10**
 arquivos novos sem uso, e todo o pipeline de planejamento (`invoke`, `bounds`,

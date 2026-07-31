@@ -1,0 +1,39 @@
+{
+  "exclude": [
+    "*/dist/**",
+    "*/.wrangler/**",
+    "*/node_modules/**"
+  ],
+  "rules": [
+    {
+      "path": "*/{test,tests,__tests__}/**/*.ts",
+      "merge_system_rule": true,
+      "rule": "Testes deste monorepo:\n- Teste que so verifica que a funcao nao lanca excecao nao cobre o comportamento — apontar assercao faltando.\n- Mock de rede/relogio/filesystem deve ser restaurado; mock global vazando entre testes e achado.\n- Caso de borda financeiro (credit-core) e caminho de erro de spawn (media-forge) sem teste dedicado sao achados."
+    },
+    {
+      "path": "media-forge/src/billing/**/*.ts",
+      "merge_system_rule": true,
+      "rule": "Camada de cobranca (webhooks Asaas / provedor de pagamento):\n- Webhook sem verificacao de assinatura/token do provedor antes de processar o payload e CRITICO.\n- Handler de webhook sem idempotencia (mesmo evento reentregue processa duas vezes) e critico — provedor reenvia por design.\n- Valor monetario em float e critico; usar inteiro em centavos.\n- Confiar em campo de valor/status vindo do payload sem reconsultar a API do provedor e achado.\n- Handler deve responder 2xx rapido e processar de forma assincrona; trabalho pesado inline causa reentrega — achado.\n- Log de payload de cobranca nao pode conter dado de cartao, CPF completo ou token — critico."
+    },
+    {
+      "path": "credit-core/**/*.ts",
+      "merge_system_rule": true,
+      "rule": "credit-core e contabilidade de creditos — erro aqui vira divergencia financeira:\n- Valor monetario ou saldo em ponto flutuante e CRITICO. Exigir inteiro (menor unidade) ou decimal exato.\n- Debito/credito sem idempotencia (chave de operacao, dedupe por id) permite cobranca dupla em retry — critico.\n- Leitura de saldo seguida de escrita sem transacao ou sem lock otimista e race condition — critico.\n- Saldo que pode ficar negativo sem regra explicita e achado.\n- Arredondamento deve ter direcao definida e testada; arredondamento implicito e achado.\n- E pacote publicado: mudanca em API exportada (assinatura, tipo de retorno, remocao de export) e breaking change — exigir nota de versao no mesmo PR.\n- Caso de borda (saldo zero, saldo insuficiente, retry duplicado) sem teste dedicado e achado."
+    },
+    {
+      "path": "media-forge/**/*.ts",
+      "merge_system_rule": true,
+      "rule": "media-forge (pacote publicado, orquestra binarios externos de midia):\n- Argumento de linha de comando montado por concatenacao de string com input do usuario e CRITICO (injecao de comando). Exigir array de argumentos, nunca `shell: true` com string interpolada.\n- Caminho de arquivo vindo de input sem normalizacao/validacao permite path traversal — achado.\n- Spawn de processo sem timeout, sem tratamento de exit code != 0, ou sem captura de stderr e achado.\n- Arquivo temporario sem limpeza em caminho de erro e achado.\n- Resolucao de binario externo (ffmpeg e afins) deve tratar o caso 'binario ausente' com erro claro, nao com falha silenciosa.\n- Mudanca em API exportada e breaking change — exigir nota de versao no mesmo PR.\n- Monorepo **pnpm**: comandos sugeridos usam `pnpm` / `pnpm dlx`, nunca npm/yarn/npx."
+    },
+    {
+      "path": "*/{test,tests,__tests__}/**/*.ts",
+      "merge_system_rule": true,
+      "rule": "Testes deste monorepo:\n- Teste que so verifica que a funcao nao lanca excecao nao cobre o comportamento — apontar assercao faltando.\n- Mock de rede/relogio/filesystem deve ser restaurado; mock global vazando entre testes e achado.\n- Caso de borda financeiro (credit-core) e caminho de erro de spawn (media-forge) sem teste dedicado sao achados."
+    },
+    {
+      "path": "*/scripts/**/*.sh",
+      "merge_system_rule": true,
+      "rule": "Scripts de manutencao (checagem de drift/sync de marketplace):\n- Exigir `set -euo pipefail`.\n- Variavel nao aspeada em caminho e achado.\n- Script que altera arquivo versionado deve ser idempotente e imprimir o que mudou.\n- Falha de rede (curl/git) precisa abortar com codigo != 0, nunca continuar silenciosamente."
+    }
+  ]
+}

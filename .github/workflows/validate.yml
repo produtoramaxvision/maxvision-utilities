@@ -108,6 +108,12 @@ jobs:
             [ -d "${plugin_dir}.claude-plugin" ] || continue
             [ -d "${plugin_dir}skills" ] || continue
             for skill_dir in "${plugin_dir}skills"/*/; do
+              # A leading underscore marks shared assets, not a skill.
+              # media-forge/skills/_shared/ holds references/ and schemas/ that
+              # the real skills consume; it has no SKILL.md by design, and
+              # demanding one would mean inventing a skill that does not exist.
+              # Skipped before the counter so "All N skills valid" stays honest.
+              case "$(basename "$skill_dir")" in _*) continue ;; esac
               file="${skill_dir}SKILL.md"
               checked=$((checked + 1))
               if [ ! -f "$file" ]; then

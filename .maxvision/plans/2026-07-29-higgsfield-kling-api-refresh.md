@@ -132,7 +132,11 @@ pessoalmente na auditoria, não herdados de relatório de subagente.
 | — | Caminho de credencial do Codex no `doctor` | **feito** — `codexImageMode` era export sem caller | `dcd74e1` |
 | — | Orçamento de prompt do Seedance | **feito** — fal.ai (OpenAPI) e BytePlus ARK, os dois sem limite publicado | `8105f4b` |
 | — | MuAPI + Wan2GP alcançáveis | **feito** — 3 tools de acesso direto; shape da estimativa do MuAPI verificado, `currency` passou a ser conferida | `f5e0a72` |
-| — | Versão | **0.2.8 → 0.2.9** | `f5e0a72` |
+| — | MuAPI: viagem de ida e volta | **feito** — `pollStatus`/`download` existiam sem chamador, e `generate` devolvia só o jobId local, que o endpoint do MuAPI não conhece: todo job submetido era irrecuperável. Mais: chamava `generate()` sem `ledgerHooks` (único provider pago fora de reserva/guarda/cap) e sem `recordJob`. Liquidação agora vem do `cost.amount_usd` do poll, com `refunded` honrado | `5a793c2` |
+| — | Uma só string de versão | **feito** — `plugin.json` estava travado em `0.1.1` enquanto o `package.json` passou por 0.2.5–0.2.8. **O instalador de plugin lê o `plugin.json`**, então quatro releases foram publicadas e nenhuma jamais chegou a um plugin instalado. Cinco literais colapsados em `MEDIA_FORGE_VERSION` + teste de consistência | `c48655c`, `9fef97e` |
+| — | Variáveis opt-in no `.mcp.json` | **feito** — o bloco `env` é whitelist e não repassava `MUAPI_API_KEY`: a chave certa dava "is not set" para sempre. Mesmo defeito que o teste de contrato já cobria para `KLING_API_KEY` | `145bcf0` |
+| — | Executor de plano | **feito** — os 5 módulos T10/T13 nunca tiveram consumidor porque **nenhuma tarefa o especificou**. 3 tools; achou que o `buildClip` descartava `shot_structure`, `camera` e `duration_sec` do storyboard — e `shot_structure` é obrigatório no `ClipContract`, ou seja, plano salvo não virava contrato | `001a57f` |
+| — | Versão | **0.2.8 → 0.2.11** | `f5e0a72`, `9fef97e`, `001a57f` |
 
 ### Desvios de ordem, assumidos
 
