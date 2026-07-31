@@ -130,6 +130,38 @@ Nenhum dos removidos estava no `src/index.ts`, então não é quebra de API púb
 
 ---
 
+## (referência) Créditos grátis por provider — levantado em 2026-07-31
+
+Levantado porque surgiu a lembrança de "66 créditos grátis por dia" em algum
+provider. **Nada no repo registra esse número**, e o levantamento abaixo não o
+encontrou em nenhuma superfície.
+
+| Provider | Grátis? | Como foi verificado |
+|---|---|---|
+| **Kling (API)** | **Não.** Só pacote pré-pago. O "Trial Package" é compra com 30% off ($9,80 = 100 unidades; $98 = 1.000), validade 30 dias | `kling.ai/dev/pricing`, sessão de browser |
+| **Higgsfield** | **Sem concessão diária.** Uma única `grant` de 600 créditos de assinatura | `higgsfield account transactions --size 50`, conta real |
+| **MuAPI** | **Nenhum crédito grátis** | `muapi.ai/docs/pricing` |
+| **BytePlus (rota ARK do Seedance)** | **Trial único, não diário:** 2M tokens de vídeo + 500K por modelo, sem expirar. Existe campanha "5M tokens **diários** por modelo", mas exige verificação corporativa e o prazo era 2026-03-31 | `byteplus.com/en/activity/free` |
+| **fal.ai (rota default do Seedance)** | **não resolvido** — HTTP 429 na leitura, render vazio | — |
+| **Wan2GP** | N/A — roda na GPU do usuário, não existe crédito | por construção |
+
+**Saldo real da conta de API do Kling: zero pacotes.**
+
+```
+GET /account/costs → HTTP 200, code 0, packs: 0
+```
+
+Não é questão de custo: hoje uma geração pelo Kling **falha por falta de saldo**.
+A validação ponta-a-ponta precisa de um pacote comprado antes — o menor é o Trial
+de $9,80 por 100 unidades, ~125 segundos de Kling 3.0 Turbo em 720p
+(0,8 unidade/s).
+
+**O que falta para fechar:** a rota fal.ai (429 na leitura) e, se houver conta
+Dreamina/CapCut, o saldo diário do app de consumo — que é carteira separada e o
+media-forge não gasta de qualquer forma.
+
+---
+
 # Bugs herdados encontrados em 2026-07-29
 
 Achados ao implementar os cost guards. Todos verificados no código, nenhum é
