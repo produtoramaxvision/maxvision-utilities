@@ -79,13 +79,36 @@ const GOOGLE: SurfacePromptProfile = {
  * Kling's 2500 here; they are unrelated platforms that media-forge happens to
  * route side by side.
  */
+/**
+ * Verified on 2026-07-31 against the default route's own machine-readable schema.
+ *
+ * fal.ai publishes an OpenAPI document per endpoint. For
+ * `bytedance/seedance-2.0/text-to-video` — the exact slug this adapter submits to
+ * (see falEndpointFor in bytedance-seedance.ts) — `prompt` is declared as a plain
+ * `string` with NO `maxLength` and NO `minLength`, and no other input string
+ * carries a length constraint either.
+ *
+ * `null` therefore now means something different from what it meant before: not
+ * "nobody has checked", but "the surface publishes no bound". A generated schema
+ * is stronger evidence than a prose page, since it is what the endpoint validates
+ * against.
+ *
+ * NOT closed for the `ARK`-direct route (BytePlus ModelArk,
+ * ark.ap-southeast.bytepluses.com). Its API reference could not be reached, so
+ * that surface remains unverified — noted in surface-prompt-profiles.md rather
+ * than assumed to match fal.ai. The two are different platforms serving the same
+ * model, and this file has already been wrong once by treating one platform's
+ * number as another's.
+ */
 const BYTEDANCE: SurfacePromptProfile = {
   promptMaxChars: null,
   negativePromptMaxChars: null,
   multiShotPromptMaxChars: null,
   multiShotMaxShots: null,
-  source: 'NOT VERIFIED — read fal.ai / BytePlus ModelArk docs and date the row',
-  verifiedAt: 'unverified',
+  source:
+    'fal.ai OpenAPI schema for bytedance/seedance-2.0/text-to-video — prompt is a ' +
+    'string with no maxLength. ARK-direct route still unverified.',
+  verifiedAt: '2026-07-31',
 };
 
 /**

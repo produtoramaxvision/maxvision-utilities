@@ -113,13 +113,20 @@ mais um teste que varre o shape Zod atrás de `/cost|price|credit|usd/i` transfo
 isso em falha de CI. A junção com o dinheiro é `run_id`, que é o mesmo id em que o
 trace e o ledger já são chaveados.
 
-**O que continua aberto neste item:** só o `OutputManager.appendCostLog` →
-`cost.jsonl`. Reverificado em 2026-07-30: segue com **zero callers de produção**
-(`src/output/output-manager.ts:273`, chamado apenas de testes). Decisão de
-manter-ou-remover ainda pendente — não bloqueia nada.
+**FECHADO em 2026-07-31 — decisão: remover.** O subsistema `cost.jsonl` inteiro
+saiu: escritor (`OutputManager.appendCostLog`), leitor (`getCostSummary`) e
+helpers (`appendCostLogEntry`, `dailyTotal`, `monthlyTotal`, `allTimeTotal`),
+mais os testes que os cobriam.
 
-**Esforço restante:** S (human ~30min / CC ~10min)
-**Depende de:** nada. T10 entregue.
+**Por que remover e não manter:** nenhum tinha caller de produção. O `bbc857b` já
+tinha repontado o CLI para o SQLite porque o arquivo estava sempre vazio e o
+`cost --today` reportava $0,00 sempre. Deixar uma segunda fonte de custo dormente
+ao lado da viva é justamente como um caller futuro pega a errada — e esse é o
+risco que este TODO levantou desde o começo.
+
+Nenhum dos removidos estava no `src/index.ts`, então não é quebra de API pública.
+
+**Item fechado por inteiro.**
 
 ---
 
@@ -343,7 +350,24 @@ embutido no texto como JSON.
 
 ---
 
-## P2 — `maybeStoreImageArtifact` cunha um segundo jobId
+## (fechado) P2 — `maybeStoreImageArtifact` cunha um segundo jobId
+
+**FECHADO em 2026-07-31.** A função recebe o `jobId` do caller em vez de cunhar o
+próprio, então o `job_id` devolvido nomeia a linha de `image_jobs` daquela mesma
+chamada.
+
+**Meia lacuna a mais, achada na auditoria:** `media_edit_image` e
+`media_compose_scene` tinham a metade oposta do mesmo defeito — não um id errado,
+**nenhum id**. As duas gravam linha no ledger e debitam crédito sob `jobId` e não
+devolviam nada com que achar aquilo. Dinheiro registrado contra um id que o caller
+nunca viu. As quatro tools de imagem agora devolvem `job_id`.
+
+O teste afirma que o id **resolve para a linha** no `image_jobs` (mais
+`COUNT(*) = 1`), não que duas strings são iguais: um bug que trocasse os dois ids
+por um terceiro valor passaria numa igualdade simples. Provado vermelho com
+`git stash` do fix: 4 falharam.
+
+## (histórico) P2 — `maybeStoreImageArtifact` cunha um segundo jobId
 
 **O quê:** o `job_id` devolvido ao caller não é o mesmo usado na linha de
 `image_jobs`. Impossível correlacionar o que o usuário vê com o ledger.
@@ -351,7 +375,37 @@ embutido no texto como JSON.
 **Onde:** `src/mcp/handlers/register.ts`.
 **Esforço:** S (CC ~15min)
 
-## P3 — Complexidade de `generate()` no Kling e Higgsfield subiu com o A5
+## (registro corrigido) P3 — Complexidade de `generate()` no Kling e Higgsfield
+
+**A resolução declarada não aconteceu.** O texto abaixo dizia "absorvido pela
+migração da API 2.0". A migração entrou (`27af171`) como `kling-v2.ts` **ao lado**
+do caminho legado — o `generate()` do `kling.ts` não foi reescrito. Registro
+corrigido em vez de repetido.
+
+**Remedido em 2026-07-31** (`fallow audit --base origin/homolog`):
+
+| Métrica | Antes | Agora |
+|---|---|---|
+| `dead_code_introduced` | 0 | **0** |
+| `complexity_introduced` | 4 | **0** |
+| `max_cyclomatic` (herdado) | 55 | 55 |
+
+O `complexity_introduced` chegou a 2 com o `kling-deduction.ts` novo e voltou a 0
+depois de limpar o que era clumsy de verdade no meu próprio código: `parseRow`
+chamava `numberOrUndefined` duas vezes por campo, e o parse de envelope estava
+dentro da função de transporte.
+
+**Herdado e intocado, de propósito:** `kling.ts:785 buildRequestBody` CC=55,
+`kling.ts:213 generate` CC=28. Continuam fora de escopo — a razão do texto
+original vale: relocação misturada com mudança semântica piora a revisão.
+
+**Achado novo, não construído:** `duplication_introduced: 21`, e quase tudo é
+harness de teste — `makeFakeConfig` / `makeMockServer` / `getCapturedTools` /
+`spyCreditClient` repetidos em 13 arquivos de `tests/mcp/`. É pré-existente; os
+arquivos novos só entraram no padrão. Extrair para helper compartilhado é limpeza
+legítima e mexe em 13 arquivos de teste de uma vez — PR própria, não enxerto.
+
+## (histórico) P3 — Complexidade de `generate()` no Kling e Higgsfield subiu com o A5
 
 **O quê:** auditado com `fallow audit --base origin/homolog`. Contra a base correta a
 branch tem **`dead_code_introduced: 0`** e `complexity_introduced: 4`:
@@ -380,7 +434,20 @@ simplificar é lá, de uma vez, não agora e de novo depois.
 
 **Esforço:** absorvido pela migração da API 2.0.
 
-## P2 — Perda limitada e conhecida: erro após submit bem-sucedido
+## (parcial) P2 — Perda limitada e conhecida: erro após submit bem-sucedido
+
+**DETECÇÃO FECHADA em 2026-07-31.** `findOrphanCharges` nomeia toda cobrança do
+Kling sem linha de ledger local — que é exatamente a assinatura desta perda: o
+submit passou, o provider começou a cobrar, e a escrita do ledger estourou antes
+da linha existir.
+
+**A perda em si não fecha, e não deve.** A linha falta porque escrevê-la falhou;
+inventar uma coloca no histórico de custo um job sem procedência local. O relato
+é deliberadamente ambíguo entre "perdemos a escrita" e "foi submetido de outra
+máquina com a mesma chave" — só o operador sabe qual dos dois está olhando, e o
+código diz isso em vez de escolher.
+
+## (histórico) P2 — Perda limitada e conhecida: erro após submit bem-sucedido
 
 **O quê:** entre um submit que deu certo e o `recordJob`, existe código que pode
 lançar — `res.json()`, o próprio `recordJob`, `recordRequestMapping` no Higgsfield,
@@ -516,7 +583,23 @@ toda **estimativa** futura, inclusive a que o cap diário usa antes do submit.
 
 ---
 
-## P2 — A cobrança `cash` do Kling é assumida em USD, sem confirmação
+## (fechado) P2 — A cobrança `cash` do Kling é assumida em USD, sem confirmação
+
+**FECHADO em 2026-07-31.** `src/video/providers/kling-deduction.ts` +
+`KlingProvider.auditBillingWindow`. A suposição deixou de ser invisível: o
+`auditDeductions` reporta `currenciesSeen` e `usdAssumptionHolds`, e o provider
+levanta warning quando as deduções em dinheiro **não** são todas USD.
+
+`balanceRowToUsd` **recusa** CNY em vez de aplicar câmbio — não existe fonte de FX
+neste repo, e gravar CNY como dólar erra por ~7x com número do provider colado.
+
+Dois casos de verdade-vazia foram fechados junto, os dois reportariam
+"verificado" sem ter verificado nada: janela sem linha nenhuma (`[].every()` é
+`true`), e janela cujas linhas **todas** omitem `currency` (filtram para fora e
+sobra `[]`, também `true`). O segundo era o pior: suprimia justamente o warning
+que existe para pegar esse caso. Provado vermelho reintroduzindo o bug.
+
+## (histórico) P2 — A cobrança `cash` do Kling é assumida em USD, sem confirmação
 
 **O quê:** `billing[]` do `POST /tasks` **não traz moeda**. `chargeToUsd` devolve o
 `amount` do ramo `cash` como se fosse dólar. O enum de moeda do saldo do Kling é
@@ -537,7 +620,25 @@ a lacuna a inventar conversão.
 
 **Esforço:** S (CC ~30min), depois da primeira geração paga.
 
-## P3 — `/account/billing/{balance,package}` não são usados
+## (fechado) P3 — `/account/billing/{balance,package}` não são usados
+
+**FECHADO em 2026-07-31.** Os dois estão implementados em `kling-deduction.ts` e
+alcançáveis por `KlingProvider.auditBillingWindow`.
+
+**Uma armadilha que quase entrou:** os corpos de requisição dos dois endpoints
+**parecem** iguais aos do `POST /tasks`, e o detector de duplicação do `fallow`
+apontou isso. Unifiquei — e estava errado. Os contratos **diferem** na doc:
+
+| | cursor sobrepõe | default de `limit` |
+|---|---|---|
+| `POST /tasks` | `start_time`, `end_time` | 100 |
+| `POST /account/billing/*` | `start_time`, `end_time`, `filters`, **`limit`** | 500 |
+
+Unificar mandava `limit` onde a doc chama de inválido e paginava em blocos 5x
+menores. Revertido, com o motivo escrito no código. Duplicação aparente não é
+duplicação quando os contratos divergem.
+
+## (histórico) P3 — `/account/billing/{balance,package}` não são usados
 
 **O quê:** as duas APIs de dedução existem e respondem, mas o media-forge só usa
 `POST /tasks`. Elas dão o que o `/tasks` não dá: `currency`, `list_price`,
@@ -661,7 +762,22 @@ Kling explicitamente, vale o perfil direto. Falta o roteador saber.
 **Esforço:** M (CC ~45min) para a consciência; a ordenação cross-unidade depende de
 decisão do usuário.
 
-## P2 — Orçamento de prompt do Seedance não verificado
+## (parcial) P2 — Orçamento de prompt do Seedance não verificado
+
+**ROTA DEFAULT FECHADA em 2026-07-31.** A fal.ai publica um OpenAPI por endpoint.
+Para `bytedance/seedance-2.0/text-to-video` — o slug que o adapter realmente
+submete — `prompt` é `string` **sem `maxLength` e sem `minLength`**, e nenhuma
+outra string de entrada tem restrição de tamanho.
+
+`promptMaxChars: null` deixou de significar "ninguém checou" e passa a significar
+"a superfície não publica limite", com `verifiedAt: '2026-07-31'`. Schema gerado
+vale mais que página de prosa: é contra ele que o endpoint valida.
+
+**Continua aberto:** a rota `ARK`-direta (`ark.ap-southeast.bytepluses.com`). A
+referência de API dela não abriu em 2026-07-31. São dois publishers diferentes
+servindo o mesmo modelo — o schema de um não fala pelo outro.
+
+## (histórico) P2 — Orçamento de prompt do Seedance não verificado
 
 **O quê:** `src/core/prompt-budget.ts` tem `promptMaxChars: null` para
 `bytedance`, com `verifiedAt: 'unverified'`. Kling é o único dos quatro que

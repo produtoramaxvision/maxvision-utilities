@@ -1,21 +1,19 @@
 import type { Command } from 'commander';
-import { estimateImageCost, estimateVideoCost, estimateWithRetries, dailyTotal, monthlyTotal, allTimeTotal } from '../../core/cost.js';
+import { estimateImageCost, estimateVideoCost, estimateWithRetries } from '../../core/cost.js';
 import { IMAGE_MODEL_NANO_BANANA_PRO, IMAGE_MODEL_IMAGEN_4_ULTRA, VIDEO_MODEL_VEO_3_1_PRO } from '../../core/models.js';
 import { queryReport, dailySpendReport, monthlySpendUsd, allTimeSpendUsd, type CostReport } from '../../core/cost-tracker.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
 // P1 fix (2026-07-29): `cost summary` used to read `<projectDir>/cost.jsonl`, a
-// file NOTHING in production writes (OutputManager.appendCostLog has zero
-// production callers — see TODOS.md). The command always reported $0.00.
-// Repointed at the SQLite ledger (video_jobs + image_jobs) that cost-tracker.ts
-// actually populates on every generation. `getCostSummary` below is UNCHANGED
-// and stays cost.jsonl-backed — it has its own baseline test
-// (tests/unit/cli/utility.test.ts) that seeds a cost.jsonl fixture by hand and
-// is not on the editable list for this fix. It is not called from the
-// registered `summary` command below (never was — the two were independent,
-// duplicate implementations of the same broken logic), so leaving it alone
-// does not preserve the bug in the actual CLI surface a user hits.
+// file NOTHING in production writes, so the command always reported $0.00. It
+// was repointed at the SQLite ledger (video_jobs + image_jobs) that
+// cost-tracker.ts populates on every generation.
+//
+// 2026-07-31: the cost.jsonl path was removed outright — writer
+// (OutputManager.appendCostLog), reader (getCostSummary) and helpers, none of
+// which had a production caller. Leaving a dormant duplicate of the cost record
+// beside the live one is how a future caller reaches for the wrong one.
 
 /**
  * Resolves the SQLite ledger path the same way `defaultDbPath()` in
@@ -182,37 +180,17 @@ export function buildCostEstimate(opts: {
   };
 }
 
-export function getCostSummary(opts: {
-  projectDir?: string;
-  today?: boolean;
-  month?: boolean;
-}) {
-  const projectDir =
-    opts.projectDir ??
-    process.env['MEDIA_FORGE_PROJECT_DIR'] ??
-    path.join(process.cwd(), '.media-forge');
-  const logPath = path.join(projectDir, 'cost.jsonl');
-  if (opts.month) {
-    const month = new Date().toISOString().slice(0, 7);
-    const { usd, entries } = monthlyTotal({ logPath, month });
-    return { date: month, usd, entries };
-  }
-  if (opts.today) {
-    const today = new Date().toISOString().slice(0, 10);
-    const { usd, entries } = dailyTotal({ logPath, date: today });
-    return { date: today, usd, entries };
-  }
-  const { usd, entries } = allTimeTotal({ logPath });
-  return { date: 'all-time', usd, entries };
-}
-
 /**
- * SQLite-backed replacement for what `getCostSummary` was meant to feed the
- * `cost summary` CLI command (it never actually did — see the note above the
- * `summary` command's registration). Sums video_jobs + image_jobs via
- * dailySpendReport / monthlySpendUsd / allTimeSpendUsd in cost-tracker.ts, so
- * the CLI now reports the same ledger every image/video tool call writes to,
- * instead of a cost.jsonl file nothing in production ever appends to.
+ * The `cost summary` CLI command, over the sqlite ledger.
+ *
+ * Sums video_jobs + image_jobs via dailySpendReport / monthlySpendUsd /
+ * allTimeSpendUsd in cost-tracker.ts — the same ledger every image and video
+ * tool call writes to.
+ *
+ * The cost.jsonl-backed `getCostSummary` this replaced was removed on
+ * 2026-07-31 along with the rest of that path: nothing wrote the file, so it
+ * always reported $0.00, and a dormant second cost source next to the live one
+ * is how a future caller picks the wrong one.
  */
 export function buildCostSummary(opts: {
   projectDir?: string;

@@ -46,47 +46,11 @@ describe('cost estimate', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 2. cost summary --today
-// ---------------------------------------------------------------------------
-describe('cost summary', () => {
-  let tmpDir: string;
-
-  beforeEach(async () => {
-    tmpDir = path.join(os.tmpdir(), `mf-cost-test-${Date.now()}`);
-    await fs.mkdir(tmpDir, { recursive: true });
-  });
-
-  afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
-  });
-
-  it('returns daily aggregate from seeded cost.jsonl', async () => {
-    const today = new Date().toISOString().slice(0, 10);
-    const logPath = path.join(tmpDir, 'cost.jsonl');
-    await fs.writeFile(
-      logPath,
-      [
-        JSON.stringify({ date: today, usd: 0.24, model: 'test' }),
-        JSON.stringify({ date: today, usd: 0.06, model: 'test2' }),
-      ].join('\n') + '\n',
-      'utf8',
-    );
-
-    const { getCostSummary } = await import('../../../src/cli/commands/cost.js');
-    const result = getCostSummary({ projectDir: tmpDir, today: true });
-    expect(result.usd).toBeCloseTo(0.30, 5);
-    expect(result.entries).toBe(2);
-    expect(result.date).toBe(today);
-  });
-
-  it('returns 0 usd when no cost.jsonl file exists', async () => {
-    const { getCostSummary } = await import('../../../src/cli/commands/cost.js');
-    const result = getCostSummary({ projectDir: tmpDir, today: true });
-    expect(result.usd).toBe(0);
-    expect(result.entries).toBe(0);
-  });
-});
+// Section 2 covered `getCostSummary`, the cost.jsonl-backed reader. Removed on
+// 2026-07-31 with the rest of that path: nothing in production ever wrote the
+// file, so those tests could only ever prove that reading an empty log returns
+// zero. The `cost summary` command a user actually reaches is covered against
+// the sqlite ledger in tests/cli/cost-summary-ledger.test.ts.
 
 // ---------------------------------------------------------------------------
 // 3. audit all — empty dir

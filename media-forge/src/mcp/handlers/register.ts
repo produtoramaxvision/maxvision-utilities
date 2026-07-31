@@ -154,26 +154,32 @@ type ImageGenResult = {
 async function maybeStoreImageArtifact(
   result: ImageGenResult,
   storage: OutputStorageClient | undefined,
-  prefix: string,
+  // The jobId the LEDGER row was written under, minted by the caller.
+  //
+  // This used to mint its own id with generateJobId(prefix), so the `job_id` the
+  // caller got back named nothing in image_jobs: a user looking at a result could
+  // not find its cost, and a cost row could not be traced to what it produced.
+  // Two ids for one generation is not a cosmetic mismatch — it makes the ledger
+  // unauditable from the outside, which is the one thing a ledger is for.
+  jobId: string,
 ): Promise<unknown> {
   if (!storage || result.dryRun || !result.base64) {
     return result;
   }
   try {
-    const id = generateJobId(prefix);
     const bytes = Buffer.from(result.base64, 'base64');
     const artifact = await storeArtifact({
       storage,
-      jobId: id,
+      jobId,
       bytes,
       contentType: result.mimeType,
     });
-    return { ...result, job_id: id, url: artifact.url, expires_at: artifact.expiresAt };
+    return { ...result, job_id: jobId, url: artifact.url, expires_at: artifact.expiresAt };
   } catch (err) {
     // Best-effort: upload failure must not drop the generated image. Surface the
     // base64 result (F-A path) so the caller still receives the artifact.
     process.stderr.write(
-      `[image-storage] upload failed (${prefix}): ${(err as Error).message}\n`,
+      `[image-storage] upload failed (${jobId}): ${(err as Error).message}\n`,
     );
     return result;
   }
@@ -536,7 +542,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           () => (c.dryRun ? genExec() : withImageDebit(deps, jobId, estimateUsd, genExec)),
           c.dryRun,
         );
-        const structured = await maybeStoreImageArtifact(result, storage, 'nano-banana-pro');
+        const structured = await maybeStoreImageArtifact(result, storage, jobId);
         return asResult(
           guard.costWarning
             ? { ...(structured as Record<string, unknown>), costWarning: guard.costWarning }
@@ -570,7 +576,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           () => (c.dryRun ? genExec() : withImageDebit(deps, jobId, estimateUsd, genExec)),
           c.dryRun,
         );
-        const structured = await maybeStoreImageArtifact(result, storage, 'imagen-4-ultra');
+        const structured = await maybeStoreImageArtifact(result, storage, jobId);
         return asResult(
           guard.costWarning
             ? { ...(structured as Record<string, unknown>), costWarning: guard.costWarning }
@@ -607,9 +613,15 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           () => (c.dryRun ? genExec() : withImageDebit(deps, jobId, estimateUsd, genExec)),
           c.dryRun,
         );
-        return asResult(
-          guard.costWarning ? { ...(result as unknown as Record<string, unknown>), costWarning: guard.costWarning } : result,
-        );
+        // job_id, like the two generate tools return. Both of these write an
+        // image_jobs row and debit credit under `jobId` and then returned
+        // nothing the caller could use to find it: money was recorded against
+        // an id the caller never saw. Not a wrong id — no id at all.
+        return asResult({
+          ...(result as unknown as Record<string, unknown>),
+          job_id: jobId,
+          ...(guard.costWarning ? { costWarning: guard.costWarning } : {}),
+        });
       }),
     );
   }
@@ -646,11 +658,13 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           () => (c.dryRun ? genExec() : withImageDebit(deps, jobId, estimateUsd, genExec)),
           c.dryRun,
         );
-        return asResult(
-          guard.costWarning
-            ? { ...(result as unknown as Record<string, unknown>), costWarning: guard.costWarning }
-            : result,
-        );
+        // Same reason as media_edit_image above: a ledger row and a debit under
+        // `jobId` that the caller was never told about.
+        return asResult({
+          ...(result as unknown as Record<string, unknown>),
+          job_id: jobId,
+          ...(guard.costWarning ? { costWarning: guard.costWarning } : {}),
+        });
       }),
     );
   }

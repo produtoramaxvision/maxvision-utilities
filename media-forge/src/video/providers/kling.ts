@@ -26,6 +26,12 @@ import {
   parseV2TaskResponse,
 } from './kling-v2.js';
 import { fetchTaskBillingPage, compareEstimateToActual } from './kling-billing.js';
+import {
+  auditDeductions,
+  findOrphanCharges,
+  type DeductionAudit,
+  type OrphanCharge,
+} from './kling-deduction.js';
 
 const KLING_API_BASE = 'https://api-singapore.klingai.com';
 
@@ -622,6 +628,66 @@ export class KlingProvider implements VideoProvider {
     }
 
     return { settled, drift };
+  }
+
+  /**
+   * Audits what Kling charged the ACCOUNT over a window, and names charges this
+   * install has no ledger row for.
+   *
+   * Distinct from reconcileBillingWindow, which settles jobs we already know
+   * about. This asks the opposite question — what did Kling bill that we do NOT
+   * know about — and that is the only way the known post-submit loss becomes
+   * visible: a submit that succeeded, started billing, and threw before the
+   * ledger row was written leaves exactly this signature.
+   *
+   * Read-only by design. It reports orphans; it never fabricates the missing
+   * row. The row is absent precisely because writing it failed, and inventing
+   * one would put a job with no local provenance into the cost history.
+   */
+  async auditBillingWindow(args: {
+    readonly startTimeMs: number;
+    readonly endTimeMs: number;
+    readonly limit?: number;
+    readonly fetchImpl?: typeof fetch;
+  }): Promise<DeductionAudit & { orphans: ReadonlyArray<OrphanCharge> }> {
+    const apiKey = this.env.KLING_API_KEY;
+    if (apiKey === undefined || apiKey.length === 0) {
+      throw new Error(
+        'Kling deduction audit needs KLING_API_KEY — the deduction endpoints are part of ' +
+          'the API 2.0 surface, which accepts API-key auth only.',
+      );
+    }
+
+    const audit = await auditDeductions(
+      {
+        startTimeMs: args.startTimeMs,
+        endTimeMs: args.endTimeMs,
+        ...(args.limit !== undefined ? { limit: args.limit } : {}),
+      },
+      { apiKey, ...(args.fetchImpl !== undefined ? { fetchImpl: args.fetchImpl } : {}) },
+    );
+
+    const orphans = findOrphanCharges(audit, (taskId) => this.findJobByNativeTaskId(taskId) !== undefined);
+
+    if (orphans.length > 0) {
+      // Loud. Every orphan is either real money spent with no local record, or
+      // a job submitted from another machine on the same key. Both are things an
+      // operator has to look at; neither should sit in a return value nobody reads.
+      logger.warn('kling deduction audit: charges with no local ledger row', {
+        count: orphans.length,
+        totalUsd: orphans.reduce((sum, o) => sum + o.usd, 0),
+        sample: orphans.slice(0, 3),
+      });
+    }
+    if (!audit.usdAssumptionHolds && audit.balance.length > 0) {
+      // kling-billing.ts reads the cash branch of billing[] as dollars and has
+      // no currency field to check it against. This is where that check lives.
+      logger.warn('kling deduction audit: cash deductions are NOT all USD', {
+        currenciesSeen: audit.currenciesSeen,
+      });
+    }
+
+    return { ...audit, orphans };
   }
 
   /** Local job row for a Kling native task id, if this install submitted it. */

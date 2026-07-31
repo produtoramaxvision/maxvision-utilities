@@ -113,18 +113,30 @@ Google rewrites the prompt before generating, which can undo a deliberate
 Director Formula ordering. media-forge sets it explicitly — see
 `src/core/prompt-budget.ts` — rather than inheriting an undocumented default.
 
-## Seedance 2.0 (ByteDance) — NOT verified
+## Seedance 2.0 (ByteDance) — default route verified 2026-07-31
 
 | Field | Value |
 |---|---|
-| Prompt budget | **not verified.** Conservative profile applies |
+| Prompt budget | **no published bound** on the fal.ai route. `ARK`-direct still unverified |
 | Reference binding | `@Image1` / `@Video1` / `@Audio1` tokens in prompt order. Every uploaded reference must be @-mentioned or it is silently ignored |
 | Multi-shot | supported |
 
-To close this row, read the active surface's own docs — fal.ai for the default
-route, BytePlus ModelArk for the `ARK`-direct route — and record the number with
-its date. Do not copy Kling's 2,500 onto Seedance; they are unrelated platforms
-that media-forge merely routes side by side.
+fal.ai publishes an OpenAPI document per endpoint. For
+`bytedance/seedance-2.0/text-to-video` — the slug the adapter actually submits to
+— `prompt` is a plain `string` with no `maxLength` and no `minLength`, and no
+other input string carries a length constraint. A generated schema beats a prose
+page here: it is what the endpoint validates against.
+
+So `promptMaxChars: null` no longer means "nobody checked". It means the surface
+publishes no bound.
+
+**Still open:** the `ARK`-direct route (`ark.ap-southeast.bytepluses.com`). Its
+API reference could not be reached on 2026-07-31, so that surface is not covered
+by the check above. Two platforms serve this model and they are not the same
+publisher — one's schema does not speak for the other.
+
+Do not copy Kling's 2,500 onto Seedance; they are unrelated platforms that
+media-forge merely routes side by side.
 
 ---
 
