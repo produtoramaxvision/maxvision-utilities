@@ -39,11 +39,17 @@ describe('higgsfield-cli routing', () => {
     else process.env[CREDIT_RATE] = prevRate;
   });
 
-  it('providerServesSpec maps higgsfield-cli onto higgsfield specs, and nothing else', () => {
-    expect(providerServesSpec('higgsfield-cli', 'higgsfield')).toBe(true);
+  // The higgsfield-cli -> higgsfield mapping this file used to assert was
+  // REMOVED: the two catalogues do not intersect. Live proof — routing
+  // higgsfield-soul2 through the CLI adapter returns
+  // `exit 4: No model with job_type "higgsfield-soul2"`. The mapping did not
+  // make the flag work, it moved the failure past the cost guard and into the
+  // provider.
+  it('providerServesSpec is identity — no adapter serves another provider’s specs', () => {
     expect(providerServesSpec('higgsfield', 'higgsfield')).toBe(true);
-    // The mapping is one-directional and narrow. The API adapter must not be
-    // treated as able to run CLI-only specs, and neither serves anyone else.
+    expect(providerServesSpec('higgsfield-cli', 'higgsfield-cli')).toBe(true);
+
+    expect(providerServesSpec('higgsfield-cli', 'higgsfield')).toBe(false);
     expect(providerServesSpec('higgsfield', 'higgsfield-cli')).toBe(false);
     expect(providerServesSpec('higgsfield-cli', 'kling')).toBe(false);
     expect(providerServesSpec('kling', 'higgsfield')).toBe(false);
@@ -67,21 +73,23 @@ describe('higgsfield-cli routing', () => {
     }
   });
 
-  it('preferProvider: "higgsfield-cli" resolves to a Higgsfield model when enabled', async () => {
+  // Fails at the ROUTER now, which is the truthful place. No registry spec is
+  // registered under 'higgsfield-cli' and none of the registry's higgsfield ids
+  // is a CLI job_type, so "no model supporting mode" is accurate. Previously
+  // this resolved to a higgsfield spec and died at the CLI with a job_type error
+  // — after the cost guard had already run.
+  it('preferProvider: "higgsfield-cli" has no routable spec, even with the flag on', async () => {
     process.env[HF_FLAG] = 'true';
 
-    const result = await handleVideoRoute({
-      mode: 't2v',
-      prompt: 'a slow push-in on a quiet street',
-      durationSec: 5,
-      resolution: '1080p',
-      preferProvider: 'higgsfield-cli',
-    });
-
-    // The chosen spec is registered under 'higgsfield' — that is the point. The
-    // CLI runs the same models; only the credential and the bill differ.
-    expect(result.provider).toBe('higgsfield');
-    expect(result.modelId).toMatch(/^higgsfield-/);
+    await expect(
+      handleVideoRoute({
+        mode: 't2v',
+        prompt: 'a slow push-in on a quiet street',
+        durationSec: 5,
+        resolution: '1080p',
+        preferProvider: 'higgsfield-cli',
+      }),
+    ).rejects.toThrow(/no model supporting mode/);
   });
 
   it('the same call fails when the flag is off — proving the flag is load-bearing', async () => {

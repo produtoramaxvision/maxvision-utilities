@@ -32,23 +32,48 @@ export function getAdaptedProviders(): ReadonlySet<Provider> {
 /**
  * Which registry entries a given adapter can actually execute.
  *
- * Normally a provider serves its own specs and this is an identity check. The
- * exception is 'higgsfield-cli', which is a second TRANSPORT to the same
- * Higgsfield platform rather than a different platform: it runs the same models,
- * and the only difference is that it authenticates as the logged-in user and
- * bills their workspace instead of API credits.
+ * A plain identity check, and the 'higgsfield-cli' -> 'higgsfield' mapping that
+ * used to live here was REMOVED on 2026-07-31. It was wrong, and the way it was
+ * wrong is worth keeping written down.
  *
- * Without this, enabling MEDIA_FORGE_HF_CLI_ENABLED did nothing observable —
- * 'higgsfield-cli' matched no spec.provider, so the router had zero candidates
- * for it even when named explicitly. A flag that silently changes nothing is
- * worse than an absent one.
+ * The reasoning was that the CLI is a second TRANSPORT to the same platform, so
+ * it should be able to run the same specs. Enabling MEDIA_FORGE_HF_CLI_ENABLED
+ * had done nothing observable without it, and a flag that changes nothing is
+ * worse than an absent one. That premise was never checked against the CLI.
  *
- * The two remain separate PROVIDERS entries on purpose: they bill differently,
- * and the cost report has to be able to tell them apart.
+ * Checked on 2026-07-31, and the two catalogues do not intersect at all:
+ *
+ *   registry `higgsfield` specs   higgsfield-soul2, -dop, -speak, -recast,
+ *                                 -cinema-studio-3.5, -marketing-studio …
+ *                                 Higgsfield's OWN products, modes t2v/i2v
+ *   `higgsfield model list --video`  veo3_1, kling3_0, seedance_2_0, wan2_7 …
+ *                                 third-party models it RESELLS, plus utilities
+ *   `higgsfield model list --image`  text2image_soul_v2, soul_cast,
+ *                                 soul_cinematic … Soul exists, as IMAGE types
+ *
+ * Not one registry id is a CLI job_type. Live proof: routing
+ * `higgsfield-soul2` through the adapter returns
+ * `exit 4: No model with job_type "higgsfield-soul2"`. So the mapping did not
+ * make the flag work — it made it fail one layer later, at the provider, after
+ * the cost guard had run.
+ *
+ * The flag is inert again, and that is now the honest state: naming
+ * `higgsfield-cli` in preferProvider fails at the router with "no model
+ * supporting mode", which is true, instead of failing at the CLI with a
+ * confusing job_type error.
+ *
+ * A mapping table is NOT the fix. There is nothing to map — `higgsfield-soul2`
+ * is a video spec and `text2image_soul_v2` is an image job type; they are not
+ * the same model wearing two names. What the CLI transport could legitimately
+ * serve is the resold catalogue (kling3_0_turbo, seedance_2_0 …), and those are
+ * registered under `kling`/`bytedance`, not `higgsfield`. Reaching them needs
+ * the async catalogue-aware router recorded in TODOS.md.
+ *
+ * Soul-ID is unaffected and still works: `higgsfield soul-id create|list` takes
+ * no job_type, and `soul-id list --json` was exercised live on 2026-07-31.
  */
 export function providerServesSpec(adapter: Provider, specProvider: Provider): boolean {
-  if (adapter === specProvider) return true;
-  return adapter === 'higgsfield-cli' && specProvider === 'higgsfield';
+  return adapter === specProvider;
 }
 
 /** True when any active adapter can execute this spec. */
