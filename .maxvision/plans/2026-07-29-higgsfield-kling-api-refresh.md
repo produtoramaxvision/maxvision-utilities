@@ -123,6 +123,15 @@ pessoalmente na auditoria, não herdados de relatório de subagente.
 | PR8 | T16 Wan2GP opt-in | **feito** — provider + `media-forge setup wan2gp` + guarda de roteamento custo-zero | `cf6f19b` |
 | PR9 | T17 Codex `image_gen` | **feito** — dois modos de credencial (OAuth local / `OPENAI_API_KEY` multi-tenant); minha análise de bloqueio estava errada, retratada na seção do T17 | `3efb6a8`, `cece7fc` |
 | — | Liquidação Kling pela cobrança real | **feito** — `POST /tasks`, `data.result[]`, paginação por cursor; `64c319f` reportou fechado mas a chamada nunca alcançava a API (HTTP 400 code 1201) | `64c319f`, `64c2edb` (corrigiu) |
+| — | T18 perfis de superfície por provider | **feito** — `src/core/prompt-budget.ts` + `references/surface-prompt-profiles.md`, teste doc-vs-código como gate | (ver seção T18) |
+| — | Consciência de agregador no roteador | **feito** — `aggregator-routes.ts` + `alternatePaths`; reporta o caminho Higgsfield na unidade nativa, **não** ordena entre unidades | `fb70422`, `846070e` |
+| — | Auditoria de dedução do Kling | **feito** — `POST /account/billing/{balance,package}`, moeda conferida, órfãos nomeados | `8743e48` |
+| — | `dryRun` do request + `negativePrompt` do Veo | **feito** — os dois eram parâmetros que mentiam | `40ef955` |
+| — | Tools das duas superfícies de billing do Kling | **feito** — os métodos existiam sem caller; `64c2edb` reportou fechado sem porta de entrada | `28f8ccf` |
+| — | Caminho de credencial do Codex no `doctor` | **feito** — `codexImageMode` era export sem caller | `dcd74e1` |
+| — | Orçamento de prompt do Seedance | **feito** — fal.ai (OpenAPI) e BytePlus ARK, os dois sem limite publicado | `8105f4b` |
+| — | MuAPI + Wan2GP alcançáveis | **feito** — 3 tools de acesso direto; shape da estimativa do MuAPI verificado, `currency` passou a ser conferida | `f5e0a72` |
+| — | Versão | **0.2.8 → 0.2.9** | `f5e0a72` |
 
 ### Desvios de ordem, assumidos
 
