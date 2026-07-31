@@ -229,6 +229,13 @@ function buildClip(args: {
     narrative_job: shot.action,
     felt_intent: shot.action,
 
+    // Carried, not dropped. The executor needs all three to turn a stored plan
+    // back into a request, and none of them can be recovered afterwards: the
+    // storyboard is not persisted, so a value lost here is lost for good.
+    shot_structure: shot.shot_structure,
+    camera: shot.camera,
+    target_duration_sec: shot.duration_sec,
+
     // The three lists are the anti-repetition mechanism. `already_happened` is
     // everything earlier in the beat order, so the prompt does not re-stage it;
     // `reserved_for_later` is everything after, so it does not fire early and

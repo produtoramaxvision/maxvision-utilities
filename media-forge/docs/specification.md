@@ -1,6 +1,6 @@
 # media-forge — Specification
 
-**Version:** 0.1.1
+**Version:** 0.2.11
 **Source:** Distilled from design spec (2026-05-21) + implementation reality (P0-P16 complete: baseline + refs-integration + multi-provider video).
 
 ---
@@ -89,9 +89,9 @@ Beyond the locked Google models, video generation is routed across four provider
 
 ---
 
-## 3. MCP Tool Registry (54 tools)
+## 3. MCP Tool Registry (71 tools)
 
-The MCP server exposes 68 tools (64 with `MEDIA_FORGE_SEEDANCE_ENABLED=false`), registered from the `MCP_TOOLS` array in `src/mcp/schemas.ts` and dispatched in `src/mcp/handlers.ts`.
+The MCP server exposes 71 tools (67 with `MEDIA_FORGE_SEEDANCE_ENABLED=false`), registered from the `MCP_TOOLS` array in `src/mcp/schemas.ts` and dispatched in `src/mcp/handlers.ts`.
 
 ### Image tools (6)
 
@@ -186,7 +186,36 @@ The MCP server exposes 68 tools (64 with `MEDIA_FORGE_SEEDANCE_ENABLED=false`), 
 | `media_seedance_multishot` | Multi-shot T2V with timestamp segmentation (≤15s, ≤4 shots). |
 | `media_seedance_reference_fusion` | Reference-to-video with `@Image/@Video/@Audio` mention syntax. |
 
-> Seedance tools register only when `MEDIA_FORGE_SEEDANCE_ENABLED` is not disabled (default on). With it off, the registry is 64 tools.
+> Seedance tools register only when `MEDIA_FORGE_SEEDANCE_ENABLED` is not disabled (default on). With it off, the registry is 67 tools.
+
+### Narrative executor tools (3)
+
+The consumer for the T10 schemas and the T13 planner: turns a saved `ProjectState`
+into generations, one clip per call.
+
+| Tool name | Description |
+|---|---|
+| `media_narrative_execute_clip` | Pick the next clip, validate it is safe to run, build the contract + prompt spec, return the tool and arguments to dispatch. Read-only. |
+| `media_narrative_record_run` | Record that a clip was really dispatched (by jobId) and advance the plan. |
+| `media_narrative_record_take` | Fold a reviewer verdict back into the plan; optionally rank multiple takes. |
+
+**These do not dispatch.** `execute_clip` returns the name of an existing provider
+tool and its arguments; you call that tool yourself. A dispatch path here would be
+a second submit path per provider, and every provider tool already carries its own
+cost guard, credit preflight and ledger hooks. It would also be one more place to
+route a spec to an adapter that rejects it.
+
+Splitting on the jobId boundary is not a workaround either: `GenerationRun.run_id`
+**is** the job id, so the provenance row cannot exist before the provider has
+answered. That shared id is what joins narrative provenance to cost without either
+side storing the other's data — `narrative_generation_run` (migration 012) holds
+no money at all, deliberately.
+
+Two rules exist to stop a paid, wrong generation: a clip whose parent has no take
+yet is refused (an extension inherits the parent's last frame, so there would be
+no anchor), and so is one past its scene's `max_chain_depth`. A low-confidence
+verdict that would authorise a retake is recorded but parks the clip at
+`reviewed`, which is not runnable — nothing dispatches until a human decides.
 
 ### Opt-in provider tools (5)
 

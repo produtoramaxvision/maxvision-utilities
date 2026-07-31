@@ -17,6 +17,7 @@ import {
   ClipStatus,
   PlanningStatus,
   ProjectMode,
+  ShotStructure,
   StateBlob,
 } from './enums.js';
 
@@ -102,6 +103,34 @@ export const Clip = z
 
     /** Optional upstream — present only for edit/extend modes. */
     source_clip_tag: z.string().nullable().optional(),
+
+    // -----------------------------------------------------------------------
+    // Carried over from the storyboard shot. These three were produced by the
+    // storyboard artist and then DROPPED by `buildClip`, so a persisted project
+    // could not be turned back into a runnable request:
+    //
+    //   shot_structure  required by ClipContract, and unreconstructible — the
+    //                   executor had no legal value to supply and no way to
+    //                   guess one that would not be wrong data validating cleanly
+    //   camera          the storyboard keeps framing separate from action "so
+    //                   either can be revised alone"; dropping it deleted every
+    //                   camera direction from the prompt
+    //   target_duration_sec  per-shot duration; only the whole-project
+    //                   clip_budget_sec survived, so every clip in a plan looked
+    //                   the same length
+    //
+    // Optional, not required. `loadProjectState` THROWS on a document that fails
+    // validation rather than returning null, so making these mandatory would turn
+    // every project saved before today into an unloadable one — a migration
+    // disguised as a schema tweak.
+    // -----------------------------------------------------------------------
+
+    /** How this clip is physically structured as a generation request. */
+    shot_structure: ShotStructure.optional(),
+    /** Framing and camera direction, kept separate from the action prose. */
+    camera: z.string().optional(),
+    /** This clip's own duration. Null means "inherit the project budget". */
+    target_duration_sec: z.number().positive().nullable().optional(),
 
     status: ClipStatus,
     narrative_job: z.string(),

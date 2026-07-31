@@ -13,6 +13,11 @@ import {
 } from '../../core/cost-guard.js';
 import { handleNarrativePlan, handleNarrativeAssemble } from './narrative.js';
 import {
+  handleNarrativeExecuteClip,
+  handleNarrativeRecordRun,
+  handleNarrativeRecordTake,
+} from './narrative-execute.js';
+import {
   handleCodexImage,
   handleSoulIdTrain,
   handleSoulIdList,
@@ -2089,6 +2094,61 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
         });
         return asResult(state as unknown as Record<string, unknown>);
       }),
+    );
+  }
+
+  // ---- Narrative executor: the consumer T10/T13 were built for ----
+  //
+  // Also outside the cost guard, and for a stronger reason than the planner: none
+  // of these three dispatches anything. execute_clip prepares and returns the
+  // tool to call; the guard runs inside THAT tool, where it already does. Wiring
+  // a second guard here would reserve credit for a generation that may never be
+  // submitted, and the reservation would sit until its TTL swept it.
+  {
+    const t = getTool('media_narrative_execute_clip');
+    regIfAllowed(
+      t.name,
+      { title: 'Prepare the Next Clip', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) =>
+        asResult(
+          (await handleNarrativeExecuteClip(input, {
+            dbPath: defaultDbPath(),
+            tenantId: deps.tenantId ?? null,
+          })) as unknown as Record<string, unknown>,
+        ),
+      ),
+    );
+  }
+
+  {
+    const t = getTool('media_narrative_record_run');
+    regIfAllowed(
+      t.name,
+      { title: 'Record a Narrative Run', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) =>
+        asResult(
+          (await handleNarrativeRecordRun(input, {
+            dbPath: defaultDbPath(),
+            tenantId: deps.tenantId ?? null,
+          })) as unknown as Record<string, unknown>,
+        ),
+      ),
+    );
+  }
+
+  {
+    const t = getTool('media_narrative_record_take');
+    regIfAllowed(
+      t.name,
+      { title: 'Record a Take Review', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) =>
+        asResult(
+          (await handleNarrativeRecordTake(input, {
+            dbPath: defaultDbPath(),
+            tenantId: deps.tenantId ?? null,
+          })) as unknown as Record<string, unknown>,
+        ),
+      ),
     );
   }
 

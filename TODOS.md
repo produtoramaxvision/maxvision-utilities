@@ -37,6 +37,40 @@ não adivinhado.
 
 ---
 
+## (fechado) P1 — Executor de plano: os 5 módulos T10/T13 sem consumidor
+
+**FECHADO em 2026-07-31.** Órfãos desde **2026-07-30** (`8576d20` T10, `466a144` T13).
+
+Nunca foi entregável perdido. O T10 diz "portar os schemas", o T13 diz "a saída
+alimenta o project-state do T10" — **nenhuma tarefa do plano especificou o
+runner**. Cinco módulos testados, zero importadores em `src/`.
+
+Três tools em `src/mcp/handlers/narrative-execute.ts`:
+
+| Tool | O que faz |
+|---|---|
+| `media_narrative_execute_clip` | escolhe o clip, valida, monta contrato + prompt spec, devolve a tool e os argumentos para despachar. Só leitura |
+| `media_narrative_record_run` | registra o despacho real (por jobId) e avança o plano |
+| `media_narrative_record_take` | aplica o veredito do reviewer; opcionalmente ranqueia takes |
+
+**O executor não despacha, de propósito.** Todo provider já tem tool de submit com
+cost guard, preflight de crédito e ledger hooks. Um caminho de despacho aqui seria
+um **segundo** submit por provider — a duplicação que este repo já identificou
+como defeito — e mais um lugar para rotear spec a adapter que rejeita. Provider e
+modelo são sempre entrada do chamador, nunca inferidos.
+
+**O que construir o consumidor achou:** o `buildClip` descartava três campos do
+storyboard — `shot_structure`, `camera` e `duration_sec`. O storyboard não é
+persistido, então eram perda definitiva; e `shot_structure` é **obrigatório** no
+`ClipContract`, ou seja, plano salvo não virava contrato nenhum. Só visível
+tentando construir o consumidor.
+
+**Não exercitado contra geração paga.** Por design (o despacho é das tools de
+provider) e por circunstância (esta branch não gasta). Dito no cabeçalho do
+handler, não deixado para supor de suíte verde.
+
+---
+
 ## (declinado) Comprar pacote Kling para validar geração de vídeo
 
 **DECLINADO pelo usuário em 2026-07-31:** "nao vamos comprar pacotes do kling".
