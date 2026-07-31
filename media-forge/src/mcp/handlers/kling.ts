@@ -234,7 +234,20 @@ export async function handleKlingElementList(
 
 // ---------------------------------------------------------------------------
 // handleKlingElementDelete — soft-delete locally + (default) hard-delete on backend (P15 Task 6.7)
-// Requires confirm:true — irreversible on backend.
+//
+// Two separate fields decide two separate things, and the difference matters
+// because only one of them is reversible:
+//
+//   confirm          z.literal(true) in KlingElementDeleteInput. Enforced by the
+//                    schema at parse time, which is why nothing in this body
+//                    checks it — a request without it never reaches here.
+//   alsoDeleteRemote defaults to TRUE. This is the branch below, and it is the
+//                    irreversible half: the local row is only soft-deleted
+//                    (deleted_at), while the backend delete cannot be undone.
+//
+// A caller who wants the local-only, recoverable delete has to pass
+// alsoDeleteRemote:false explicitly. Confirming is not the same as opting into
+// the remote delete, and the default is the destructive one.
 // ---------------------------------------------------------------------------
 
 export async function handleKlingElementDelete(

@@ -147,4 +147,25 @@ describe('generateVideoInterpolate', () => {
     expect(args.config.aspectRatio).toBe('16:9');
     expect(args.config.numberOfVideos).toBe(1);
   });
+
+  // The schema accepts negativePrompt and the service dropped it: the caller
+  // wrote a negative, got no error, and the generation ignored it. Same class as
+  // the request-level dryRun field that meant nothing — a parameter that lies.
+  it('negativePrompt reaches the request config', async () => {
+    mock.queueVideoOperation('op-generatevideointerpolate-neg');
+    await generateVideoInterpolate(
+      makeInput({ negativePrompt: 'no text overlays, no watermark' }),
+      makeClient(mock),
+    );
+    const args = mock.recordedCalls[0]!.args as Record<string, unknown>;
+    const config = args.config as Record<string, unknown>;
+    expect(config.negativePrompt).toBe('no text overlays, no watermark');
+  });
+
+  it('negativePrompt absent means the key is absent, not an empty string', async () => {
+    mock.queueVideoOperation('op-generatevideointerpolate-noneg');
+    await generateVideoInterpolate(makeInput(), makeClient(mock));
+    const args = mock.recordedCalls[0]!.args as Record<string, unknown>;
+    expect(args.config as Record<string, unknown>).not.toHaveProperty('negativePrompt');
+  });
 });

@@ -5,6 +5,7 @@ import type { OutputStorageClient } from '../../output/storage.js';
 import { safeJoin, jobId as generateJobId } from '../../utils/paths.js';
 import { storeArtifact } from '../../output/output-storage.js';
 import { ValidationError, CostGuardError, ApiError } from '../../core/errors.js';
+import { createClient, type MediaForgeClient } from '../../core/client.js';
 import {
   evaluateCostGuard,
   newWorkBudgetUsd,
@@ -197,12 +198,37 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
   }
 
   // ---------------------------------------------------------------------------
+  // Per-request dry-run.
+  //
+  // Every image and video schema declares `dryRun`, and nothing read it: only
+  // `client.dryRun`, fixed when the server was constructed, decided anything.
+  // A caller passing `dryRun: true` to a normal server got a real generation and
+  // a real charge — a parameter that reads like a safety and was not one.
+  //
+  // ASYMMETRIC on purpose. The request may only ever ADD dry-run, never remove
+  // it. The field defaults to `false`, so every request against a server started
+  // in dry-run mode carries `dryRun: false`; if the request won, `--dry-run`
+  // would generate for real on every call.
+  //
+  // Resolves to a REAL dry-run client rather than `{ ...client, dryRun: true }`.
+  // createClient also installs the SDK proxy, so a code path that ever slips
+  // past a flag check still cannot reach the provider. Its `ai` is lazy, so
+  // building one costs nothing until something actually asks for the SDK.
+  let requestDryRunClient: MediaForgeClient | undefined;
+  function clientFor(parsed: unknown): MediaForgeClient {
+    if (client.dryRun) return client;
+    if ((parsed as { dryRun?: unknown } | null | undefined)?.dryRun !== true) return client;
+    return (requestDryRunClient ??= createClient({ config, dryRun: true }));
+  }
+
+  // ---------------------------------------------------------------------------
   // media-forge cost guards — evaluated BEFORE every image generation call and
   // (via KlingHandlerExecOpts.checkCostGuard / HiggsfieldHandlerExecOpts /
   // SeedanceHandlerExecOpts) before every Kling, Higgsfield, and Seedance
   // video submit, reading today's UTC spend across both video_jobs and image_jobs.
   //
-  // Guard is SKIPPED under dry-run (client.dryRun) — a dry run never calls the
+  // Guard is SKIPPED under dry-run (the EFFECTIVE dry-run for the request — see
+  // clientFor) — a dry run never calls the
   // provider and costs $0, so both the guard check and the ledger write it
   // would otherwise produce (recordImageJob, in the 3 image call sites below)
   // are meaningless. Recording a $0-real-cost job as 'pending' at its
@@ -347,8 +373,12 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     paramsForHash: unknown,
     estimateUsd: number,
     exec: () => Promise<T>,
+    // The EFFECTIVE dry-run for this request, not the server-wide flag — see
+    // clientFor(). Passed rather than closed over so a request-level dry run
+    // skips the ledger for the same reason a server-level one does.
+    dryRun: boolean,
   ): Promise<T> {
-    if (client.dryRun) return exec();
+    if (dryRun) return exec();
     recordImageJob({
       dbPath: defaultDbPath(),
       jobId,
@@ -409,7 +439,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
   // nor a stuck reservation survives a submit that never charged anything.
   //
   // Dry-run bypasses ALL of this (guard, ledger, reserve) — identical
-  // `client.dryRun` gate used by the image tools above (see
+  // effective-dry-run gate used by the image tools above (see
   // checkCostGuardOrThrow's doc comment). A dry run never reaches the
   // provider and costs $0, so there is nothing to guard, record, or reserve.
   // ---------------------------------------------------------------------------
@@ -419,8 +449,10 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     paramsForHash: unknown,
     estimateUsd: number,
     exec: () => Promise<GenerateVideoResult>,
+    // Effective dry-run for this request — see clientFor() and withImageLedger.
+    dryRun: boolean,
   ): Promise<GenerateVideoResult & { jobId?: string; costWarning?: string }> {
-    if (client.dryRun) return exec();
+    if (dryRun) return exec();
 
     const guard = checkCostGuardOrThrow(estimateUsd);
     await preflightVideoCredit(deps, estimateUsd);
@@ -482,21 +514,27 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Generate Image (Nano Banana Pro)', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const parsed = validateInput<{ imageSize?: '1K' | '2K' | '4K' }>(t, input);
+        const parsed = validateInput<{ imageSize?: '1K' | '2K' | '4K'; dryRun?: boolean }>(t, input);
+        const c = clientFor(parsed);
         const estimateUsd = estimateImageCost({
           model: IMAGE_MODEL_NANO_BANANA_PRO,
           imageSize: parsed.imageSize ?? '4K',
         }).usd;
         // Guard + ledger are skipped under dry-run — see checkCostGuardOrThrow's doc comment above.
-        const guard: { costWarning?: string } = client.dryRun ? {} : checkCostGuardOrThrow(estimateUsd);
+        const guard: { costWarning?: string } = c.dryRun ? {} : checkCostGuardOrThrow(estimateUsd);
         const jobId = generateJobId('nano-banana-pro');
         // The debit (reserve+capture) is skipped under dry-run for the SAME reason
         // the guard and ledger are: a dry run never calls the provider, so there is
-        // nothing real to bill. Uses the identical `client.dryRun` check as above —
+        // nothing real to bill. Uses the identical effective-client check as above —
         // not a second way of asking "is this a dry run".
-        const genExec = () => generateImageNanoBananaPro(parsed as never, client);
-        const result = await withImageLedger(jobId, IMAGE_MODEL_NANO_BANANA_PRO, parsed, estimateUsd, () =>
-          client.dryRun ? genExec() : withImageDebit(deps, jobId, estimateUsd, genExec),
+        const genExec = () => generateImageNanoBananaPro(parsed as never, c);
+        const result = await withImageLedger(
+          jobId,
+          IMAGE_MODEL_NANO_BANANA_PRO,
+          parsed,
+          estimateUsd,
+          () => (c.dryRun ? genExec() : withImageDebit(deps, jobId, estimateUsd, genExec)),
+          c.dryRun,
         );
         const structured = await maybeStoreImageArtifact(result, storage, 'nano-banana-pro');
         return asResult(
@@ -519,12 +557,18 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           model: IMAGE_MODEL_IMAGEN_4_ULTRA,
           numberOfImages: inp.numberOfImages ?? 1,
         }).usd;
-        const guard: { costWarning?: string } = client.dryRun ? {} : checkCostGuardOrThrow(estimateUsd);
+        const c = clientFor(inp);
+        const guard: { costWarning?: string } = c.dryRun ? {} : checkCostGuardOrThrow(estimateUsd);
         const jobId = generateJobId('imagen-4-ultra');
-        // Same dry-run gate as media_generate_image above — reuses client.dryRun.
-        const genExec = () => generateImageImagen4Ultra(input as never, client);
-        const result = await withImageLedger(jobId, IMAGE_MODEL_IMAGEN_4_ULTRA, inp, estimateUsd, () =>
-          client.dryRun ? genExec() : withImageDebit(deps, jobId, estimateUsd, genExec),
+        // Same dry-run gate as media_generate_image above — reuses the effective client.
+        const genExec = () => generateImageImagen4Ultra(input as never, c);
+        const result = await withImageLedger(
+          jobId,
+          IMAGE_MODEL_IMAGEN_4_ULTRA,
+          inp,
+          estimateUsd,
+          () => (c.dryRun ? genExec() : withImageDebit(deps, jobId, estimateUsd, genExec)),
+          c.dryRun,
         );
         const structured = await maybeStoreImageArtifact(result, storage, 'imagen-4-ultra');
         return asResult(
@@ -547,15 +591,21 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
         // estimateImageCost defaults to '4K', matching the conservative default
         // used elsewhere for this model.
         const estimateUsd = estimateImageCost({ model: IMAGE_MODEL_NANO_BANANA_PRO }).usd;
-        const guard: { costWarning?: string } = client.dryRun ? {} : checkCostGuardOrThrow(estimateUsd);
+        const c = clientFor(parsed);
+        const guard: { costWarning?: string } = c.dryRun ? {} : checkCostGuardOrThrow(estimateUsd);
         const jobId = generateJobId('edit-image');
         // F-P1: media_edit_image generated without ever debiting — wire it through
         // withImageDebit exactly like media_generate_image/media_generate_imagen,
         // reusing the SAME estimate computed above (no second estimate). Skipped
-        // under dry-run via the identical client.dryRun check used everywhere else.
-        const genExec = () => editImage(parsed, client);
-        const result = await withImageLedger(jobId, IMAGE_MODEL_NANO_BANANA_PRO, parsed, estimateUsd, () =>
-          client.dryRun ? genExec() : withImageDebit(deps, jobId, estimateUsd, genExec),
+        // under dry-run via the identical effective-client check used everywhere else.
+        const genExec = () => editImage(parsed, c);
+        const result = await withImageLedger(
+          jobId,
+          IMAGE_MODEL_NANO_BANANA_PRO,
+          parsed,
+          estimateUsd,
+          () => (c.dryRun ? genExec() : withImageDebit(deps, jobId, estimateUsd, genExec)),
+          c.dryRun,
         );
         return asResult(
           guard.costWarning ? { ...(result as unknown as Record<string, unknown>), costWarning: guard.costWarning } : result,
@@ -584,11 +634,17 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           // union here — same cast media_generate_image's estimator input needs.
           imageSize: parsed.imageSize as '1K' | '2K' | '4K',
         }).usd;
-        const guard: { costWarning?: string } = client.dryRun ? {} : checkCostGuardOrThrow(estimateUsd);
+        const c = clientFor(parsed);
+        const guard: { costWarning?: string } = c.dryRun ? {} : checkCostGuardOrThrow(estimateUsd);
         const jobId = generateJobId('compose-scene');
-        const genExec = () => composeScene(parsed, client);
-        const result = await withImageLedger(jobId, IMAGE_MODEL_NANO_BANANA_PRO, parsed, estimateUsd, () =>
-          client.dryRun ? genExec() : withImageDebit(deps, jobId, estimateUsd, genExec),
+        const genExec = () => composeScene(parsed, c);
+        const result = await withImageLedger(
+          jobId,
+          IMAGE_MODEL_NANO_BANANA_PRO,
+          parsed,
+          estimateUsd,
+          () => (c.dryRun ? genExec() : withImageDebit(deps, jobId, estimateUsd, genExec)),
+          c.dryRun,
         );
         return asResult(
           guard.costWarning
@@ -604,7 +660,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'Describe Image', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await describeImage(input as never, client))),
+      wrap(t.name, async (input) => asResult(await describeImage(input as never, clientFor(input)))),
     );
   }
 
@@ -636,8 +692,14 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           resolution: parsed.resolution as '720p' | '1080p' | '4k',
           generateAudio: parsed.generateAudio,
         }).usd;
-        const result = await submitVeoWithLedger('t2v', 'veo-t2v', parsed, estimateUsd, () =>
-          generateVideoT2V(parsed, client),
+        const c = clientFor(parsed);
+        const result = await submitVeoWithLedger(
+          't2v',
+          'veo-t2v',
+          parsed,
+          estimateUsd,
+          () => generateVideoT2V(parsed, c),
+          c.dryRun,
         );
         return asResult(result);
       }),
@@ -657,8 +719,14 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           resolution: parsed.resolution as '720p' | '1080p' | '4k',
           generateAudio: parsed.generateAudio,
         }).usd;
-        const result = await submitVeoWithLedger('i2v', 'veo-i2v', parsed, estimateUsd, () =>
-          generateVideoI2V(parsed, client),
+        const c = clientFor(parsed);
+        const result = await submitVeoWithLedger(
+          'i2v',
+          'veo-i2v',
+          parsed,
+          estimateUsd,
+          () => generateVideoI2V(parsed, c),
+          c.dryRun,
         );
         return asResult(result);
       }),
@@ -678,8 +746,14 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           resolution: parsed.resolution as '720p' | '1080p' | '4k',
           generateAudio: parsed.generateAudio,
         }).usd;
-        const result = await submitVeoWithLedger('interpolate', 'veo-interpolate', parsed, estimateUsd, () =>
-          generateVideoInterpolate(parsed, client),
+        const c = clientFor(parsed);
+        const result = await submitVeoWithLedger(
+          'interpolate',
+          'veo-interpolate',
+          parsed,
+          estimateUsd,
+          () => generateVideoInterpolate(parsed, c),
+          c.dryRun,
         );
         return asResult(result);
       }),
@@ -699,8 +773,14 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
           resolution: parsed.resolution as '720p' | '1080p' | '4k',
           generateAudio: parsed.generateAudio,
         }).usd;
-        const result = await submitVeoWithLedger('with-refs', 'veo-with-refs', parsed, estimateUsd, () =>
-          generateVideoWithRefs(parsed, client),
+        const c = clientFor(parsed);
+        const result = await submitVeoWithLedger(
+          'with-refs',
+          'veo-with-refs',
+          parsed,
+          estimateUsd,
+          () => generateVideoWithRefs(parsed, c),
+          c.dryRun,
         );
         return asResult(result);
       }),

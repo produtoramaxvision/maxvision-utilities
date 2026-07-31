@@ -642,7 +642,15 @@ apenas roteia lado a lado.
 
 **Esforço:** S (CC ~20min)
 
-## P3 — `veo-interpolate` e `veo-with-refs` aceitam `negativePrompt` e nunca enviam
+## (fechado) P3 — `veo-interpolate` e `veo-with-refs` aceitam `negativePrompt` e nunca enviam
+
+**FECHADO em 2026-07-30.** As duas passaram a enviar `negativePrompt` no config e
+a checar o orçamento de prompt dele, igual ao `veo-t2v`/`veo-i2v`. Dois testes por
+serviço: um afirma que o valor chega no config, outro que a chave fica **ausente**
+quando não foi passada — enviar string vazia seria outra forma de mentir. Provados
+vermelhos antes.
+
+**Texto original:**
 
 **O quê:** os schemas Zod das duas aceitam `negativePrompt`, mas o código nunca
 repassa o campo para o config do `generateVideos`.
@@ -657,7 +665,29 @@ submetido. Pré-existente.
 
 **Esforço:** XS (CC ~10min)
 
-## P2 — O campo `dryRun` do request é ignorado por todos os serviços
+## (fechado) P2 — O campo `dryRun` do request é ignorado por todos os serviços
+
+**FECHADO em 2026-07-30.** `clientFor()` em `register.ts` resolve o dry-run
+**efetivo** da requisição e alimenta os 4 sites de imagem e os 4 do Veo.
+
+**Decisão tomada:** os serviços passam a ler o campo, em vez de tirá-lo dos
+schemas. Tirar deixaria o caller sem o pedido; ler dá a ele o que o nome promete.
+
+**A regra é assimétrica de propósito:** a requisição só pode **acrescentar**
+dry-run, nunca remover. O campo tem `default(false)`, então toda requisição contra
+um servidor em dry-run carrega `dryRun: false` — se a requisição ganhasse, um
+servidor `--dry-run` geraria de verdade em toda chamada. Tem teste afirmando os
+dois lados.
+
+**Resolve para um cliente dry-run de verdade** (`createClient({dryRun:true})`), não
+`{...client, dryRun:true}`: o `createClient` também instala o proxy do SDK, então
+um caminho que escape de uma checagem de flag ainda assim não alcança o provider.
+O `ai` é preguiçoso, então construir um não custa nada.
+
+Provado vermelho antes: com `dryRun: true` num cliente normal e billing ligado, o
+provider **era chamado** e o crédito **era reservado**.
+
+**Texto original:**
 
 **O quê:** todo schema de imagem tem `dryRun: z.boolean().default(false)`, mas
 nenhum serviço lê esse campo. Só `client.dryRun`, definido na construção do
@@ -675,15 +705,28 @@ dos schemas. Manter um parâmetro que mente é pior que não ter.
 
 **Esforço:** S (CC ~20min)
 
-## P3 — Comentário de `handleKlingElementDelete` mente sobre o contrato
+## (fechado) P3 — Comentário de `handleKlingElementDelete` está incompleto
 
-**O quê:** o banner diz "Requires confirm:true — irreversible on backend". O código
-ramifica em `input.alsoDeleteRemote`. Não existe campo `confirm`.
+**FECHADO em 2026-07-30**, e **o TODO estava parcialmente errado**: o campo
+`confirm` **existe** — `z.literal(true)` em `KlingElementDeleteInput`
+(`src/mcp/schemas.ts:531`). Nada no corpo do handler o checa porque o zod barra na
+validação; requisição sem ele nunca chega lá.
+
+O que o comentário de fato omitia é a parte perigosa: `alsoDeleteRemote` tem
+**default `true`**, e é ele que ramifica o delete remoto. Local é soft-delete
+(`deleted_at`), remoto é irreversível. Confirmar **não** é a mesma coisa que optar
+pelo delete remoto, e o default é o destrutivo. O comentário agora diz isso.
 
 **Onde:** `src/mcp/handlers/kling.ts`.
-**Esforço:** XS (CC ~5min)
 
-## P3 — `releaseVideoFailed` é export morto no call-site
+## (fechado) P3 — `releaseVideoFailed` era export morto no call-site
+
+**FECHADO pelo T15**, confirmado por leitura em 2026-07-30: `registerAllTools` o
+invoca em **4 sites** (`register.ts:322`, `495`, `861`, `1619`). Aconteceu o que o
+próprio TODO previa — o T15 é quem passou a ter a estimativa no momento da falha.
+Nada a deletar.
+
+**Texto original:**
 
 **O quê:** definido e exportado em `src/mcp/handlers/billing.ts`, nunca invocado por
 `registerAllTools`. O caminho de release em falha de vídeo não existe de fato.

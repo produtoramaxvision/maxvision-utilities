@@ -12,6 +12,14 @@ export async function generateVideoInterpolate(
   client: MediaForgeClient,
 ): Promise<GenerateVideoResult> {
   assertPromptWithinBudget({ provider: 'google', prompt: input.prompt, field: 'prompt' });
+  if (input.negativePrompt) {
+    assertPromptWithinBudget({
+      provider: 'google',
+      prompt: input.negativePrompt,
+      kind: 'negativePrompt',
+      field: 'negativePrompt',
+    });
+  }
   if (client.dryRun) {
     return {
       operationName: 'dry-run-op',
@@ -49,6 +57,7 @@ export async function generateVideoInterpolate(
       enhancePrompt: VEO_ENHANCE_PROMPT_DEFAULT,
       ...(client.mode === 'vertex' ? { personGeneration: input.personGeneration } : {}),
       ...(client.mode === 'vertex' ? { generateAudio: input.generateAudio ?? true } : {}),
+      ...(input.negativePrompt ? { negativePrompt: input.negativePrompt } : {}),
     },
   });
 
