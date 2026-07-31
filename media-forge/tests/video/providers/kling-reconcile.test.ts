@@ -71,12 +71,15 @@ describe('KlingProvider.reconcileBillingWindow', () => {
     const fetchImpl = async () =>
       jsonResponse({
         code: 0,
-        data: [
-          {
-            id: 'kling-task-billed-1',
-            billing: [{ charge_type: 'cash', amount: '0.98' }],
-          },
-        ],
+        data: {
+          result: [
+            {
+              id: 'kling-task-billed-1',
+              billing: [{ charge_type: 'cash', amount: '0.98' }],
+            },
+          ],
+          has_more: false,
+        },
       });
 
     const provider = new KlingProvider({ dbPath, env: { KLING_API_KEY: 'ak-test' } });
@@ -113,12 +116,15 @@ describe('KlingProvider.reconcileBillingWindow', () => {
     const fetchImpl = async () =>
       jsonResponse({
         code: 0,
-        data: [
-          {
-            id: 'kling-task-unowned',
-            billing: [{ charge_type: 'cash', amount: '3' }],
-          },
-        ],
+        data: {
+          result: [
+            {
+              id: 'kling-task-unowned',
+              billing: [{ charge_type: 'cash', amount: '3' }],
+            },
+          ],
+          has_more: false,
+        },
       });
 
     const provider = new KlingProvider({ dbPath, env: { KLING_API_KEY: 'ak-test' } });
@@ -151,12 +157,15 @@ describe('KlingProvider.reconcileBillingWindow', () => {
     const fetchImpl = async () =>
       jsonResponse({
         code: 0,
-        data: [
-          {
-            id: 'kling-task-drift',
-            billing: [{ charge_type: 'cash', amount: '1.20' }], // 20% over estimate
-          },
-        ],
+        data: {
+          result: [
+            {
+              id: 'kling-task-drift',
+              billing: [{ charge_type: 'cash', amount: '1.20' }], // 20% over estimate
+            },
+          ],
+          has_more: false,
+        },
       });
 
     const provider = new KlingProvider({ dbPath, env: { KLING_API_KEY: 'ak-test' } });
@@ -186,12 +195,15 @@ describe('KlingProvider.reconcileBillingWindow', () => {
     const fetchImpl = async () =>
       jsonResponse({
         code: 0,
-        data: [
-          {
-            id: 'kling-task-no-drift',
-            billing: [{ charge_type: 'cash', amount: '1.005' }], // 0.5% over — within tolerance
-          },
-        ],
+        data: {
+          result: [
+            {
+              id: 'kling-task-no-drift',
+              billing: [{ charge_type: 'cash', amount: '1.005' }], // 0.5% over — within tolerance
+            },
+          ],
+          has_more: false,
+        },
       });
 
     const provider = new KlingProvider({ dbPath, env: { KLING_API_KEY: 'ak-test' } });
@@ -243,8 +255,10 @@ describe('KlingProvider.reconcileBillingWindow — regressions', () => {
     const fetchImpl = (async () =>
       jsonResponse({
         code: 0,
-        data: [{ id: 'task-unknown', billing: [{ charge_type: 'unit', amount: '4' }] }],
-        has_more: false,
+        data: {
+          result: [{ id: 'task-unknown', billing: [{ charge_type: 'unit', amount: '4' }] }],
+          has_more: false,
+        },
       })) as unknown as typeof fetch;
 
     const result = await provider.reconcileBillingWindow({
@@ -287,26 +301,36 @@ describe('KlingProvider.reconcileBillingWindow — regressions', () => {
     });
 
     let call = 0;
-    const fetchImpl = (async (url: string) => {
+    const fetchImpl = (async (url: string, init: RequestInit) => {
       call += 1;
+      // The window and the cursor travel in the POST body — the URL is the bare
+      // path on every page. Asserting on the query string, as this test used to,
+      // was asserting on a call shape the live API rejects with HTTP 400.
+      expect(String(url)).toBe('https://api-singapore.klingai.com/tasks');
+      const body = JSON.parse(init.body as string) as Record<string, unknown>;
+
       if (call === 1) {
         // First page reports more, and hands back a cursor.
-        expect(String(url)).toContain('start_time');
+        expect(body.start_time).toBe(1);
         return jsonResponse({
           code: 0,
-          data: [{ id: 'task-p1', billing: [{ charge_type: 'unit', amount: '10' }] }],
-          next_cursor: 'CURSOR-2',
-          has_more: true,
+          data: {
+            result: [{ id: 'task-p1', billing: [{ charge_type: 'unit', amount: '10' }] }],
+            next_cursor: 'CURSOR-2',
+            has_more: true,
+          },
         });
       }
       // Second page must be requested BY CURSOR, with the window dropped —
       // the docs state start_time/end_time are ignored once a cursor is set.
-      expect(String(url)).toContain('cursor=CURSOR-2');
-      expect(String(url)).not.toContain('start_time');
+      expect(body.cursor).toBe('CURSOR-2');
+      expect(body).not.toHaveProperty('start_time');
       return jsonResponse({
         code: 0,
-        data: [{ id: 'task-p2', billing: [{ charge_type: 'unit', amount: '20' }] }],
-        has_more: false,
+        data: {
+          result: [{ id: 'task-p2', billing: [{ charge_type: 'unit', amount: '20' }] }],
+          has_more: false,
+        },
       });
     }) as unknown as typeof fetch;
 

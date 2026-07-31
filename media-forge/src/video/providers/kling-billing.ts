@@ -8,13 +8,25 @@
 // only right while the local rate table matches Kling's real pricing, and nothing
 // detects the moment it stops.
 //
-// Kling reports the charge per task. Two surfaces, both verified via context7
-// against kling.ai/document-api on 2026-07-30:
+// Kling reports the charge per task. Two surfaces, read on 2026-07-30 from the
+// documentation itself (kling.ai/document-api/llms.txt is the page index) and
+// exercised against the live account at zero cost:
 //
-//   GET /tasks (list form)   per task: billing[] = [{ charge_type, amount, package_type }]
+//   POST /tasks              the LIST form. Body {start_time,end_time,cursor,limit,filters}.
+//                            Response data.result[] carries per task:
+//                            billing[] = [{ charge_type, amount, package_type, list_price }]
 //                            charge_type is 'cash' or 'unit'
-//   GET /account/costs       resource packs: total_quantity / remaining_quantity,
+//   GET  /account/costs      resource packs: total_quantity / remaining_quantity,
 //                            with a documented 12h delay on remaining
+//
+// The earlier build of this file sent GET /tasks with the window as a query
+// string. GET /tasks accepts ONLY task_ids / external_task_ids; the live API
+// answers the window form with HTTP 400 code 1201 "task_ids or external_task_ids
+// is required", so reconciliation never settled anything. Every test injected
+// fetch and asserted against a fixture written from the same wrong belief, which
+// is why 35 passing tests said nothing about it. The call shape is now asserted
+// directly — verb, URL and body — because that is the part a fixture cannot vouch
+// for on its own.
 //
 // ## The unit/cash distinction is the whole risk here
 //
@@ -56,6 +68,15 @@ export interface KlingBillingEntry {
   readonly charge_type?: string;
   readonly amount?: string | number;
   readonly package_type?: string;
+  /**
+   * Pre-discount price, present only on the cash branch.
+   *
+   * Carried through untouched rather than folded into the settled cost: the
+   * ledger must record what was actually deducted, not the list price. It is
+   * kept because `amount` diverging from `list_price` is how a discount
+   * changing under us would become visible.
+   */
+  readonly list_price?: string | number;
 }
 
 /**
@@ -65,6 +86,15 @@ export interface KlingBillingEntry {
  * differ by a factor of ~7, so a wrong branch produces a number that is
  * confidently incorrect — worse than no number at all, because it would replace
  * a merely-approximate estimate with a wrong "actual".
+ *
+ * KNOWN GAP on the cash branch: `billing[]` carries no currency, and Kling's
+ * balance currency enum is CNY or USD (documented on the Balance Deduction
+ * Detail page, which does return `currency`). A CNY-billed account would have
+ * CNY written into `actual_usd` as though it were dollars. This build assumes
+ * USD because that is what the pricing table quotes; the account this was
+ * verified against had no deductions in the probe window, so the assumption is
+ * untested rather than confirmed. Tracked in TODOS.md — the fix is to read
+ * `currency` from POST /account/billing/balance, not to guess here.
  */
 export function chargeToUsd(entry: KlingBillingEntry): number {
   const raw = typeof entry.amount === 'string' ? Number.parseFloat(entry.amount) : entry.amount;
@@ -107,50 +137,57 @@ export interface FetchBillingOptions {
   readonly baseUrl?: string;
 }
 
+/** Path of both /tasks query forms. The verb is what distinguishes them. */
+export const KLING_TASK_LIST_PATH = '/tasks';
+
+export interface KlingBillingRequestBody {
+  readonly start_time?: number;
+  readonly end_time?: number;
+  readonly cursor?: string;
+  readonly limit: number;
+}
+
 /**
- * Builds the /tasks list query for a billing pull.
+ * Builds the body for the /tasks LIST query.
  *
- * The LIST form of /tasks, not the by-id form: only the list response carries
- * `billing[]`. Both live at the same path, which is easy to conflate — querying
- * by id returns a task with no billing at all and looks like a task that was
- * never charged.
+ * A body, not a query string: `POST /tasks` is the cursor/window form, and it
+ * is the only one whose response carries `billing[]` for a set of tasks.
+ * `GET /tasks` shares the path but takes only task_ids / external_task_ids, so
+ * the window sent as a query string is not merely ignored — the request is
+ * rejected outright.
  */
-export function buildBillingQuery(args: {
+export function buildBillingRequestBody(args: {
   readonly startTimeMs: number;
   readonly endTimeMs: number;
   readonly limit?: number;
   readonly cursor?: string;
-}): string {
-  const params = new URLSearchParams();
+}): KlingBillingRequestBody {
+  // Documented maximum is 500. Clamping rather than forwarding a larger number
+  // keeps the failure local instead of a rejected request mid-reconciliation.
+  const limit = Math.min(args.limit ?? 100, 500);
 
   // A cursor supersedes the window: the docs state start_time and end_time are
   // ignored when cursor is set, so sending all three invites the caller to
   // believe a window is being applied when it is not.
   if (args.cursor !== undefined && args.cursor.length > 0) {
-    params.set('cursor', args.cursor);
-  } else {
-    params.set('start_time', String(args.startTimeMs));
-    params.set('end_time', String(args.endTimeMs));
+    return { cursor: args.cursor, limit };
   }
-
-  // Documented maximum is 500. Clamping rather than forwarding a larger number
-  // keeps the failure local instead of a rejected request mid-reconciliation.
-  const limit = Math.min(args.limit ?? 100, 500);
-  params.set('limit', String(limit));
-
-  return `/tasks?${params.toString()}`;
+  return { start_time: args.startTimeMs, end_time: args.endTimeMs, limit };
 }
 
 interface TaskListEnvelope {
   readonly code?: number;
   readonly message?: string;
-  readonly data?: ReadonlyArray<{
-    readonly id?: string;
-    readonly task_id?: string;
-    readonly billing?: ReadonlyArray<KlingBillingEntry>;
-  }>;
-  readonly next_cursor?: string;
-  readonly has_more?: boolean;
+  readonly data?: {
+    readonly result?: ReadonlyArray<{
+      readonly id?: string;
+      readonly task_id?: string;
+      readonly billing?: ReadonlyArray<KlingBillingEntry>;
+    }>;
+    readonly count?: number;
+    readonly next_cursor?: string;
+    readonly has_more?: boolean;
+  };
 }
 
 export interface BillingPage {
@@ -179,12 +216,13 @@ export async function fetchTaskBillingPage(
   const base = opts.baseUrl ?? KLING_BILLING_BASE;
   const doFetch = opts.fetchImpl ?? fetch;
 
-  const response = await doFetch(`${base}${buildBillingQuery(args)}`, {
-    method: 'GET',
+  const response = await doFetch(`${base}${KLING_TASK_LIST_PATH}`, {
+    method: 'POST',
     headers: {
       Authorization: `Bearer ${opts.apiKey}`,
       'Content-Type': 'application/json',
     },
+    body: JSON.stringify(buildBillingRequestBody(args)),
   });
 
   if (!response.ok) {
@@ -204,8 +242,11 @@ export async function fetchTaskBillingPage(
     );
   }
 
+  // `result` is omitted entirely — not returned empty — when the window holds
+  // no tasks. Verified live against the real account: `data` came back as
+  // { count: 0, has_more: false } with no result key.
   const tasks: KlingTaskBilling[] = [];
-  for (const row of envelope.data ?? []) {
+  for (const row of envelope.data?.result ?? []) {
     const taskId = row.id ?? row.task_id;
     if (taskId === undefined) continue;
 
@@ -222,12 +263,14 @@ export async function fetchTaskBillingPage(
     }
   }
 
+  // Pagination lives inside `data`, next to `result` — not at the envelope
+  // root. Read at the root, every page looked like the last one, so a window
+  // wider than one page settled page 1 and still reported success.
+  const nextCursor = envelope.data?.next_cursor;
   return {
     tasks,
-    ...(envelope.next_cursor !== undefined && envelope.next_cursor.length > 0
-      ? { nextCursor: envelope.next_cursor }
-      : {}),
-    hasMore: envelope.has_more === true,
+    ...(nextCursor !== undefined && nextCursor.length > 0 ? { nextCursor } : {}),
+    hasMore: envelope.data?.has_more === true,
   };
 }
 

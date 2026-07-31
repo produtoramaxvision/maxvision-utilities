@@ -8,7 +8,7 @@ import {
   KLING_CHARGE_TYPES,
   chargeToUsd,
   totalChargeUsd,
-  buildBillingQuery,
+  buildBillingRequestBody,
   fetchTaskBillingPage,
   fetchAccountCosts,
   compareEstimateToActual,
@@ -107,34 +107,42 @@ describe('totalChargeUsd', () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildBillingQuery
+// buildBillingRequestBody
+//
+// The listing form of /tasks is POST-with-a-body, NOT a query string. The
+// previous shape here sent GET /tasks?start_time=…&end_time=…&limit=… — which
+// the live API answers with HTTP 400 code 1201 "task_ids or external_task_ids
+// is required", because GET only accepts task_ids / external_task_ids.
+// Source: kling.ai/document-api/api/video/3-0-turbo/image-to-video.md,
+// sections "Query Task (By task ID)" (GET) and "Query Task (By Cursor)" (POST).
 // ---------------------------------------------------------------------------
-describe('buildBillingQuery', () => {
-  it('without cursor: includes start_time + end_time', () => {
-    const q = buildBillingQuery({ startTimeMs: 1000, endTimeMs: 2000 });
-    expect(q).toContain('start_time=1000');
-    expect(q).toContain('end_time=2000');
+describe('buildBillingRequestBody', () => {
+  it('without cursor: carries start_time + end_time', () => {
+    const b = buildBillingRequestBody({ startTimeMs: 1000, endTimeMs: 2000 });
+    expect(b.start_time).toBe(1000);
+    expect(b.end_time).toBe(2000);
+    expect(b.cursor).toBeUndefined();
   });
 
   // The docs state start_time/end_time are ignored once cursor is set. Sending
   // all three anyway would let a caller believe a window is still being
-  // applied on page 2+ of a paginated pull when it is not — so the params must
+  // applied on page 2+ of a paginated pull when it is not — so the fields must
   // be genuinely ABSENT, not just superseded server-side.
-  it('with cursor: includes cursor and OMITS start_time/end_time entirely', () => {
-    const q = buildBillingQuery({ startTimeMs: 1000, endTimeMs: 2000, cursor: 'cur-abc' });
-    expect(q).toContain('cursor=cur-abc');
-    expect(q).not.toContain('start_time');
-    expect(q).not.toContain('end_time');
+  it('with cursor: carries cursor and OMITS start_time/end_time entirely', () => {
+    const b = buildBillingRequestBody({ startTimeMs: 1000, endTimeMs: 2000, cursor: 'cur-abc' });
+    expect(b.cursor).toBe('cur-abc');
+    expect(b).not.toHaveProperty('start_time');
+    expect(b).not.toHaveProperty('end_time');
   });
 
   it('limit clamps at 500', () => {
-    const q = buildBillingQuery({ startTimeMs: 0, endTimeMs: 1, limit: 10000 });
-    expect(q).toContain('limit=500');
+    const b = buildBillingRequestBody({ startTimeMs: 0, endTimeMs: 1, limit: 10000 });
+    expect(b.limit).toBe(500);
   });
 
   it('default limit is 100', () => {
-    const q = buildBillingQuery({ startTimeMs: 0, endTimeMs: 1 });
-    expect(q).toContain('limit=100');
+    const b = buildBillingRequestBody({ startTimeMs: 0, endTimeMs: 1 });
+    expect(b.limit).toBe(100);
   });
 });
 
@@ -144,13 +152,39 @@ describe('buildBillingQuery', () => {
 describe('fetchTaskBillingPage', () => {
   const opts = { startTimeMs: 1000, endTimeMs: 2000 };
 
+  // Guards the defect that made the whole reconciliation dead on arrival:
+  // the request went out as GET with a query string, and the live API answers
+  // that with HTTP 400 code 1201. Asserting the verb and the body is the only
+  // thing an injected-fetch test can do to keep the call shape honest.
+  it('issues POST /tasks with the window in the JSON body, not a query string', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ code: 0, data: { result: [], has_more: false } }));
+    await fetchTaskBillingPage(opts, {
+      apiKey: 'k',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(String(url)).toBe('https://api-singapore.klingai.com/tasks');
+    expect(String(url)).not.toContain('?');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      start_time: 1000,
+      end_time: 2000,
+      limit: 100,
+    });
+  });
+
   it('parses tasks + billing into { taskId, actualUsd, entries }', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({
         code: 0,
-        data: [
-          { id: 'task-1', billing: [{ charge_type: 'cash', amount: '3' }] },
-        ],
+        data: {
+          result: [{ id: 'task-1', billing: [{ charge_type: 'cash', amount: '3' }] }],
+          count: 1,
+          has_more: false,
+        },
       }),
     );
     const page = await fetchTaskBillingPage(opts, { apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
@@ -183,10 +217,13 @@ describe('fetchTaskBillingPage', () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({
         code: 0,
-        data: [
-          { id: 'task-bad', billing: [{ charge_type: 'mystery', amount: '5' }] },
-          { id: 'task-good', billing: [{ charge_type: 'cash', amount: '2' }] },
-        ],
+        data: {
+          result: [
+            { id: 'task-bad', billing: [{ charge_type: 'mystery', amount: '5' }] },
+            { id: 'task-good', billing: [{ charge_type: 'cash', amount: '2' }] },
+          ],
+          has_more: false,
+        },
       }),
     );
     const page = await fetchTaskBillingPage(opts, { apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
@@ -197,28 +234,52 @@ describe('fetchTaskBillingPage', () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({
         code: 0,
-        data: [
-          { id: 'task-no-billing' },
-          { id: 'task-empty-billing', billing: [] },
-          { id: 'task-with-billing', billing: [{ charge_type: 'cash', amount: '1' }] },
-        ],
+        data: {
+          result: [
+            { id: 'task-no-billing' },
+            { id: 'task-empty-billing', billing: [] },
+            { id: 'task-with-billing', billing: [{ charge_type: 'cash', amount: '1' }] },
+          ],
+          has_more: false,
+        },
       }),
     );
     const page = await fetchTaskBillingPage(opts, { apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
     expect(page.tasks.map((t) => t.taskId)).toEqual(['task-with-billing']);
   });
 
-  it('next_cursor / has_more surface correctly', async () => {
+  // next_cursor and has_more live INSIDE data, alongside result — not at the
+  // envelope root. Reading them at the root made every page look like the last
+  // one, so a multi-page window settled page 1 and reported success.
+  it('next_cursor / has_more surface correctly from inside data', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
-      jsonResponse({ code: 0, data: [], next_cursor: 'cur-next', has_more: true }),
+      jsonResponse({
+        code: 0,
+        data: { result: [], count: 0, next_cursor: 'cur-next', has_more: true },
+      }),
     );
     const page = await fetchTaskBillingPage(opts, { apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
     expect(page.nextCursor).toBe('cur-next');
     expect(page.hasMore).toBe(true);
   });
 
+  // The live API omits `result` entirely when the window is empty — verified
+  // against the real account on 2026-07-30: `data` came back as
+  // { count, has_more } with no result key at all.
+  it('an empty window (data with no result key) yields no tasks and does not throw', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ code: 0, data: { count: 0, has_more: false } }));
+    const page = await fetchTaskBillingPage(opts, {
+      apiKey: 'k',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(page.tasks).toEqual([]);
+    expect(page.hasMore).toBe(false);
+  });
+
   it('missing next_cursor / has_more default to absent-cursor and hasMore=false', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ code: 0, data: [] }));
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ code: 0, data: { result: [] } }));
     const page = await fetchTaskBillingPage(opts, { apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
     expect(page.nextCursor).toBeUndefined();
     expect(page.hasMore).toBe(false);
@@ -228,7 +289,9 @@ describe('fetchTaskBillingPage', () => {
   // extra/alternate scheme (query-string key, Basic auth) would either leak
   // the key somewhere unintended or get silently ignored by Kling.
   it('Authorization header is "Bearer <key>", and no other auth scheme is sent', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ code: 0, data: [] }));
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ code: 0, data: { result: [], has_more: false } }));
     await fetchTaskBillingPage(opts, { apiKey: 'secret-key-123', fetchImpl: fetchImpl as unknown as typeof fetch });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const [, init] = fetchImpl.mock.calls[0]!;
