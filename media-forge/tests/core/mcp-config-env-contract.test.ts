@@ -42,7 +42,44 @@ describe('.mcp.json env contract', () => {
     'HF_API_SECRET',
     'FAL_KEY',
     'BYTEPLUS_ARK_API_KEY',
+    // Opt-in providers. These were absent, and the effect was the exact defect
+    // this file was written for, one provider later: MuAPI's tools registered,
+    // documented and gated on nothing but MUAPI_API_KEY — which could not reach
+    // the server process, so every call refused with "MUAPI_API_KEY is not set"
+    // for a user who had set it correctly.
+    'MUAPI_API_KEY',
+    'OPENAI_API_KEY',
+    'HIGGSFIELD_API_KEY',
   ] as const;
+
+  // Not credentials — switches and path overrides. Same whitelist, same
+  // consequence when omitted: `MEDIA_FORGE_WAN2GP_ENABLED=true` set by the user
+  // never arrives, and the provider reports itself disabled. Kept separate
+  // because the "must be an ${ENV} interpolation, never a literal" rule below is
+  // about secrets.
+  const REQUIRED_SETTINGS = [
+    'MEDIA_FORGE_WAN2GP_ENABLED',
+    'MEDIA_FORGE_WAN2GP_URL',
+    'MEDIA_FORGE_HF_CLI_ENABLED',
+    'MEDIA_FORGE_CODEX_IMAGE_ENABLED',
+    'MEDIA_FORGE_CODEX_IMAGE_MODE',
+    'MEDIA_FORGE_CODEX_IMAGE_USD_PER_IMAGE',
+    // Windows: npm/pnpm install CLIs as shims Node cannot spawn without a
+    // shell. These point the resolver at a real executable, and are useless if
+    // they cannot be set from outside.
+    'MEDIA_FORGE_CODEX_BIN',
+    'MEDIA_FORGE_HF_BIN',
+  ] as const;
+
+  for (const name of REQUIRED_SETTINGS) {
+    it(`forwards ${name} to the media-forge server`, () => {
+      expect(
+        mediaForgeEnv[name],
+        `${name} is read by the runtime but absent from the .mcp.json env block, ` +
+          `so a user who sets it gets no effect and no error`,
+      ).toBeDefined();
+    });
+  }
 
   for (const name of REQUIRED_CREDENTIALS) {
     it(`forwards ${name} to the media-forge server`, () => {
