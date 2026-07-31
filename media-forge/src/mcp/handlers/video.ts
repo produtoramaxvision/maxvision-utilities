@@ -13,6 +13,11 @@ import { GoogleVeoProvider } from '../../video/providers/google-veo.js';
 import { VIDEO_MODELS } from '../../core/models.js';
 import { defaultDbPath, isSpecRoutable, providerServesSpec, getAdaptedProviders } from './shared.js';
 import { isKlingV2Enabled, isV2OnlyModel } from '../../video/providers/kling-v2.js';
+import {
+  alternatePathsFor,
+  describeAlternatePaths,
+  type AlternatePath,
+} from '../../video/aggregator-routes.js';
 
 // ---------------------------------------------------------------------------
 // handleVideoCostEstimate — estimate USD cost for a video generation request
@@ -86,6 +91,17 @@ export interface VideoRouteResult {
   readonly mode: string;
   readonly estimatedCostUSD: number;
   readonly rationale: string;
+  /**
+   * The same underlying model reached through an aggregator, priced in THAT
+   * platform's unit.
+   *
+   * Reported, never ranked. Higgsfield resells Kling and Seedance, so the
+   * cheapest USD route is not automatically the cheapest route — but its credits
+   * are a prepaid monthly bucket, not dollars, and converting one into the other
+   * is a policy the operator declares, not a fact this router can read. See
+   * src/video/aggregator-routes.ts.
+   */
+  readonly alternatePaths?: ReadonlyArray<AlternatePath>;
 }
 
 export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteResult> {
@@ -217,7 +233,20 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
         `Set the env var to a positive number (USD per Higgsfield credit) before routing.`,
     );
   }
-  const rationale = buildRationale(picked, input, sorted.length, explicit !== undefined);
+  // Aggregator awareness. The picked model may be the same underlying model the
+  // caller could reach through Higgsfield at a different price — reported so the
+  // choice is visible, never folded into the sort above. The two costs are in
+  // different units and describeAlternatePaths says so out loud, because a
+  // reader shown credits next to dollars will otherwise compare them.
+  const alternatePaths = alternatePathsFor({
+    modelId: picked.id,
+    durationSec: input.durationSec,
+    resolution: input.resolution,
+  });
+
+  const rationale =
+    buildRationale(picked, input, sorted.length, explicit !== undefined) +
+    describeAlternatePaths(alternatePaths);
 
   return {
     provider: picked.provider,
@@ -225,6 +254,7 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
     mode: input.mode,
     estimatedCostUSD,
     rationale,
+    ...(alternatePaths.length > 0 ? { alternatePaths } : {}),
   };
 }
 

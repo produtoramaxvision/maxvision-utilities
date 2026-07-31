@@ -567,7 +567,29 @@ Seedance. Se o provider informa o débito real, a estimativa deixa de ser a font
 
 **Esforço:** M (CC ~1h)
 
-## P1 — Roteador não sabe que o Higgsfield revende Kling e Seedance
+## (parcial) P1 — Roteador não sabe que o Higgsfield revende Kling e Seedance
+
+**METADE FECHADA em 2026-07-30.** `src/video/aggregator-routes.ts` +
+`alternatePaths` no `VideoRouteResult`. O roteador passou a **saber** que os dois
+caminhos são o mesmo modelo e reporta o alternativo na unidade nativa dele.
+`describeAlternatePaths` diz explicitamente que crédito **não** foi convertido em
+dólar e que aquilo não é afirmação de mais barato — quem lê crédito ao lado de
+dólar compara sozinho se o texto não recusar.
+
+**O que continua aberto, e é decisão do usuário, não minha:** a escolha automática
+entre as duas unidades. Precisa de `MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT`
+declarado — o mecanismo já existe e spec em crédito sem ele já pontua Infinity e
+nunca vence o sort. Enquanto não for declarado, o roteador informa em vez de
+escolher.
+
+Ficaram de fora do mapa `kling2_6` e `seedance1_5`: medidos, mas sem entrada
+direta em `src/core/models.ts`, então não há segundo caminho para comparar.
+
+Texto original abaixo.
+
+---
+
+## (histórico) P1 — Roteador não sabe que o Higgsfield revende Kling e Seedance
 
 **O quê:** confirmado na doc oficial (`docs.higgsfield.ai/guides/video`) que a
 plataforma do Higgsfield expõe modelos de terceiros nos próprios paths:
