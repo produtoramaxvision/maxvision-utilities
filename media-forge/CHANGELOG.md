@@ -4,6 +4,26 @@ All notable changes to `media-forge` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.10] - 2026-07-31
+
+### Fixed
+
+- **The opt-in providers could not be configured through the plugin.** `.mcp.json`'s
+  `env` block is a whitelist, and it forwarded every direct-vendor credential and
+  none of the opt-in ones. A user who exported `MUAPI_API_KEY` correctly still got
+  "MUAPI_API_KEY is not set" on every call, because the variable was dropped at a
+  boundary they cannot see. Same for `MEDIA_FORGE_WAN2GP_ENABLED`,
+  `MEDIA_FORGE_HF_CLI_ENABLED`, the Codex image settings, and the
+  `MEDIA_FORGE_CODEX_BIN` / `MEDIA_FORGE_HF_BIN` overrides that exist to fix
+  Windows spawn failures. `HIGGSFIELD_API_KEY` was missing too.
+  `tests/core/mcp-config-env-contract.test.ts` — written for this exact defect when
+  `KLING_API_KEY` was dropped the same way — now covers them.
+
+> Released as its own patch rather than folded into 0.2.9 because the Claude Code
+> plugin installer resolves a version DIRECTORY from `plugin.json`. Re-publishing
+> different content under a version already installed is a no-op: `plugin update`
+> answers "already at the latest version" and the fix never lands.
+
 ## [0.2.9] - 2026-07-31
 
 Collapses everything unshipped since the v0.2.8 deploy. Versions 0.2.5–0.2.8 were
