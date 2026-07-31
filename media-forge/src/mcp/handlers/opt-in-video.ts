@@ -28,20 +28,34 @@
 //
 // ## Verification status
 //
-// NEITHER has been exercised against a real endpoint from this repo. MuAPI needs
-// a MUAPI_API_KEY this repo does not have; Wan2GP needs a local server the
-// operator chose not to install. Every test here injects fetch. That is a weaker
-// claim than the Kling work, where the live API answered, and it is stated rather
-// than left for someone to assume from a green suite.
+// NEITHER has been exercised against a real endpoint from this repo, and that
+// includes the poll and download tools added later. MuAPI needs a MUAPI_API_KEY
+// this repo does not have; Wan2GP needs a local server the operator chose not to
+// install. Every test here injects fetch. That is a weaker claim than the Kling
+// work, where the live API answered, and it is stated rather than left for
+// someone to assume from a green suite.
+//
+// What IS verified is the wire contract, read from muapi.ai/docs via context7 on
+// 2026-07-31 rather than guessed: the submit and poll bodies both carry a `cost`
+// object with `amount_usd` and `refunded`, and the poll endpoint is keyed on
+// MuAPI's `request_id`. The shapes below follow those docs. Documented shape is
+// stronger than a guess and weaker than a response.
 
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ValidationError } from '../../core/errors.js';
 import {
   MuapiModelsInput,
   MuapiGenerateInput,
   type MuapiGenerateInputT,
+  MuapiPollInput,
+  type MuapiPollInputT,
+  MuapiDownloadInput,
+  type MuapiDownloadInputT,
   Wan2gpGenerateInput,
   type Wan2gpGenerateInputT,
 } from '../schemas.js';
+import { defaultDbPath } from './shared.js';
 import { MuapiProvider, buildMuapiParams, type MuapiOptions } from '../../video/providers/muapi.js';
 import {
   Wan2gpProvider,
@@ -50,10 +64,29 @@ import {
   WAN2GP_RATE_USD,
   type Wan2gpOptions,
 } from '../../video/providers/wan2gp.js';
-import type { VideoGenerationRequest } from '../../video/providers/base.js';
+import type { VideoGenerationRequest, VideoLedgerHooks } from '../../video/providers/base.js';
 
 export interface OptInHandlerOpts {
   readonly fetchImpl?: typeof fetch;
+  /** Cost-tracker database. Defaults to the project DB; overridden in tests. */
+  readonly dbPath?: string;
+  /**
+   * Cost-guard hook, run BEFORE the network submit. Throws CostGuardError to
+   * block; returns `{ costWarning }` for a non-blocking warning. Same shape the
+   * Kling and Higgsfield handlers take.
+   */
+  readonly checkCostGuard?: (estimateUsd: number) => { costWarning?: string } | undefined;
+  /** Cheap balance read that fails fast before the request body is built. */
+  readonly preflightCredit?: (estimateUsd: number) => Promise<void>;
+  /**
+   * Reserve-before-submit hooks, forwarded into `MuapiProvider.generate()`.
+   *
+   * Omitting these was the gap that made MuAPI the one paid provider whose
+   * spend reached no reservation, no cost guard and no daily cap — every other
+   * paid handler here forwards them, and a green suite over a handler that
+   * simply never called them looks identical to one that does.
+   */
+  readonly ledgerHooks?: VideoLedgerHooks;
 }
 
 /**
@@ -128,7 +161,14 @@ export async function handleMuapiModels(
 export async function handleMuapiGenerate(
   rawInput: unknown,
   opts: OptInHandlerOpts = {},
-): Promise<{ jobId: string; provider: string; modelId: string; estimatedCostUSD: number }> {
+): Promise<{
+  jobId: string;
+  requestId: string;
+  provider: string;
+  modelId: string;
+  estimatedCostUSD: number;
+  costWarning?: string;
+}> {
   const input: MuapiGenerateInputT = MuapiGenerateInput.parse(rawInput);
   const provider = new MuapiProvider(providerOpts(opts));
 
@@ -155,18 +195,135 @@ export async function handleMuapiGenerate(
   // cannot read rather than returning a number — a fabricated estimate would
   // pass the cost guard and land in the ledger looking authoritative.
   const estimatedCostUSD = await provider.fetchCostUsd(input.modelName, params);
-  const handle = await provider.generate(req);
+
+  // Guards run on the SAME number the caller is quoted, and before the submit.
+  const costWarning = opts.checkCostGuard?.(estimatedCostUSD)?.costWarning;
+  await opts.preflightCredit?.(estimatedCostUSD);
+
+  const handle = await provider.generate(req, opts.ledgerHooks);
+
+  // `providerNativeId` is MuAPI's request_id and the ONLY key its poll endpoint
+  // accepts. Returning just `jobId` — the local `muapi-{ts}-{rand}` ledger key —
+  // handed callers an id MuAPI has never heard of, which made every submitted
+  // job unretrievable. Both are returned, and named for what each opens.
+  if (handle.providerNativeId === undefined) {
+    throw new ValidationError(
+      'MuAPI accepted the job but returned no request_id, so it cannot be polled. ' +
+        `The generation is running and billing under ledger id ${handle.jobId}; ` +
+        'reconcile from the MuAPI dashboard.',
+    );
+  }
 
   return {
     jobId: handle.jobId,
+    requestId: handle.providerNativeId,
     provider: handle.provider,
     modelId: handle.model,
     estimatedCostUSD,
+    ...(costWarning !== undefined ? { costWarning } : {}),
   };
 }
 
 function providerOpts(opts: OptInHandlerOpts): MuapiOptions {
-  return opts.fetchImpl !== undefined ? { fetchImpl: opts.fetchImpl } : {};
+  return {
+    // The cost-tracker row is what makes a MuAPI job visible to the cost report
+    // and settleable at completion. Every other paid provider gets one.
+    dbPath: opts.dbPath ?? defaultDbPath(),
+    ...(opts.fetchImpl !== undefined ? { fetchImpl: opts.fetchImpl } : {}),
+  };
+}
+
+export interface MuapiPollResult {
+  readonly requestId: string;
+  readonly state: string;
+  readonly assetUrls?: ReadonlyArray<string>;
+  readonly errorMessage?: string;
+  readonly actualUsd?: number;
+  readonly refunded?: boolean;
+  readonly settled?: boolean;
+}
+
+/**
+ * Polls a MuAPI request and settles the ledger once it reaches a terminal state.
+ *
+ * `MuapiProvider.pollStatus` and `.download` shipped complete, tested, and with
+ * no caller anywhere — every submitted MuAPI job was therefore unretrievable.
+ * That is the same defect class as the Codex image adapter and the two Kling
+ * billing methods on this branch: a tool, or the code is not a feature.
+ *
+ * Settlement lives here rather than inside the provider because a poll is a read
+ * and callers run it repeatedly; making the write explicit at the tool boundary
+ * keeps the side effect where an operator can see it. `recordActualCost` is
+ * idempotent (`AND actual_usd IS NULL`), so repeated polls of a completed job
+ * settle exactly once.
+ */
+export async function handleMuapiPoll(
+  rawInput: unknown,
+  opts: OptInHandlerOpts = {},
+): Promise<MuapiPollResult> {
+  const input: MuapiPollInputT = MuapiPollInput.parse(rawInput);
+  const provider = new MuapiProvider(providerOpts(opts));
+  const status = await provider.pollStatus(input.requestId);
+
+  // Settled only when BOTH the state is terminal and MuAPI reported a figure.
+  // Recording a 0 for "no cost field in this response" would close the row at
+  // zero and silently under-count the daily cap for a job that was billed.
+  let settled = false;
+  const terminal = status.state === 'completed' || status.state === 'failed';
+  if (terminal && status.actualUsd !== undefined && input.jobId !== undefined) {
+    await provider.recordActualCostUSD(input.jobId, status.actualUsd);
+    settled = true;
+  }
+
+  return {
+    requestId: input.requestId,
+    state: status.state,
+    ...(status.assetUrls !== undefined ? { assetUrls: status.assetUrls } : {}),
+    ...(status.errorMessage !== undefined ? { errorMessage: status.errorMessage } : {}),
+    ...(status.actualUsd !== undefined ? { actualUsd: status.actualUsd } : {}),
+    ...(status.refunded !== undefined ? { refunded: status.refunded } : {}),
+    ...(terminal ? { settled } : {}),
+  };
+}
+
+/**
+ * Downloads a completed MuAPI output to the local outputs directory.
+ *
+ * Mirrors `handleKlingDownload`'s destination logic so MuAPI files land beside
+ * every other provider's rather than in a second place nobody looks.
+ */
+export async function handleMuapiDownload(
+  rawInput: unknown,
+  opts: OptInHandlerOpts = {},
+): Promise<{
+  requestId: string;
+  outputPath: string;
+  sizeBytes: number;
+  contentType: string;
+}> {
+  const input: MuapiDownloadInputT = MuapiDownloadInput.parse(rawInput);
+  const provider = new MuapiProvider(providerOpts(opts));
+  const asset = await provider.download(input.requestId);
+
+  const projectDir = process.env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
+  const outputsDir = process.env['MEDIA_FORGE_OUTPUTS_DIR'] ?? join(projectDir, 'outputs');
+  mkdirSync(outputsDir, { recursive: true });
+
+  // Extension from what MuAPI actually served. The catalogue spans video AND
+  // image models, so a hardcoded .mp4 would mislabel every image output.
+  const contentType = asset.metadata.contentType;
+  const ext = contentType.startsWith('image/')
+    ? (contentType.split('/')[1] ?? 'png').split(';')[0]
+    : 'mp4';
+  const outputPath = join(outputsDir, `muapi-${input.requestId}.${ext}`);
+  writeFileSync(outputPath, asset.buffer);
+
+  return {
+    requestId: input.requestId,
+    outputPath,
+    sizeBytes: asset.metadata.sizeBytes ?? asset.buffer.length,
+    contentType,
+  };
 }
 
 // ---------------------------------------------------------------------------

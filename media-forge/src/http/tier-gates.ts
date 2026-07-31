@@ -89,6 +89,11 @@ const KLING_TOOLS = new Set([
 const OPT_IN_VIDEO_TOOLS = new Set([
   'media_muapi_models',
   'media_muapi_generate',
+  // Poll and download belong on the same tier as generate. Gating the submit but
+  // not the retrieval would let a tenant reach outputs of jobs they could not
+  // have started; gating retrieval MORE tightly would strand jobs they did.
+  'media_muapi_poll',
+  'media_muapi_download',
   'media_wan2gp_generate',
 ]);
 

@@ -14,14 +14,30 @@
 //
 // ## The reason this adapter is worth having
 //
-// MuAPI returns the ACTUAL amount charged for every request, in the response body
-// and in the `X-MuAPI-Cost-USD` / `X-MuAPI-Cost-Credits` headers. That makes it the
-// only provider here where settlement is a fact rather than a derivation.
+// MuAPI returns the ACTUAL amount charged for every request. Verified via context7
+// against muapi.ai/docs/api-reference and /docs/credits on 2026-07-31 — it comes
+// back in THREE places, and the poll response is the one that matters:
+//
+//   submit body   { request_id, status, cost: { amount_usd, amount_credits,
+//                                               bonus_credits_used, refunded } }
+//   headers       X-MuAPI-Cost-USD, X-MuAPI-Cost-Credits, X-Account-Balance
+//   poll body     { id, status, outputs, cost: { …same shape… } }
 //
 // Everywhere else in this codebase the ledger records `rate x duration` and hopes
 // it matches the invoice: Higgsfield CLI's recordActualCostUSD is a documented
 // no-op, and Kling's deduction API is an open TODO. MuAPI hands the number over,
-// so recordActualCostUSD here is real.
+// so recordActualCostUSD here is real — it writes to the same video_jobs row every
+// other provider settles against.
+//
+// ## Settlement happens at POLL, not at submit
+//
+// The submit response already carries a charge, and an earlier build here only
+// logged it. Settling from it would still have been wrong: `cost.refunded` is a
+// documented field, and MuAPI refunds failed tasks. A charge captured at submit is
+// therefore provisional — the poll response carries the same `cost` object with
+// `refunded` resolved, which makes the terminal poll the only point where the
+// number is final. A refunded task settles at 0 rather than at what was briefly
+// taken, because the ledger is what the daily cap is enforced against.
 //
 // ## MuAPI is an aggregator, and its prices are its own
 //
@@ -37,6 +53,7 @@
 
 import { ApiError, ValidationError } from '../../core/errors.js';
 import { logger } from '../../core/logger.js';
+import { recordJob, recordActualCost } from '../../core/cost-tracker.js';
 import type { Provider } from '../../core/models.js';
 import type {
   DownloadedAsset,
@@ -51,6 +68,32 @@ const MUAPI_BASE = 'https://api.muapi.ai';
 /** Headers MuAPI attaches to every generation response. */
 const COST_USD_HEADER = 'x-muapi-cost-usd';
 
+/**
+ * MuAPI's per-request charge, as it appears in both the submit and the poll body.
+ *
+ * Documented at muapi.ai/docs/api-reference. `refunded` is the field that makes
+ * the submit-time figure provisional — see the settlement note in the header.
+ */
+export interface MuapiCost {
+  readonly amount_usd?: number;
+  readonly amount_credits?: number;
+  readonly bonus_credits_used?: number;
+  readonly refunded?: boolean;
+}
+
+/**
+ * JobStatus widened with what MuAPI reports and the shared interface has no room
+ * for. Deliberately NOT a change to `JobStatus` in base.ts: no other provider can
+ * fill these in, so putting them on the shared type would advertise a settlement
+ * guarantee that only this adapter can honour.
+ */
+export interface MuapiJobStatus extends JobStatus {
+  /** The charge MuAPI reports for this request, USD. Undefined when absent. */
+  readonly actualUsd?: number;
+  /** True when MuAPI refunded the task — the effective charge is then 0. */
+  readonly refunded?: boolean;
+}
+
 export interface MuapiModelEntry {
   readonly name: string;
   readonly cost: number;
@@ -64,6 +107,16 @@ export interface MuapiOptions {
   readonly apiKey?: string;
   readonly fetchImpl?: typeof fetch;
   readonly baseUrl?: string;
+  /**
+   * Cost-tracker database. Required for a job to appear in the cost report and
+   * for settlement to have a row to write to.
+   *
+   * Optional so the many injected-fetch tests that only exercise HTTP shapes
+   * keep working without a SQLite file; when omitted, `generate` skips
+   * `recordJob` and says so in the log rather than silently dropping the job
+   * from the ledger.
+   */
+  readonly dbPath?: string;
 }
 
 /**
@@ -77,8 +130,9 @@ function resolveApiKey(explicit: string | undefined): string {
   const key = explicit ?? process.env['MUAPI_API_KEY'];
   if (key === undefined || key.length === 0) {
     throw new ValidationError(
-      'MUAPI_API_KEY is not set. MuAPI authenticates with an x-api-key header; ' +
-        'get a key from the MuAPI dashboard, or leave MEDIA_FORGE_MUAPI_ENABLED unset.',
+      'MUAPI_API_KEY is not set. MuAPI authenticates with an x-api-key header ' +
+        '(not a Bearer token) — get a key from the MuAPI dashboard and export it. ' +
+        'The MuAPI tools are always registered; the key is the only thing gating them.',
     );
   }
   return key;
@@ -91,6 +145,7 @@ export class MuapiProvider {
   private readonly fetchImpl: typeof fetch;
   private readonly baseUrl: string;
   private readonly apiKeyOverride: string | undefined;
+  private readonly dbPath: string | undefined;
 
   /** Catalogue cache. Cleared per process, not persisted — prices move. */
   private catalogue: Map<string, MuapiModelEntry> | undefined;
@@ -99,6 +154,7 @@ export class MuapiProvider {
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.baseUrl = opts.baseUrl ?? MUAPI_BASE;
     this.apiKeyOverride = opts.apiKey;
+    this.dbPath = opts.dbPath;
   }
 
   private headers(): Record<string, string> {
@@ -267,7 +323,7 @@ export class MuapiProvider {
     }
 
     try {
-      const body = (await response.json()) as { request_id?: string };
+      const body = (await response.json()) as { request_id?: string; cost?: MuapiCost };
       if (body.request_id === undefined) {
         // HTTP 2xx means MuAPI accepted and is very likely charging. Releasing
         // here would let a running generation complete for free.
@@ -278,15 +334,38 @@ export class MuapiProvider {
         );
       }
 
-      // The charge is authoritative and available immediately. Captured here so
-      // the ledger settles on MuAPI's number rather than on this adapter's
-      // estimate — the whole reason this provider is worth wiring.
-      const actualUsd = readCostHeader(response);
-      if (actualUsd !== undefined) {
-        logger.info('muapi: actual cost reported by provider', {
+      // The submit-time charge, from the header or the body's `cost` object.
+      // PROVISIONAL, not settled: `cost.refunded` resolves at the terminal
+      // poll, and MuAPI refunds failed tasks. Logged so an operator can see
+      // what was taken up front, and reconciled by pollStatus later.
+      const submitCost = readCostUsd(response, body);
+      if (submitCost !== undefined) {
+        logger.info('muapi: provisional charge reported at submit', {
           jobId,
           estimateUsd,
-          actualUsd,
+          submitCostUsd: submitCost,
+        });
+      }
+
+      // Ledger row, keyed on the local jobId, carrying MuAPI's request_id as
+      // the native task id. Without this the job is invisible to the cost
+      // report and `recordActualCostUSD` has no row to UPDATE — settlement
+      // would silently no-op, which is indistinguishable from working.
+      if (this.dbPath !== undefined) {
+        recordJob({
+          dbPath: this.dbPath,
+          jobId,
+          provider: 'muapi',
+          model: req.modelId,
+          mode: req.mode,
+          paramsHash: hashParams(req),
+          estUsd: estimateUsd,
+          nativeTaskId: body.request_id,
+        });
+      } else {
+        logger.warn('muapi: no dbPath — job not recorded in the cost ledger', {
+          jobId,
+          requestId: body.request_id,
         });
       }
 
@@ -304,7 +383,15 @@ export class MuapiProvider {
     }
   }
 
-  async pollStatus(requestId: string): Promise<JobStatus> {
+  /**
+   * Polls a request by MuAPI's own `request_id` — NOT by the local jobId.
+   *
+   * The two are different strings and only one of them exists on MuAPI's side.
+   * `generate` mints `muapi-{ts}-{rand}` for the ledger and stores MuAPI's id as
+   * the handle's `providerNativeId`; passing the ledger key here would ask MuAPI
+   * about a prediction it has never heard of.
+   */
+  async pollStatus(requestId: string): Promise<MuapiJobStatus> {
     const response = await this.fetchImpl(
       `${this.baseUrl}/api/v1/predictions/${encodeURIComponent(requestId)}/result`,
       { headers: this.headers() },
@@ -322,13 +409,26 @@ export class MuapiProvider {
       status?: string;
       outputs?: string[];
       error?: string;
+      cost?: MuapiCost;
     };
+
+    // A refunded task effectively cost nothing. Reporting the charge anyway
+    // would consume the caller's daily cap for a generation MuAPI gave back.
+    const refunded = body.cost?.refunded === true;
+    const rawUsd = body.cost?.amount_usd;
+    const actualUsd = refunded
+      ? 0
+      : typeof rawUsd === 'number' && Number.isFinite(rawUsd)
+        ? rawUsd
+        : undefined;
 
     return {
       jobId: requestId,
       state: mapMuapiStatus(body.status),
       assetUrls: body.outputs ?? [],
       ...(body.error !== undefined ? { errorMessage: body.error } : {}),
+      ...(actualUsd !== undefined ? { actualUsd } : {}),
+      ...(body.cost?.refunded !== undefined ? { refunded } : {}),
     };
   }
 
@@ -362,6 +462,44 @@ export class MuapiProvider {
       },
     };
   }
+
+  /**
+   * Settles the ledger row at MuAPI's own figure.
+   *
+   * Real, unlike `HiggsfieldCliProvider.recordActualCostUSD` which is a
+   * documented no-op: MuAPI reports the charge, so this writes a fact rather
+   * than a re-derivation of `rate x duration`.
+   *
+   * `jobId` is the LOCAL ledger key (`muapi-…`), not MuAPI's `request_id` —
+   * `recordActualCost` UPDATEs `video_jobs WHERE id = ?`, and the request_id
+   * lives in `native_task_id`. It is also idempotent (`AND actual_usd IS NULL`),
+   * so polling a completed job repeatedly settles once.
+   */
+  async recordActualCostUSD(jobId: string, usd: number): Promise<void> {
+    if (this.dbPath === undefined) {
+      logger.warn('muapi: no dbPath — actual cost not settled', { jobId, usd });
+      return;
+    }
+    recordActualCost({ dbPath: this.dbPath, jobId, actualUsd: usd });
+  }
+}
+
+/** Stable hash of the request, matching the per-provider helpers elsewhere. */
+function hashParams(req: VideoGenerationRequest): string {
+  const json = JSON.stringify({
+    modelId: req.modelId,
+    mode: req.mode,
+    prompt: req.prompt,
+    durationSec: req.durationSec,
+    resolution: req.resolution,
+    aspectRatio: req.aspectRatio,
+    extras: req.extras,
+  });
+  let h = 0;
+  for (let i = 0; i < json.length; i++) {
+    h = ((h << 5) - h + json.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h).toString(16);
 }
 
 /**
@@ -378,6 +516,28 @@ export function readCostHeader(response: {
   if (raw === null) return undefined;
   const parsed = Number.parseFloat(raw);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/**
+ * The charge for a response, preferring the BODY over the header.
+ *
+ * MuAPI publishes both (verified via context7, muapi.ai/docs/api-reference), and
+ * the body is the one that survives the trip: a reverse proxy or corporate egress
+ * that strips `X-`-prefixed headers costs nothing visible, and header-only parsing
+ * would then read "no charge" for a request that was billed. The header remains
+ * the fallback for endpoints that answer with a bare body.
+ *
+ * A refunded task reports 0 — the amount was taken and given back, and the ledger
+ * records what was actually kept.
+ */
+export function readCostUsd(
+  response: { headers: { get(name: string): string | null } },
+  body: { cost?: MuapiCost } | undefined,
+): number | undefined {
+  if (body?.cost?.refunded === true) return 0;
+  const fromBody = body?.cost?.amount_usd;
+  if (typeof fromBody === 'number' && Number.isFinite(fromBody)) return fromBody;
+  return readCostHeader(response);
 }
 
 /** Maps MuAPI's documented status values onto the repo's JobState union. */

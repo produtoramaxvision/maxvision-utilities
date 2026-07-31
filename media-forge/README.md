@@ -125,6 +125,40 @@ Banana Pro or Imagen 4 Ultra, which do it natively.
 silently displace Veo and Kling. They are excluded from automatic routing and
 selected only by naming them in `preferProvider`.
 
+### MuAPI — the aggregator route
+
+MuAPI resells Kling, Veo, Seedance and others behind one key, which is useful if
+you would rather hold a single account than one per vendor. It needs no flag:
+set `MUAPI_API_KEY` and its four tools work. Without the key they refuse by name.
+
+| Tool | What it does |
+|---|---|
+| `media_muapi_models` | Lists the live catalogue with per-model price and endpoint. Free. |
+| `media_muapi_generate` | Submits by exact catalogue name. Returns `jobId` **and** `requestId`. |
+| `media_muapi_poll` | Checks a job by `requestId`, and settles its real cost. |
+| `media_muapi_download` | Saves a finished output into your outputs directory. |
+
+Three things about MuAPI differ from every other provider here, and they are
+deliberate:
+
+- **media-forge keeps no price table for it.** MuAPI is an aggregator and its
+  markup is its own — its price for Kling is not Kling's price. Costs come from
+  `media_muapi_models` or from MuAPI's estimate endpoint at request time, so
+  there is no local rate to go stale. `media_muapi_models` is the only place to
+  see what a model costs.
+- **It reports the real charge, so the ledger records a fact.** Everywhere else
+  media-forge stores `rate x duration` and hopes it matches the invoice. MuAPI
+  returns the amount actually billed, which `media_muapi_poll` writes to the
+  cost ledger when the job finishes. Pass the `jobId` from generate along with
+  the `requestId` for that to happen — a refunded job settles at 0.
+- **It is never picked by automatic routing.** The catalogue is fetched at
+  runtime rather than registered locally, so routing has nothing to rank. Name
+  the model yourself through the tools above.
+
+`jobId` and `requestId` are not interchangeable: `jobId` is media-forge's local
+ledger key and MuAPI has never heard of it, while `requestId` is the only value
+MuAPI's own endpoints accept. Generate returns both.
+
 **Kling auth precedence is not a fallback chain.** When `KLING_API_KEY` is set it
 wins outright and no JWT is ever signed, even if the access/secret pair is also
 present ([`kling-jwt.ts:93`](src/video/providers/auth/kling-jwt.ts)). Set one

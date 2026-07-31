@@ -8,6 +8,50 @@ Criado em 2026-07-29 pelo `/maxvision:plan-ceo-review` sobre
 
 ---
 
+## (fechado) P1 — MuAPI submetia e nunca devolvia: caminho só de ida
+
+**FECHADO em 2026-07-31.** O MuAPI tinha tools desde a leva anterior e ainda assim
+não era usável de ponta a ponta. Quatro defeitos, nenhum visível numa suíte verde:
+
+| Defeito | Por que passou despercebido |
+|---|---|
+| `handleMuapiGenerate` devolvia só o `jobId` local (`muapi-{ts}-{rand}`) | o endpoint do MuAPI é chaveado no `request_id` **dele** — o id devolvido não consultava nada |
+| `pollStatus` e `download` existiam, testados, **sem nenhum chamador** | `fallow audit --production` não enxerga método órfão em classe alcançável |
+| `generate()` era chamado **sem** `ledgerHooks` | único provider pago sem reserva, sem cost guard e sem contribuir para o cap diário |
+| nenhum `recordJob` | job invisível no cost report, e `recordActualCost` sem linha para dar UPDATE — liquidação seria no-op silencioso |
+
+Além disso, dois comentários afirmavam comportamento inexistente: o gate
+`MEDIA_FORGE_MUAPI_ENABLED` (string lida em lugar nenhum, tools sempre
+registravam) e "recordActualCostUSD here is real" (método não existia).
+
+**Liquidação agora é fato, não derivação.** Verificado via `context7-mcp` sobre
+`muapi.ai/docs/api-reference` e `/docs/credits`: tanto o corpo do submit quanto o
+do poll trazem `cost { amount_usd, amount_credits, bonus_credits_used, refunded }`.
+A liquidação acontece no **poll terminal**, não no submit — `refunded` é campo
+documentado e o MuAPI estorna task falhada, então o valor do submit é provisório.
+Task estornada liquida em 0.
+
+**Continua não exercitado contra endpoint real** — precisa de `MUAPI_API_KEY`.
+Todo teste injeta `fetch`. O que está verificado é o contrato de fio, lido da doc,
+não adivinhado.
+
+---
+
+## (declinado) Comprar pacote Kling para validar geração de vídeo
+
+**DECLINADO pelo usuário em 2026-07-31:** "nao vamos comprar pacotes do kling".
+
+Não é pendência — é decisão tomada. Registrado aqui para não voltar como item
+aberto em toda auditoria.
+
+Consequência aceita: a geração de vídeo do Kling continua validada só por teste
+com `fetch` injetado. O que **foi** validado ao vivo contra a API real do Kling
+são os endpoints de billing e o saldo da conta (`GET /account/costs` → `packs: 0`).
+Submeter geração exige pacote pré-pago; o menor é o Trial Package a $9,80 por 100
+unidades (~125s de Kling 3.0 Turbo 720p).
+
+---
+
 ## P3 — Smartcut: corte preciso em keyframe sem reencode total
 
 **O quê:** cortar vídeo no keyframe e reencodar apenas os fragmentos das bordas,
@@ -333,12 +377,15 @@ não era roteamento: era **porta de entrada**. Nenhum dos dois tinha tool MCP, e
 nenhum era alcançável pela superfície que o usuário chama. Mesmo defeito do planner
 narrativo, do adapter de imagem do Codex e dos dois métodos de billing do Kling.
 
-Três tools novas, em `src/mcp/handlers/opt-in-video.ts`:
+Cinco tools em `src/mcp/handlers/opt-in-video.ts` (três na primeira leva, mais duas
+quando o MuAPI foi fechado por completo em 2026-07-31 — ver bloco abaixo):
 
 | Tool | O que faz |
 |---|---|
 | `media_muapi_models` | lista o catálogo com preço e endpoint — **única** fonte de preço do MuAPI |
-| `media_muapi_generate` | submete por nome exato do catálogo |
+| `media_muapi_generate` | submete por nome exato do catálogo; devolve `jobId` **e** `requestId` |
+| `media_muapi_poll` | consulta por `requestId` e liquida o custo real reportado |
+| `media_muapi_download` | baixa o output pronto |
 | `media_wan2gp_generate` | submete ao servidor local do usuário |
 
 **Acesso direto continua sendo o certo, não uma limitação.** Para provider opt-in,

@@ -91,7 +91,7 @@ Beyond the locked Google models, video generation is routed across four provider
 
 ## 3. MCP Tool Registry (54 tools)
 
-The MCP server exposes 54 tools (50 with `MEDIA_FORGE_SEEDANCE_ENABLED=false`), registered from the `MCP_TOOLS` array in `src/mcp/schemas.ts` and dispatched in `src/mcp/handlers.ts`.
+The MCP server exposes 68 tools (64 with `MEDIA_FORGE_SEEDANCE_ENABLED=false`), registered from the `MCP_TOOLS` array in `src/mcp/schemas.ts` and dispatched in `src/mcp/handlers.ts`.
 
 ### Image tools (6)
 
@@ -186,7 +186,27 @@ The MCP server exposes 54 tools (50 with `MEDIA_FORGE_SEEDANCE_ENABLED=false`), 
 | `media_seedance_multishot` | Multi-shot T2V with timestamp segmentation (≤15s, ≤4 shots). |
 | `media_seedance_reference_fusion` | Reference-to-video with `@Image/@Video/@Audio` mention syntax. |
 
-> Seedance tools register only when `MEDIA_FORGE_SEEDANCE_ENABLED` is not disabled (default on). With it off, the registry is 50 tools.
+> Seedance tools register only when `MEDIA_FORGE_SEEDANCE_ENABLED` is not disabled (default on). With it off, the registry is 64 tools.
+
+### Opt-in provider tools (5)
+
+Direct-access only. All five are absent from automatic routing, for two separate
+reasons: MuAPI and Wan2GP have catalogues that only exist at runtime (a live
+fetch, and whatever weights the operator downloaded), and Wan2GP prices at $0,
+which would win every cost-sorted route and silently displace paid providers.
+
+| Tool name | Description |
+|---|---|
+| `media_muapi_models` | List the live MuAPI catalogue with per-model price and endpoint. |
+| `media_muapi_generate` | Submit to a MuAPI model by exact catalogue name. Returns `jobId` + `requestId`. |
+| `media_muapi_poll` | Poll by `requestId`; settles the real charge MuAPI reports. |
+| `media_muapi_download` | Download a finished MuAPI output. |
+| `media_wan2gp_generate` | Submit to a self-hosted Wan2GP Gradio server. |
+
+MuAPI needs only `MUAPI_API_KEY` — no enable flag, unlike Wan2GP and the
+Higgsfield CLI. Those two gate a *machine-level* resource (one GPU server, one
+OAuth session) that cannot be shared between tenants; MuAPI is an ordinary
+hosted API, and a second switch would only add another way to be off.
 
 ### Help tool (1)
 

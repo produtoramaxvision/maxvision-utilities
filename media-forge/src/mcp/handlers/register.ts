@@ -113,6 +113,8 @@ import {
 import {
   handleMuapiModels,
   handleMuapiGenerate,
+  handleMuapiPoll,
+  handleMuapiDownload,
   handleWan2gpGenerate,
 } from './opt-in-video.js';
 import {
@@ -1804,7 +1806,28 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     regIfAllowed(
       t.name,
       { title: 'MuAPI Generate', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleMuapiGenerate(input))),
+      // videoGuardOpts, exactly as Kling/Higgsfield/Seedance get it. Passing
+      // nothing here — the previous state — meant MuAPI was the one paid
+      // provider whose spend reached no reserve, no cost guard and no daily cap.
+      wrap(t.name, async (input) => asResult(await handleMuapiGenerate(input, videoGuardOpts))),
+    );
+  }
+
+  {
+    const t = getTool('media_muapi_poll');
+    regIfAllowed(
+      t.name,
+      { title: 'MuAPI Poll', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleMuapiPoll(input))),
+    );
+  }
+
+  {
+    const t = getTool('media_muapi_download');
+    regIfAllowed(
+      t.name,
+      { title: 'MuAPI Download', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleMuapiDownload(input))),
     );
   }
 

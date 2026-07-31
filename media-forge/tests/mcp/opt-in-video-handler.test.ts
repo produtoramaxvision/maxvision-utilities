@@ -11,15 +11,21 @@
 // tests/mcp/optional-providers-handler.test.ts.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
   handleMuapiModels,
   handleMuapiGenerate,
+  handleMuapiPoll,
+  handleMuapiDownload,
   handleWan2gpGenerate,
 } from '../../src/mcp/handlers/opt-in-video.js';
 import { WAN2GP_DEFAULT_URL, WAN2GP_RATE_USD } from '../../src/video/providers/wan2gp.js';
 import type { MuapiModelEntry } from '../../src/video/providers/muapi.js';
 import { ValidationError } from '../../src/core/errors.js';
+import { getJobRecord } from '../../src/core/cost-tracker.js';
 
 // ---------------------------------------------------------------------------
 // Env management — every var these handlers read, saved and restored around
@@ -30,9 +36,31 @@ const ENV_KEYS = [
   'MUAPI_API_KEY',
   'MEDIA_FORGE_WAN2GP_ENABLED',
   'MEDIA_FORGE_WAN2GP_URL',
+  // The download handler writes here, and generate now records a ledger row.
+  // Left unmanaged, a test run would scribble into the developer's own project
+  // directory and into the real cost DB.
+  'MEDIA_FORGE_OUTPUTS_DIR',
+  'MEDIA_FORGE_PROJECT_DIR',
 ] as const;
 
 let savedEnv: Record<string, string | undefined>;
+
+/** Temp dirs created per test, removed in afterEach. */
+const tmpPaths: string[] = [];
+
+/**
+ * A throwaway cost DB per call.
+ *
+ * `handleMuapiGenerate` now records a real `video_jobs` row — that is the whole
+ * point of the change — so a test that let it fall through to `defaultDbPath()`
+ * would write into the repo's own cost ledger and make the daily-cap figures a
+ * developer sees depend on how often they ran the suite.
+ */
+function tmpDbPath(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'muapi-db-'));
+  tmpPaths.push(dir);
+  return join(dir, 'cost.db');
+}
 
 beforeEach(() => {
   savedEnv = {};
@@ -47,6 +75,16 @@ afterEach(() => {
   for (const k of ENV_KEYS) {
     if (savedEnv[k] === undefined) delete process.env[k];
     else process.env[k] = savedEnv[k];
+  }
+  while (tmpPaths.length > 0) {
+    const dir = tmpPaths.pop()!;
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // EPERM on Windows — a SQLite handle may still be closing. The OS
+      // reclaims the temp dir on its own; failing the test over it would be
+      // noise unrelated to what the test asserts.
+    }
   }
 });
 
@@ -217,6 +255,10 @@ describe('handleMuapiGenerate', () => {
 
     expect(result).toEqual({
       jobId: expect.stringMatching(/^muapi-/),
+      // MuAPI's own request_id, and the ONLY key its poll endpoint accepts.
+      // Returning just jobId — the local ledger key MuAPI has never heard of —
+      // made every submitted job unretrievable.
+      requestId: 'req-abc',
       provider: 'muapi',
       modelId: 'kling-master',
       estimatedCostUSD: FIXED_MODEL.cost,
@@ -310,6 +352,267 @@ describe('handleMuapiGenerate', () => {
       handleMuapiGenerate(validMuapiGenerateInput(), { fetchImpl: fetchImpl as unknown as typeof fetch }),
     ).rejects.toThrow(/MUAPI_API_KEY/);
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  // MuAPI was the one PAID provider whose handler called generate() with no
+  // second argument, so its spend reached no reservation, no cost guard and no
+  // daily cap. A green suite over a handler that simply never called the hooks
+  // is indistinguishable from one that does — hence asserting the calls, not
+  // just the return value.
+  it('forwards ledgerHooks into generate, reserving BEFORE the submit lands', async () => {
+    process.env['MUAPI_API_KEY'] = 'test-key';
+    const order: string[] = [];
+    const submitUrl = `https://api.muapi.ai${FIXED_MODEL.endpoint}`;
+    const fetchImpl = routeFetch({
+      'https://api.muapi.ai/api/v1/models': () => jsonResponse({ models: [FIXED_MODEL] }),
+      [submitUrl]: () => {
+        order.push('submit');
+        return jsonResponse({ request_id: 'req-hooks' });
+      },
+    });
+
+    const beforeSubmit = vi.fn(async (_jobId: string, _usd: number) => {
+      order.push('reserve');
+    });
+    const onSubmitFailed = vi.fn(async () => {});
+    const onPostSubmitError = vi.fn(() => {});
+    const checkCostGuard = vi.fn(() => ({ costWarning: 'over half the daily cap' }));
+    const preflightCredit = vi.fn(async () => {});
+
+    const result = await handleMuapiGenerate(validMuapiGenerateInput(), {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      dbPath: tmpDbPath(),
+      checkCostGuard,
+      preflightCredit,
+      ledgerHooks: { beforeSubmit, onSubmitFailed, onPostSubmitError },
+    });
+
+    // The reservation must open before MuAPI is asked to run anything —
+    // reserving after the submit is a window where the job is billing and the
+    // cap has not been touched.
+    expect(order).toEqual(['reserve', 'submit']);
+    expect(beforeSubmit).toHaveBeenCalledWith(expect.stringMatching(/^muapi-/), FIXED_MODEL.cost);
+    // Guards see the SAME number the caller is quoted.
+    expect(checkCostGuard).toHaveBeenCalledWith(FIXED_MODEL.cost);
+    expect(preflightCredit).toHaveBeenCalledWith(FIXED_MODEL.cost);
+    expect(result.costWarning).toBe('over half the daily cap');
+    expect(onSubmitFailed).not.toHaveBeenCalled();
+  });
+
+  it('a submit rejected by MuAPI releases the reservation', async () => {
+    process.env['MUAPI_API_KEY'] = 'test-key';
+    const submitUrl = `https://api.muapi.ai${FIXED_MODEL.endpoint}`;
+    const fetchImpl = routeFetch({
+      'https://api.muapi.ai/api/v1/models': () => jsonResponse({ models: [FIXED_MODEL] }),
+      [submitUrl]: () => jsonResponse({ error: 'nope' }, { ok: false, status: 502 }),
+    });
+
+    const onSubmitFailed = vi.fn(async () => {});
+    await expect(
+      handleMuapiGenerate(validMuapiGenerateInput(), {
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        dbPath: tmpDbPath(),
+        ledgerHooks: {
+          beforeSubmit: async () => {},
+          onSubmitFailed,
+          onPostSubmitError: () => {},
+        },
+      }),
+    ).rejects.toThrow(/502/);
+    // Released, because MuAPI never accepted the job. Holding the reservation
+    // here would consume the cap for a generation that never ran.
+    expect(onSubmitFailed).toHaveBeenCalledWith(expect.stringMatching(/^muapi-/), FIXED_MODEL.cost);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleMuapiPoll / handleMuapiDownload
+//
+// Both provider methods shipped complete and tested with NO caller anywhere,
+// which made every submitted MuAPI job unretrievable. These are the tools that
+// close that path.
+// ---------------------------------------------------------------------------
+
+describe('handleMuapiPoll', () => {
+  const resultUrl = (id: string) => `https://api.muapi.ai/api/v1/predictions/${id}/result`;
+
+  it('polls by MuAPI request_id and surfaces the charge MuAPI reports', async () => {
+    process.env['MUAPI_API_KEY'] = 'test-key';
+    const fetchImpl = routeFetch({
+      [resultUrl('req-abc')]: () =>
+        jsonResponse({
+          id: 'req-abc',
+          status: 'completed',
+          outputs: ['https://cdn.muapi.ai/out.mp4'],
+          // Documented shape, muapi.ai/docs/api-reference.
+          cost: { amount_usd: 0.42, amount_credits: 1, bonus_credits_used: 0, refunded: false },
+        }),
+    });
+
+    const result = await handleMuapiPoll(
+      { requestId: 'req-abc' },
+      { fetchImpl: fetchImpl as unknown as typeof fetch, dbPath: tmpDbPath() },
+    );
+
+    expect(result.state).toBe('completed');
+    expect(result.assetUrls).toEqual(['https://cdn.muapi.ai/out.mp4']);
+    expect(result.actualUsd).toBe(0.42);
+    expect(result.refunded).toBe(false);
+    // No jobId passed, so there is no ledger row to key the write on.
+    expect(result.settled).toBe(false);
+  });
+
+  it('a refunded task reports 0, not what was briefly taken', async () => {
+    process.env['MUAPI_API_KEY'] = 'test-key';
+    const fetchImpl = routeFetch({
+      [resultUrl('req-refund')]: () =>
+        jsonResponse({
+          id: 'req-refund',
+          status: 'failed',
+          error: 'model crashed',
+          cost: { amount_usd: 0.42, amount_credits: 1, bonus_credits_used: 0, refunded: true },
+        }),
+    });
+
+    const result = await handleMuapiPoll(
+      { requestId: 'req-refund' },
+      { fetchImpl: fetchImpl as unknown as typeof fetch, dbPath: tmpDbPath() },
+    );
+
+    // Charging the caller's daily cap for a generation MuAPI gave back is the
+    // failure this pins: the amount_usd field is still populated on a refund.
+    expect(result.actualUsd).toBe(0);
+    expect(result.refunded).toBe(true);
+    expect(result.errorMessage).toBe('model crashed');
+  });
+
+  it('a still-running job is not settled, even though it is being billed', async () => {
+    process.env['MUAPI_API_KEY'] = 'test-key';
+    const fetchImpl = routeFetch({
+      [resultUrl('req-run')]: () => jsonResponse({ id: 'req-run', status: 'processing' }),
+    });
+
+    const result = await handleMuapiPoll(
+      { requestId: 'req-run', jobId: 'muapi-1-2' },
+      { fetchImpl: fetchImpl as unknown as typeof fetch, dbPath: tmpDbPath() },
+    );
+
+    expect(result.state).toBe('in_progress');
+    // `settled` is absent rather than false: a non-terminal poll has nothing to
+    // settle, and reporting `settled: false` would read as a failed write.
+    expect(result.settled).toBeUndefined();
+  });
+
+  it('a terminal poll with no cost field is NOT settled at 0', async () => {
+    process.env['MUAPI_API_KEY'] = 'test-key';
+    const fetchImpl = routeFetch({
+      [resultUrl('req-nocost')]: () =>
+        jsonResponse({ id: 'req-nocost', status: 'completed', outputs: ['https://x/y.mp4'] }),
+    });
+
+    const result = await handleMuapiPoll(
+      { requestId: 'req-nocost', jobId: 'muapi-1-2' },
+      { fetchImpl: fetchImpl as unknown as typeof fetch, dbPath: tmpDbPath() },
+    );
+
+    // Closing the row at 0 because this particular response omitted `cost`
+    // would under-count the daily cap for a job that WAS billed.
+    expect(result.actualUsd).toBeUndefined();
+    expect(result.settled).toBe(false);
+  });
+
+  // The end-to-end claim: submit writes a ledger row, and the terminal poll
+  // closes it at MuAPI's own figure. Asserting the returned `settled: true`
+  // alone would pass even if recordActualCostUSD silently no-opped, which is
+  // exactly what it did before generate() started recording a row at all.
+  it('settles the real ledger row: submit records it, terminal poll closes it at MuAPI figure', async () => {
+    process.env['MUAPI_API_KEY'] = 'test-key';
+    const dbPath = tmpDbPath();
+    const submitUrl = `https://api.muapi.ai${FIXED_MODEL.endpoint}`;
+
+    const submitFetch = routeFetch({
+      'https://api.muapi.ai/api/v1/models': () => jsonResponse({ models: [FIXED_MODEL] }),
+      [submitUrl]: () => jsonResponse({ request_id: 'req-settle' }),
+    });
+    const submitted = await handleMuapiGenerate(validMuapiGenerateInput(), {
+      fetchImpl: submitFetch as unknown as typeof fetch,
+      dbPath,
+    });
+
+    const pending = getJobRecord({ dbPath, jobId: submitted.jobId });
+    expect(pending?.status).toBe('pending');
+    expect(pending?.estUsd).toBe(FIXED_MODEL.cost);
+    // MuAPI's id is preserved so the row stays reconcilable against their side.
+    expect(pending?.nativeTaskId).toBe('req-settle');
+
+    const pollFetch = routeFetch({
+      [resultUrl('req-settle')]: () =>
+        jsonResponse({
+          id: 'req-settle',
+          status: 'completed',
+          outputs: ['https://cdn.muapi.ai/out.mp4'],
+          cost: { amount_usd: 1.23, amount_credits: 2, bonus_credits_used: 0, refunded: false },
+        }),
+    });
+    const polled = await handleMuapiPoll(
+      { requestId: 'req-settle', jobId: submitted.jobId },
+      { fetchImpl: pollFetch as unknown as typeof fetch, dbPath },
+    );
+
+    expect(polled.settled).toBe(true);
+    const settled = getJobRecord({ dbPath, jobId: submitted.jobId });
+    // 1.23, not the 1.5 estimate — the whole reason this adapter is worth
+    // having is that MuAPI reports the charge instead of it being derived.
+    expect(settled?.actualUsd).toBe(1.23);
+    expect(settled?.status).toBe('completed');
+  });
+
+  it('rejects a missing requestId rather than polling a malformed URL', async () => {
+    process.env['MUAPI_API_KEY'] = 'test-key';
+    const fetchImpl = routeFetch({});
+    await expect(
+      handleMuapiPoll({}, { fetchImpl: fetchImpl as unknown as typeof fetch }),
+    ).rejects.toThrow();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleMuapiDownload', () => {
+  it('names the file by content type, not a hardcoded .mp4', async () => {
+    process.env['MUAPI_API_KEY'] = 'test-key';
+    const outDir = mkdtempSync(join(tmpdir(), 'muapi-out-'));
+    tmpPaths.push(outDir);
+    process.env['MEDIA_FORGE_OUTPUTS_DIR'] = outDir;
+
+    const cdn = 'https://cdn.muapi.ai/out.png';
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
+      const url = String(input);
+      if (url === 'https://api.muapi.ai/api/v1/predictions/req-img/result') {
+        return jsonResponse({ id: 'req-img', status: 'completed', outputs: [cdn] });
+      }
+      if (url === cdn) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'image/png' }),
+          arrayBuffer: async () => bytes.buffer,
+        } as unknown as Response;
+      }
+      throw new Error(`unexpected fetch to ${url}`);
+    });
+
+    const result = await handleMuapiDownload(
+      { requestId: 'req-img' },
+      { fetchImpl: fetchImpl as unknown as typeof fetch, dbPath: tmpDbPath() },
+    );
+
+    // The MuAPI catalogue spans video AND image models. A hardcoded .mp4 would
+    // mislabel every image output it ever served.
+    expect(result.outputPath).toBe(join(outDir, 'muapi-req-img.png'));
+    expect(result.contentType).toBe('image/png');
+    expect(result.sizeBytes).toBe(4);
+    expect(readFileSync(result.outputPath)).toEqual(Buffer.from(bytes));
   });
 });
 

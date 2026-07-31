@@ -84,8 +84,16 @@ export type Provider = (typeof PROVIDERS)[number];
 // rate in this file, deliberately: its catalogue and prices come from its own
 // /api/v1/models endpoint at runtime. Pricing a MuAPI job from the direct-vendor
 // rates below would under-report spend by the margin, which is the same
-// "aggregator blindness" already filed as P1 for Higgsfield. Gated by
-// MEDIA_FORGE_MUAPI_ENABLED (default false).
+// "aggregator blindness" already filed as P1 for Higgsfield.
+//
+// NOT gated by an enable flag, unlike higgsfield-cli and wan2gp. This comment
+// used to claim `MEDIA_FORGE_MUAPI_ENABLED (default false)`; that string was read
+// nowhere in src/ and the tools always registered, so the comment described a
+// gate that did not exist. The flag is not the right shape here either: the other
+// two guard a MACHINE-level resource (one OAuth session, one local GPU server)
+// that cannot be shared between tenants. MuAPI is an ordinary hosted API keyed by
+// MUAPI_API_KEY — its tools register for everyone and refuse, by name, when the
+// key is absent. An extra flag would only add a second way to be switched off.
 
 export const VIDEO_MODES = [
   't2v',

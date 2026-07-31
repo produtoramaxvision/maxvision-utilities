@@ -951,6 +951,33 @@ export const MuapiGenerateInput = z.object({
 });
 export type MuapiGenerateInputT = z.infer<typeof MuapiGenerateInput>;
 
+export const MuapiPollInput = z.object({
+  /**
+   * MuAPI's own `request_id`, as returned by media_muapi_generate.
+   *
+   * NOT the `jobId` from the same response. The two are different strings: the
+   * jobId is media-forge's local ledger key and MuAPI has never heard of it,
+   * while request_id is the only value `/api/v1/predictions/{id}/result`
+   * accepts. Both come back from generate, named for what each one opens.
+   */
+  requestId: z.string().min(1),
+  /**
+   * The local ledger key, when the caller still has it.
+   *
+   * Optional because a poll works without it — but settlement does not: the
+   * cost row is keyed on jobId, so omitting it returns MuAPI's reported charge
+   * without recording it against the daily cap.
+   */
+  jobId: z.string().min(1).optional(),
+});
+export type MuapiPollInputT = z.infer<typeof MuapiPollInput>;
+
+export const MuapiDownloadInput = z.object({
+  /** MuAPI's `request_id` — same key the poll tool takes. */
+  requestId: z.string().min(1),
+});
+export type MuapiDownloadInputT = z.infer<typeof MuapiDownloadInput>;
+
 export const Wan2gpGenerateInput = z.object({
   /** Whatever the operator's own server exposes — same reasoning as MuAPI. */
   modelId: z.string().min(1),
@@ -1376,7 +1403,7 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     inputSchema: NarrativeAssembleInput,
   },
 
-  // ---- Opt-in providers (3 — T17 Codex images, T6 Higgsfield Soul-ID) ----
+  // ---- Opt-in providers (5 — T17 Codex images, T6 Higgsfield Soul-ID) ----
 
   {
     name: 'media_muapi_models',
@@ -1389,6 +1416,18 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description:
       'Submit a video generation to a MuAPI catalogue model by its exact catalogue name (see media_muapi_models). Opt-in and direct-access: MuAPI is never selected by automatic routing, because its catalogue is fetched at runtime rather than registered locally. Cost comes from MuAPI itself, per request. Requires MUAPI_API_KEY.',
     inputSchema: MuapiGenerateInput,
+  },
+  {
+    name: 'media_muapi_poll',
+    description:
+      'Check a MuAPI job and settle its cost. Takes the `requestId` from media_muapi_generate (NOT the `jobId` — that one is the local ledger key and MuAPI does not recognise it). Pass `jobId` as well to have the real charge MuAPI reports written to the cost ledger once the job reaches a terminal state; a refunded task settles at 0. Free to call and safe to repeat — settlement happens exactly once.',
+    inputSchema: MuapiPollInput,
+  },
+  {
+    name: 'media_muapi_download',
+    description:
+      'Download a completed MuAPI output into the media-forge outputs directory, by `requestId`. The file extension follows what MuAPI actually served, since the catalogue spans both video and image models. Poll first: an unfinished job has no output to fetch.',
+    inputSchema: MuapiDownloadInput,
   },
   {
     name: 'media_wan2gp_generate',
