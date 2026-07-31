@@ -978,6 +978,21 @@ export const MuapiDownloadInput = z.object({
 });
 export type MuapiDownloadInputT = z.infer<typeof MuapiDownloadInput>;
 
+// ---------------------------------------------------------------------------
+// Narrative executor. Re-exported from the handler so the input rules live once,
+// next to the code that enforces them, rather than being restated here and
+// drifting — the same reason the Kling and Higgsfield inputs are defined in
+// their own modules.
+// ---------------------------------------------------------------------------
+
+import {
+  NarrativeExecuteClipInput,
+  NarrativeRecordRunInput,
+  NarrativeRecordTakeInput,
+} from './handlers/narrative-execute.js';
+
+export { NarrativeExecuteClipInput, NarrativeRecordRunInput, NarrativeRecordTakeInput };
+
 export const Wan2gpGenerateInput = z.object({
   /** Whatever the operator's own server exposes — same reasoning as MuAPI. */
   modelId: z.string().min(1),
@@ -1428,6 +1443,24 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description:
       'Download a completed MuAPI output into the media-forge outputs directory, by `requestId`. The file extension follows what MuAPI actually served, since the catalogue spans both video and image models. Poll first: an unfinished job has no output to fetch.',
     inputSchema: MuapiDownloadInput,
+  },
+  {
+    name: 'media_narrative_execute_clip',
+    description:
+      'Prepare the next clip of a saved narrative plan for generation. Picks the clip, refuses one whose parent has no take yet or that exceeds its scene chain cap, builds the clip contract and the resolved prompt spec (budget-checked against the provider you name), and returns the exact media-forge tool and arguments to dispatch. Read-only: writes nothing and spends nothing — call media_narrative_record_run afterwards with the jobId. Provider and model are yours to choose; this never picks one for you.',
+    inputSchema: NarrativeExecuteClipInput,
+  },
+  {
+    name: 'media_narrative_record_run',
+    description:
+      "Record that a narrative clip was really dispatched, and advance the plan. Takes the jobId the provider's submit tool returned — that IS the run id, the same key video_jobs and the trace use, which is what joins narrative provenance to cost without either storing the other's data. Writes the provenance row first and the plan state second, so a failure can never leave a clip marked generated with no record of which prompt produced it. Carries no cost data by design.",
+    inputSchema: NarrativeRecordRunInput,
+  },
+  {
+    name: 'media_narrative_record_take',
+    description:
+      'Fold a reviewer verdict back into a narrative plan: sets the clip status, records what the reviewer observed as the clip\'s real end state (which the next clip in the chain continues from), marks delivered beats complete, and appends the review to the plan\'s take history. Optionally ranks multiple takes and returns the winner. A low-confidence verdict that would authorise more spending is recorded but parked at "reviewed" instead of being acted on, so no paid retake fires without a human.',
+    inputSchema: NarrativeRecordTakeInput,
   },
   {
     name: 'media_wan2gp_generate',

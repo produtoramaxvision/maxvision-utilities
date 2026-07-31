@@ -4,6 +4,56 @@ All notable changes to `media-forge` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.11] - 2026-07-31
+
+### Added
+
+- **The plan executor.** T10 shipped five schemas (clip-contract, prompt-spec,
+  generation-run, take-review, project-state) and T13 shipped the planner and
+  image-selector, all on 2026-07-30. Nothing consumed any of them — no task in the
+  plan ever specified a runner, so five tested modules sat with zero importers in
+  `src/`. Three tools close that:
+
+  | Tool | What it does |
+  |---|---|
+  | `media_narrative_execute_clip` | Picks the next clip, validates it is safe to run, builds the contract and the resolved prompt spec, returns the tool + arguments to dispatch. Read-only. |
+  | `media_narrative_record_run` | Records that a clip was really dispatched (by jobId) and advances the plan. |
+  | `media_narrative_record_take` | Folds a reviewer verdict back into the plan; optionally ranks multiple takes. |
+
+- **`narrative_generation_run` (migration 012)** — the provenance record, so
+  "which prompt produced this take" survives the process. Holds no cost data: the
+  join to money is `run_id`, which is the same job id `video_jobs` and the trace
+  are keyed on. Two writers for one amount diverge the first time a retry settles
+  differently, and the daily cap would then have no principled source.
+
+### Fixed
+
+- **The planner was dropping three storyboard fields.** `buildClip` read the
+  shot's action, chain and character tags and discarded `shot_structure`, `camera`
+  and `duration_sec`. The storyboard is not persisted, so those were gone for
+  good — and `shot_structure` is REQUIRED by `ClipContract`, which meant a saved
+  plan could not be turned into a contract at all. This was only visible by trying
+  to build the consumer. All three are now carried, as optional fields so projects
+  saved before today still load (`loadProjectState` throws on a document that
+  fails validation, so a required field would have been a migration disguised as a
+  schema tweak).
+
+### Notes
+
+- The executor **does not dispatch**, deliberately. Every provider already has a
+  submit tool carrying its own cost guard, credit preflight and ledger hooks; a
+  dispatch path here would be a second submit path per provider — the duplication
+  this repo keeps finding as a defect — and one more place to route a spec to an
+  adapter that rejects it. Provider and model are always caller input, never
+  inferred.
+- Two preconditions refuse a paid, wrong generation: a clip whose parent has no
+  take yet (an extension inherits the parent's last frame, so there would be no
+  anchor) and one past its scene's `max_chain_depth`. A low-confidence verdict
+  that would authorise a retake is recorded but parks the clip at `reviewed`,
+  which is not runnable.
+- No paid generation has been dispatched through this path. Stated in the handler
+  header rather than left to be assumed from a green suite.
+
 ## [0.2.10] - 2026-07-31
 
 ### Fixed

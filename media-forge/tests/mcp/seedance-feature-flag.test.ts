@@ -185,7 +185,7 @@ describe('MEDIA_FORGE_SEEDANCE_ENABLED feature flag', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', undefined, () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(68);
+        expect(names).toHaveLength(71);
       });
     });
 
@@ -193,7 +193,7 @@ describe('MEDIA_FORGE_SEEDANCE_ENABLED feature flag', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', 'true', () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(68);
+        expect(names).toHaveLength(71);
       });
     });
 
@@ -208,11 +208,11 @@ describe('MEDIA_FORGE_SEEDANCE_ENABLED feature flag', () => {
       });
     });
 
-    it('registers 64 tools when MEDIA_FORGE_SEEDANCE_ENABLED=false', () => {
+    it('registers 67 tools when MEDIA_FORGE_SEEDANCE_ENABLED=false', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', 'false', () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(64);
+        expect(names).toHaveLength(67);
       });
     });
 
@@ -227,11 +227,11 @@ describe('MEDIA_FORGE_SEEDANCE_ENABLED feature flag', () => {
       });
     });
 
-    it('registers 64 tools when MEDIA_FORGE_SEEDANCE_ENABLED=0 (alternative false value)', () => {
+    it('registers 67 tools when MEDIA_FORGE_SEEDANCE_ENABLED=0 (alternative false value)', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', '0', () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(64);
+        expect(names).toHaveLength(67);
       });
     });
 
@@ -239,7 +239,7 @@ describe('MEDIA_FORGE_SEEDANCE_ENABLED feature flag', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', '', () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(68);
+        expect(names).toHaveLength(71);
       });
     });
 
