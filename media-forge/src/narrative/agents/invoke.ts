@@ -36,8 +36,16 @@ import { jsonSchemaOutputFormat } from '@anthropic-ai/sdk/helpers/json-schema';
 import { logger } from '../../core/logger.js';
 import { ApiError } from '../../core/errors.js';
 
-/** Matches the reviewer's model choice; one place to change it for both. */
-export const NARRATIVE_MODEL = 'claude-opus-4-7';
+/**
+ * Matches the reviewer's model choice; one place to change it for both.
+ *
+ * Moved from `claude-opus-4-7` to `claude-opus-5` on 2026-07-31, together with
+ * the @anthropic-ai/sdk bump from 0.98.0 to 0.115.0. The two are one change: the
+ * old SDK's `Model` union did not carry `claude-opus-5`, so pinning it there
+ * would have compiled only through the union's `(string & {})` escape hatch —
+ * type-checking nothing and failing at the first paid call.
+ */
+export const NARRATIVE_MODEL = 'claude-opus-5';
 
 export type AgentMode = 'subagent' | 'sdk';
 

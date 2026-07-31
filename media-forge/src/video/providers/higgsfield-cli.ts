@@ -46,6 +46,7 @@ import { VIDEO_MODELS, type Provider } from '../../core/models.js';
 import { USD_PER_CREDIT } from '../../core/higgsfield-pricing.js';
 import { logger } from '../../core/logger.js';
 import { ApiError, ValidationError } from '../../core/errors.js';
+import { resolveCliBinary } from '../../utils/cli-binary.js';
 import type {
   DownloadedAsset,
   JobHandle,
@@ -120,9 +121,17 @@ export type CliRunner = (args: ReadonlyArray<string>, timeoutMs: number) => Prom
  */
 const defaultRunner: CliRunner = (args, timeoutMs) =>
   new Promise<CliResult>((resolve, reject) => {
-    const child = spawn(HF_BIN, [...args], {
+    // Same Windows resolution as the Codex adapter, and for the same reason: the
+    // Higgsfield CLI installs as a .CMD/sh shim here, which Node refuses to spawn
+    // without a shell. shell:false and the argv array are preserved.
+    const resolved = resolveCliBinary(HF_BIN, { overrideEnvVar: 'MEDIA_FORGE_HF_BIN' });
+    const child = spawn(resolved.command, [...resolved.prefixArgs, ...args], {
       shell: false,
       windowsHide: true,
+      // stdin closed for the same reason as the Codex adapter: nothing here
+      // feeds the child input, and a CLI that decides to read stdin when it is
+      // a non-TTY pipe would hang until the timeout instead of failing.
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
 
     let stdout = '';

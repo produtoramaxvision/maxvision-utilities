@@ -54,6 +54,7 @@
 
 import { spawn } from 'node:child_process';
 import { ApiError, ValidationError } from '../core/errors.js';
+import { resolveCliBinary } from '../utils/cli-binary.js';
 import { logger } from '../core/logger.js';
 
 /** The only model this adapter uses. gpt-image-1.5 is excluded by decision. */
@@ -93,7 +94,20 @@ export type CliRunner = (
   timeoutMs: number,
 ) => Promise<CliResult>;
 
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
+/**
+ * 10 minutes, raised from 5 after a live run.
+ *
+ * The builtin path is not one API call — `codex exec` starts an agent session
+ * that reads its imagegen skill, calls the tool, then moves the file. Measured
+ * end to end on 2026-07-31: roughly four minutes, and that was WITHOUT the
+ * generation being slow. The old 5-minute ceiling left almost no headroom, and
+ * the operator's own MCP servers can eat a minute failing to authenticate
+ * before the model does anything — that happened on the measured run.
+ *
+ * Timing out mid-generation is the expensive failure: the work was done and
+ * paid for, and the caller gets an error and no image.
+ */
+const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
  * Chooses the credential path.
@@ -172,7 +186,23 @@ const defaultRunner: CliRunner = (bin, args, timeoutMs) =>
     // shell:false with an argv array. A prompt is arbitrary user text; through a
     // shell, `; rm -rf ~` or $(...) inside it would execute. Same invariant as
     // the Higgsfield CLI adapter — never build a command string here.
-    const child = spawn(bin, [...args], { shell: false, windowsHide: true });
+    // Resolved rather than passed straight to spawn: on Windows npm/pnpm install
+    // a .CMD/sh shim, not a binary, and Node answers ENOENT for the bare name and
+    // EINVAL for the .CMD. Every Windows call failed before reaching the provider.
+    // resolveCliBinary keeps shell:false and the argv array — see its header.
+    const resolved = resolveCliBinary(bin, { overrideEnvVar: 'MEDIA_FORGE_CODEX_BIN' });
+    const child = spawn(resolved.command, [...resolved.prefixArgs, ...args], {
+      shell: false,
+      windowsHide: true,
+      // stdin CLOSED, not left as an open pipe.
+      //
+      // `codex exec` prints "Reading additional input from stdin..." and blocks
+      // forever when stdin is a pipe that never reaches EOF — which is exactly
+      // what spawn's default gives it. Measured: the same call hangs past 600s
+      // with a pipe and exits 0 in 16s with stdin ignored. Nothing here ever
+      // feeds the child input, so there is no reason to hold one open.
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
 
     let stdout = '';
     let stderr = '';

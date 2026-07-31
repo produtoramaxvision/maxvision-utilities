@@ -5,6 +5,10 @@ import { readBase64 } from '../utils/files.js';
 import { mimeFromExt, isImageMime } from '../utils/mime.js';
 import { ValidationError } from '../core/errors.js';
 import { logger } from '../core/logger.js';
+// The single model pin. invoke.ts's comment already claimed "one place to change
+// it for both" while this file carried its own literal — two constants that had
+// to be edited together and nothing enforcing it. Importing makes the claim true.
+import { NARRATIVE_MODEL } from '../narrative/agents/invoke.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -294,7 +298,7 @@ export async function judgeAsset(
   });
 
   const response = await anthropic.messages.create({
-    model: 'claude-opus-4-7',
+    model: NARRATIVE_MODEL,
     max_tokens: 8000,
     messages: [
       {
