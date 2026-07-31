@@ -585,6 +585,23 @@ escolher.
 Ficaram de fora do mapa `kling2_6` e `seedance1_5`: medidos, mas sem entrada
 direta em `src/core/models.ts`, então não há segundo caminho para comparar.
 
+**Comportamento verificado ao vivo** (`handleVideoRoute`, modo `i2v`, 5s):
+
+| Flag | Resolução | Escolha | Alternativo reportado |
+|---|---|---|---|
+| V2 off | 720p | `kling/kling-v3-standard` $0,630 | higgsfield `kling3_0`, 10 créditos |
+| V2 off | 1080p | `kling/kling-v3-omni` $0,700 | — (Higgsfield não revende o Omni) |
+| V2 on | 720p | `kling/kling-3.0-turbo` $0,560 | higgsfield `kling3_0_turbo`, 7,5 créditos |
+| V2 on | 1080p | `kling/kling-3.0-turbo` $0,700 | higgsfield `kling3_0_turbo`, 10 créditos |
+
+**Lacuna conhecida e deliberada:** com `MEDIA_FORGE_KLING_API_V2` desligado, o
+`kling-3.0-turbo` é filtrado dos candidatos (não tem endpoint legado), então o
+caminho Higgsfield **dele** não aparece — mesmo o Higgsfield rodando `kling3_0_turbo`
+sem depender da flag do Kling. O caller ainda vê o alternativo do modelo que foi
+escolhido, então não fica cego; só não vê essa rota específica. Reportar
+alternativo de candidato descartado seria oferecer uma rota que o roteador não
+tomaria. Fica registrado em vez de construído.
+
 Texto original abaixo.
 
 ---
