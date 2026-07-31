@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { logger } from '../core/logger.js';
+import { MEDIA_FORGE_VERSION } from '../index.js';
 import { loadConfig } from '../core/config.js';
 import { createClient } from '../core/client.js';
 import { loadPricingOverridesFromEnv } from '../core/pricing.js';
@@ -71,7 +72,10 @@ export function buildServer(opts: BuildServerOpts = {}): McpServer {
   // registerAllTools — otherwise media_video_route + media_video_cost_estimate
   // silently report compiled-in public rates and the override env var is a no-op.
   loadPricingOverridesFromEnv(process.env);
-  const server = new McpServer({ name: 'media-forge', version: '0.2.0' });
+  // The version an MCP client sees in serverInfo. Was pinned at 0.2.0 — its own
+  // literal, matching nothing else in the repo — so a client asking what it was
+  // talking to got a number that had not been true for four releases.
+  const server = new McpServer({ name: 'media-forge', version: MEDIA_FORGE_VERSION });
   registerAllTools(server, {
     client,
     config,

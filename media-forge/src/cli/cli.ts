@@ -10,12 +10,15 @@ import { registerModelsCommand } from './commands/models.js';
 import { registerConfigCommand } from './commands/config.js';
 import { registerAliasesCommand } from './commands/aliases-suggest.js';
 import { registerSetupCommands } from './commands/setup.js';
+import { MEDIA_FORGE_VERSION } from '../index.js';
 
 export function buildProgram(): Command {
   const program = new Command();
   program
     .name('media-forge')
-    .version('0.1.1')
+    // Imported, not repeated. `media-forge --version` reported 0.1.1 through
+    // four releases because this literal was its own source of truth.
+    .version(MEDIA_FORGE_VERSION)
     .description('Production-grade image + video generation via top-tier Google AI models');
 
   registerDoctorCommand(program);
