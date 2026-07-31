@@ -118,7 +118,8 @@ pessoalmente na auditoria, não herdados de relatório de subagente.
 | PR4 | T11 retake protocol | **feito** — 5 saídas de triagem, uma variável por retake, orçamento pago separado do total; fecha o laço `purpose:'retake'` do T14 | `09b1222` |
 | PR4 | ~~T12~~ | adiado (C5), em `TODOS.md` | — |
 | PR5 | T13 narrative planner | **feito** — 6 agentes + `planner.ts`, structured outputs do SDK, cap defensivo `runBoundedLoop` | `466a144` |
-| PR6 | T5 / T6 como transporte | **feito** — provider `higgsfield-cli` + soul-id, interface lida do binário `1.1.20`, `generate cost` exercitado ao vivo (0 créditos) | `42ccbb8` |
+| PR6 | T6 soul-id | **feito e validado ao vivo** — `soul-id create\|list` não usa `job_type`; `higgsfield soul-id list --json` executado em 2026-07-31 | `42ccbb8` |
+| PR6 | T5 `higgsfield-cli` generate | **PARCIAL — nunca funcionou.** Três defeitos, todos achados só por execução real em 2026-07-31: (1) spawn não alcançava a CLI no Windows — shim npm, `ENOENT`/`EINVAL`; (2) stdin aberto travava; (3) **os `job_type` da CLI não existem no registry** — catálogos disjuntos. (1) e (2) corrigidos; (3) não tem correção por mapa, ver abaixo | `42ccbb8`, `61a2651`, `5899644` |
 | PR7 | Adapter MuAPI | **feito** — custo real vindo do header `X-MuAPI-Cost-USD`; sem tabela de preço local (agregador) | `5aeb25a` |
 | PR8 | T16 Wan2GP opt-in | **feito** — provider + `media-forge setup wan2gp` + guarda de roteamento custo-zero | `cf6f19b` |
 | PR9 | T17 Codex `image_gen` | **feito** — dois modos de credencial (OAuth local / `OPENAI_API_KEY` multi-tenant); minha análise de bloqueio estava errada, retratada na seção do T17 | `3efb6a8`, `cece7fc` |

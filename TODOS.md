@@ -130,6 +130,67 @@ Nenhum dos removidos estava no `src/index.ts`, então não é quebra de API púb
 
 ---
 
+## P1 — O transporte `higgsfield-cli` não alcança nenhum modelo do registry
+
+**Achado em 2026-07-31, só por execução real.** O T5 estava marcado "feito"; o
+caminho de `generate` nunca funcionou. Três defeitos empilhados:
+
+| # | Defeito | Estado |
+|---|---|---|
+| 1 | `spawn('higgsfield', …, {shell:false})` não alcança a CLI no Windows — npm/pnpm instalam **shim**, e o Node responde `ENOENT` (nome puro) ou `EINVAL` (`.CMD`, desde CVE-2024-27980) | **corrigido** (`61a2651`) |
+| 2 | stdin aberto: a CLI pode bloquear esperando EOF | **corrigido** (`61a2651`) |
+| 3 | **Os `job_type` da CLI não existem no registry** | **aberto — e não tem correção por mapa** |
+
+**Sobre o (3).** Os catálogos são disjuntos, não dois nomes para a mesma coisa:
+
+| | |
+|---|---|
+| Registry `higgsfield` | `higgsfield-soul2`, `-dop`, `-speak`, `-recast`, `-cinema-studio-3.5`, `-marketing-studio` — produtos **próprios** do Higgsfield, modos `t2v`/`i2v` |
+| CLI `--video` | `veo3_1`, `kling3_0`, `seedance_2_0`, `wan2_7` — modelos de terceiros que ele **revende**, mais utilitários |
+| CLI `--image` | `text2image_soul_v2`, `soul_cast`, `soul_cinematic` — Soul existe, como tipo de **imagem** |
+
+Nenhum id do registry é `job_type` da CLI. Prova ao vivo:
+`exit 4: No model with job_type "higgsfield-soul2"`.
+
+**Tabela de mapeamento não é a correção.** `higgsfield-soul2` é spec de vídeo,
+`text2image_soul_v2` é job type de imagem — não são o mesmo modelo com dois
+nomes. Inventar essa correspondência seria pior que a flag inerte.
+
+**O que foi feito:** `providerServesSpec` voltou a ser identidade (`5899644`). A
+flag `MEDIA_FORGE_HF_CLI_ENABLED` está inerte de novo — mas agora **inerte e
+documentada**, com a comparação de catálogos escrita na função. Nomear
+`higgsfield-cli` falha no roteador com "no model supporting mode", que é verdade,
+em vez de falhar na CLI depois do cost guard já ter rodado.
+
+**O que o transporte poderia legitimamente servir** é o catálogo revendido
+(`kling3_0_turbo`, `seedance_2_0`…), mas esses estão registrados sob
+`kling`/`bytedance`. Alcançá-los exige o roteador assíncrono ciente de catálogo,
+já registrado neste arquivo.
+
+**T6 (soul-id) não é afetado e está validado:** `soul-id create|list` não usa
+`job_type`; `higgsfield soul-id list --json` rodou ao vivo e devolveu `[]`.
+
+---
+
+## (fechado) P1 — Geração de imagem do Codex nunca alcançava a CLI
+
+**FECHADO e VALIDADO AO VIVO em 2026-07-31.** Primeira validação real de provider
+desta branch: `handleCodexImage` gerou `validation-circle.png` (838 KB, modo
+`builtin`, `estimateUsd: 0`), aberto e conferido — círculo vermelho em fundo
+branco, exatamente o pedido.
+
+Dois defeitos, invisíveis para teste com runner injetado:
+
+1. **Spawn.** Mesmo bug do Higgsfield: `spawn('codex')` → `ENOENT`,
+   `spawn('…\\codex.CMD')` → `EINVAL`. `shell: true` **não** é opção — o prompt é
+   texto de usuário e o `cmd.exe` reinterpreta `&`, `|`, `^`, `%VAR%`.
+   `src/utils/cli-binary.ts` resolve mantendo `shell:false` e o array de argv.
+2. **stdin.** `codex exec` imprime *"Reading additional input from stdin…"* e
+   trava para sempre num pipe que nunca chega a EOF. Medido: a mesma chamada
+   passa de 600 s com pipe e sai `exit 0` em **16 s** com stdin fechado.
+
+---
+
 ## (referência) Créditos grátis por provider — levantado em 2026-07-31
 
 Levantado porque surgiu a lembrança de "66 créditos grátis por dia" em algum
