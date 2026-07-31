@@ -404,7 +404,17 @@ própria escrita ter dado certo.
 
 **Esforço:** depende da API de dedução.
 
-## P1 — media-forge fala a API legada do Kling, não a documentada (T3 reaberto)
+## (fechado) P1 — media-forge fala a API legada do Kling, não a documentada (T3 reaberto)
+
+**FECHADO em 2026-07-30 por `27af171`.** `src/video/providers/kling-v2.ts` fala o
+esquema 2.0 atrás da flag `MEDIA_FORGE_KLING_V2`, com o legado intocado como
+default — os dois esquemas respondem, então dá para migrar sem virada única. O
+`kling-3.0-turbo` deixou de ser inalcançável, com guarda de roteamento para
+modelos que só existem na 2.0.
+
+O texto original abaixo é o diagnóstico, mantido para auditoria.
+
+---
 
 **O quê:** verificado ao vivo em 2026-07-30 na doc autenticada. Todas as páginas de
 modelo do Kling documentam o esquema **API 2.0**:
@@ -450,14 +460,36 @@ cache; para afirmar que algo não existe na doc, abrir a doc.
 `KlingProvider.reconcileBillingWindow`. O custo do Kling deixa de ser derivado do
 registry e passa a vir do que o provider **efetivamente cobrou**.
 
-**Correção de precisão sobre o texto original abaixo:** o endpoint
-`/api/assets/billing-deduction` que citei **não apareceu** na doc ao verificar via
-`context7-mcp`. O que existe e foi usado:
+**FECHADO DE VERDADE em `64c2edb`, não em `64c319f`.** O commit anterior reportou
+o fecho, mas a reconciliação **nunca alcançou a API**: mandava
+`GET /tasks?start_time=…`, e o `GET /tasks` aceita só `task_ids` /
+`external_task_ids`. A API real responde `HTTP 400 code 1201 "task_ids or
+external_task_ids is required"`. A forma de listagem é `POST /tasks` com corpo
+JSON, a lista fica em `data.result[]` e a paginação em `data.next_cursor` /
+`data.has_more` — os três estavam errados. Provado ao vivo, 0 créditos, antes e
+depois.
 
-| Endpoint | O que dá |
-|---|---|
-| `GET /tasks` (forma de **listagem**) | `billing[]` por tarefa: `charge_type` (`cash` ou `unit`), `amount`, `package_type` |
-| `GET /account/costs` | pacotes de recurso: `total_quantity`, `remaining_quantity` |
+Os 35 testes passavam porque cada um injetava `fetchImpl` e conferia contra uma
+fixture escrita a partir do mesmo snapshot errado que o código. Fixture e fonte
+concordavam; a suíte só podia confirmar que concordavam. Agora o formato da
+chamada (verbo, URL, corpo) é afirmado diretamente.
+
+**Eu estava errado sobre `/api/assets/billing-deduction`.** Escrevi que o endpoint
+não existia na doc, com base numa falha do `context7-mcp`. Ele existe:
+
+| Endpoint | Verbo | O que dá |
+|---|---|---|
+| `/tasks` (listagem) | `POST` | `billing[]` por tarefa: `charge_type` (`cash`/`unit`), `amount`, `package_type`, `list_price` |
+| `/tasks` (por id) | `GET` | só `task_ids`/`external_task_ids`; **não** aceita janela |
+| `/account/costs` | `GET` | pacotes de recurso: `total_quantity`, `remaining_quantity` |
+| `/account/billing/balance` | `POST` | dedução de saldo por tarefa, **com `currency`** (`CNY`/`USD`), `list_price`, saldo antes/depois |
+| `/account/billing/package` | `POST` | dedução de unidades por tarefa, com filtro por pacote |
+
+Os dois últimos respondem `HTTP 200 code 0` nesta conta. A premissa original do
+TODO estava certa e minha retratação estava errada — **segunda ocorrência** da
+lição já registrada em `2026-07-30`: context7 não achar não é a doc não ter.
+`https://kling.ai/document-api/llms.txt` é o índice primário de páginas e é como
+essa pergunta se responde daqui em diante.
 
 **O risco central:** `amount` não significa nada sem `charge_type`. Tarefa cobrada
 em 8 **unidades** custa $1,12; o mesmo número lido como `cash` vira $8,00 — erro de
@@ -483,6 +515,40 @@ significa que `src/core/models.ts` discorda do provider — o que torna errada t
 toda **estimativa** futura, inclusive a que o cap diário usa antes do submit.
 
 ---
+
+## P2 — A cobrança `cash` do Kling é assumida em USD, sem confirmação
+
+**O quê:** `billing[]` do `POST /tasks` **não traz moeda**. `chargeToUsd` devolve o
+`amount` do ramo `cash` como se fosse dólar. O enum de moeda do saldo do Kling é
+`CNY` **ou** `USD` — está documentado na página Balance Deduction Detail, que
+retorna `currency` justamente porque a informação não é óbvia.
+
+**Impacto:** conta faturada em CNY grava CNY em `actual_usd` como se fosse dólar.
+Erro de ~7x na direção oposta ao risco de `charge_type`, e igualmente autoritativo
+por vir do provider.
+
+**Por que ficou assim:** a conta não teve nenhuma dedução na janela sondada
+(0 gerações), então a suposição é **não testada**, não confirmada. Preferi nomear
+a lacuna a inventar conversão.
+
+**Como fechar:** ler `currency` de `POST /account/billing/balance` e cruzar com o
+`task_id`, em vez de assumir no `chargeToUsd`. O endpoint já responde
+`HTTP 200 code 0` nesta conta.
+
+**Esforço:** S (CC ~30min), depois da primeira geração paga.
+
+## P3 — `/account/billing/{balance,package}` não são usados
+
+**O quê:** as duas APIs de dedução existem e respondem, mas o media-forge só usa
+`POST /tasks`. Elas dão o que o `/tasks` não dá: `currency`, `list_price`,
+`balance_before_deduction`/`balance_after_deduction`, filtro por `api_key_name` e
+por pacote de recurso.
+
+**Por que não foi feito junto:** é um trabalho **diferente** — auditoria por conta,
+não liquidação de uma tarefa que a gente já tem `native_task_id`. Construir os dois
+ao mesmo tempo seria duas fontes para o mesmo número sem ninguém decidir qual manda.
+
+**Esforço:** M (CC ~1h)
 
 ## (histórico) P1 — APIs de dedução e uso do Kling não são usadas
 
@@ -514,15 +580,47 @@ preços diferentes — direto pela API do provider, ou via Higgsfield. O
 provider como uma fonte distinta, então ele pode escolher o caminho mais caro para
 o mesmo modelo sem perceber que são o mesmo modelo.
 
-**Por que não corrigi junto:** precisa das tarifas do Higgsfield para os modelos
-revendidos, que não estão no registry. Sem elas, comparar os dois caminhos é
-chute. Depende do mesmo levantamento de preço do A8.
+**Levantamento de tarifas — FEITO em 2026-07-30, 0 créditos.** `higgsfield model
+list --video` e `higgsfield generate cost`, que é leitura. Confirma a revenda e dá
+o preço **desta conta**:
+
+| Modelo (job_type) | Config | Higgsfield | Kling direto |
+|---|---|---|---|
+| `kling3_0_turbo` | 720p 5s | 7,5 créditos | 4,0 unidades = $0,56 |
+| `kling3_0_turbo` | 1080p 5s | 10 créditos | 5,0 unidades = $0,70 |
+| `kling3_0_turbo` | 1080p 10s | 20 créditos | 10,0 unidades = $1,40 |
+| `kling3_0` | std 5s | 10 créditos | 3,0 unidades = $0,42 |
+| `kling3_0` | pro 5s | 12,5 créditos | 4,0 unidades = $0,56 |
+| `kling3_0` | 4k 5s | 30 créditos | 15,0 unidades = $2,10 |
+| `kling2_6` | 5s | 10 créditos | 1,5–5,0 unidades conforme áudio |
+| `seedance1_5` | 720p 4s | 4,8 créditos | — |
+| `seedance1_5` | 1080p 12s | 36 créditos | — |
+
+Tarifas diretas do Kling: `kling.ai/document-api/pricing/base/video.md`
+(1 unidade = $0,14, confirmado na própria tabela). Conta Higgsfield: plano `pro`,
+concessão de 600 créditos/mês, 610 em saldo.
+
+**O que continua bloqueado, e por quê:** falta o **preço em USD do crédito** no
+tier `pro` — a página pública de preços só lista Starter/Plus/Ultra, e `pro` é
+plano legado. Mas o bloqueio real é outro, e mais fundo: crédito Higgsfield é
+**bucket pré-pago que expira todo mês**; Kling direto é **gasto medido**. O plano
+(linha 369) já decidiu explicitamente **não cruzar as duas unidades**. Converter
+crédito em dólar e ordenar junto é uma escolha de modelagem, não um fato — e é
+exatamente a escolha que o plano proibiu.
+
+**O que dá para fazer sem isso:** o defeito real não é o roteador escolher errado,
+é ele **não saber que são o mesmo modelo**. Consciência de agregador — expor os
+dois caminhos com suas unidades nativas em vez de escolher um em silêncio — fecha
+isso sem dado de preço novo e sem violar a linha 369. A escolha automática entre
+unidades diferentes é decisão do usuário, com conversão declarada, não inferência
+minha.
 
 **Contexto:** registrado no perfil do Higgsfield em
 `skills/_shared/references/surface-prompt-profiles.md` — quando o caller pediu
 Kling explicitamente, vale o perfil direto. Falta o roteador saber.
 
-**Esforço:** M (CC ~45min) depois das tarifas.
+**Esforço:** M (CC ~45min) para a consciência; a ordenação cross-unidade depende de
+decisão do usuário.
 
 ## P2 — Orçamento de prompt do Seedance não verificado
 

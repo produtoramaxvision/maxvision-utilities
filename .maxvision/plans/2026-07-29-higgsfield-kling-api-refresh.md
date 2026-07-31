@@ -100,7 +100,7 @@ pessoalmente na auditoria, não herdados de relatório de subagente.
 | PR1 | T1 credenciais | **feito** — chave no `.env`, gitignored | (sem commit: `.env` não é versionado) |
 | PR1 | T7 MCP remoto como sonda | **feito** — `KLING_API_KEY` repassado no `.mcp.json` (era descartado); MCP remoto do Higgsfield **deliberadamente não embarcado**, documentado como sonda manual por C10 | `9f55c2e` |
 | PR1 | T2 auth dual-mode | **feito** | `28d732b` |
-| PR1 | T3 endpoints (API 2.0) | **retratação revertida — T3 é real, implementação pendente** | `e35ae72` (retratou), `6e86e5e` (reverteu) |
+| PR1 | T3 endpoints (API 2.0) | **feito** — `kling-v2.ts` atrás da flag `MEDIA_FORGE_KLING_V2`, legado intocado como default; retratação revertida antes (o T3 era real) | `e35ae72` (retratou), `6e86e5e` (reverteu), `27af171` (implementou) |
 | PR1 | T4 rates | **feito** — 4 modelos Kling lidos ao vivo em `kling.ai/dev/pricing`, sessão autenticada; master corrigido de `0.18` para `0.42` | `models.ts` `updatedAt: '2026-07-30'` |
 | PR1 | T4-b bug do 4K | **feito** (fora do plano original) | `b84756c` |
 | PR1 | T8 auth | **feito e validado na API real**, 0 créditos | — |
@@ -122,6 +122,7 @@ pessoalmente na auditoria, não herdados de relatório de subagente.
 | PR7 | Adapter MuAPI | **feito** — custo real vindo do header `X-MuAPI-Cost-USD`; sem tabela de preço local (agregador) | `5aeb25a` |
 | PR8 | T16 Wan2GP opt-in | **feito** — provider + `media-forge setup wan2gp` + guarda de roteamento custo-zero | `cf6f19b` |
 | PR9 | T17 Codex `image_gen` | **feito** — dois modos de credencial (OAuth local / `OPENAI_API_KEY` multi-tenant); minha análise de bloqueio estava errada, retratada na seção do T17 | `3efb6a8`, `cece7fc` |
+| — | Liquidação Kling pela cobrança real | **feito** — `POST /tasks`, `data.result[]`, paginação por cursor; `64c319f` reportou fechado mas a chamada nunca alcançava a API (HTTP 400 code 1201) | `64c319f`, `64c2edb` (corrigiu) |
 
 ### Desvios de ordem, assumidos
 
