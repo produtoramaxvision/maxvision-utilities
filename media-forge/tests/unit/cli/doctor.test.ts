@@ -368,4 +368,36 @@ describe('runDoctor — ffmpeg check', () => {
     // but the overall result.ok must remain true (all core checks pass)
     expect(result.ok).toBe(true);
   });
+
+  // The Codex image provider has two credential paths that need DIFFERENT setup
+  // and are indistinguishable until a generation is attempted. doctor is where
+  // that becomes visible; before this, codexImageMode() existed with no caller.
+  it('reports the Codex image credential path, and it never affects result.ok', async () => {
+    const prev = process.env['OPENAI_API_KEY'];
+
+    delete process.env['OPENAI_API_KEY'];
+    const builtin = await runDoctor({
+      env: { GOOGLE_API_KEY: 'test-key' },
+      skipNetwork: true,
+      outputBaseDir: os.tmpdir(),
+    });
+    expect(builtin.checks.codexImage.mode).toBe('builtin');
+    expect(builtin.checks.codexImage.requiresApiKey).toBe(false);
+    expect(builtin.ok).toBe(true);
+
+    process.env['OPENAI_API_KEY'] = 'sk-test';
+    const cli = await runDoctor({
+      env: { GOOGLE_API_KEY: 'test-key' },
+      skipNetwork: true,
+      outputBaseDir: os.tmpdir(),
+    });
+    expect(cli.checks.codexImage.mode).toBe('cli');
+    expect(cli.checks.codexImage.requiresApiKey).toBe(true);
+    // Advisory, like ffmpeg: the provider is opt-in, so neither answer is a
+    // failure and neither may gate the exit code.
+    expect(cli.ok).toBe(true);
+
+    if (prev === undefined) delete process.env['OPENAI_API_KEY'];
+    else process.env['OPENAI_API_KEY'] = prev;
+  });
 });

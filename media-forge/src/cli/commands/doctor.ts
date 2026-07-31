@@ -8,6 +8,7 @@ import {
   VIDEO_MODEL_VEO_3_1_PRO,
 } from '../../core/models.js';
 import { resolveFfmpegPathOrNull } from '../../core/ffmpeg.js';
+import { codexImageMode } from '../../mcp/handlers/optional-providers.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
@@ -19,6 +20,16 @@ export interface DoctorResult {
     network: { ok: boolean; reachable?: boolean; reason?: string };
     models: { ok: boolean; checked: string[] };
     ffmpeg: { ok: boolean; path?: string; hint?: string };
+    /**
+     * Which credential path the optional Codex image provider would use.
+     *
+     * Advisory, like ffmpeg: the provider is opt-in, so neither answer is a
+     * failure. It is here because the two modes need DIFFERENT setup and the
+     * difference is invisible until a generation is attempted — `builtin` rides
+     * an existing `codex login` on this machine, `cli` needs OPENAI_API_KEY and
+     * is the multi-tenant path.
+     */
+    codexImage: { ok: boolean; mode: string; requiresApiKey: boolean; hint?: string };
   };
 }
 
@@ -154,6 +165,18 @@ export async function runDoctor(opts: {
   // 5. ffmpeg check (advisory — does NOT affect allOk)
   const ffmpegCheck = checkFfmpeg(env);
 
+  // 6. Codex image credential path (advisory — opt-in provider, so neither
+  // answer is a failure and it does NOT affect allOk).
+  const codexMode = codexImageMode();
+  const codexCheck = {
+    ok: true,
+    mode: codexMode.mode,
+    requiresApiKey: codexMode.requiresApiKey,
+    hint: codexMode.requiresApiKey
+      ? 'OPENAI_API_KEY is set, so image_gen runs through the CLI fallback (the multi-tenant path).'
+      : 'No OPENAI_API_KEY, so image_gen rides this machine’s `codex login` OAuth session. Run `codex login` if generation reports no credentials.',
+  };
+
   const allOk =
     configCheck.ok && outputDirCheck.ok && networkCheck.ok && modelsCheck.ok;
 
@@ -167,6 +190,7 @@ export async function runDoctor(opts: {
       network: networkCheck,
       models: modelsCheck,
       ffmpeg: ffmpegCheck,
+      codexImage: codexCheck,
     },
   };
 }
@@ -214,13 +238,19 @@ function printDoctorHuman(result: DoctorResult): void {
     : `not found (advisory)${checks.ffmpeg.hint ? ` — ${checks.ffmpeg.hint}` : ''}`;
   process.stdout.write(`~ ffmpeg     ${ffmpegDetail}\n`);
 
+  // codex image (advisory — opt-in provider, so neither mode is a failure)
+  process.stdout.write(
+    `~ codex-img  mode=${checks.codexImage.mode}` +
+      `${checks.codexImage.hint ? ` — ${checks.codexImage.hint}` : ''}\n`,
+  );
+
   process.stdout.write(`\n${result.ok ? 'All checks passed.' : 'Some checks failed.'}\n`);
 }
 
 export function registerDoctorCommand(program: Command): void {
   program
     .command('doctor')
-    .description('Validate API key, output dir, network, and model availability')
+    .description('Validate API key, output dir, network, model availability, and optional-provider setup')
     .option('--json', 'Output as JSON')
     .option('--skip-network', 'Skip network reachability check')
     .action(async (opts: { json?: boolean; skipNetwork?: boolean }) => {
