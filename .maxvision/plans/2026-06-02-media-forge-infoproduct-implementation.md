@@ -31,7 +31,7 @@ Cada fase seguinte (F-B…F-I) recebe seu **próprio** plano via `writing-plans`
 | **F-E** | Pagamentos: Asaas (assinatura+packs Pix) + Stripe (intl/C1); webhooks de reconciliação | 1 | F-C, F-D | compra de pack credita carteira; idempotente | a planejar |
 | **F-F** | Licença C1: Worker/Keygen validate-by-key + gating self-host + imagem Docker multi-arch + EULA | 3 (paralela) | F-A | self-host gated por licença; 403 em revogação | a planejar |
 | **F-G** | Marketplace + plugin fino: plugin.json type:http, marketplace.json, onboarding | 1 | F-A | install do plugin conecta no server | a planejar |
-| **F-H** | Landing | 3 (paralela) | — | **PRONTO**: prompt Claude Design em `.maxvision/specs/2026-06-01-media-forge-landing-claude-design-prompt.md` |
+| **F-H** | Landing | 3 (paralela) | — | — | **PRONTO**: prompt Claude Design em `.maxvision/specs/2026-06-01-media-forge-landing-claude-design-prompt.md` |
 | **F-I** | Galeria persistente + backup Postgres + observabilidade de margem | 1 | F-B, F-C | `list_my_generations`; pg_dump cron; alerta de margem | a planejar |
 
 **Ordem de execução recomendada:** Lane 1 (F-A → F-B/F-C → F-E → F-G → F-I) sequencial; Lane 2 (`credit-core` F-D) em paralelo desde já (serviço separado); Lane 3 (F-F licença, F-H landing) em paralelo. F-E junta as lanes 1+2 (precisa de credit-core).

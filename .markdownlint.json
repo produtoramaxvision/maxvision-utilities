@@ -1,5 +1,7 @@
 {
   "default": true,
+  "_comment_MD001": "Off for the same reason MD025 already is. The planning documents under .maxvision/ use `#` as a repeated section marker rather than as a single document title, so a `#` is regularly followed by the `###` item level those sections are written in. Promoting the first `###` under each `#` would make it the PARENT of its own siblings (verified: C1 would adopt C2-C6), which is a worse structure than the one the rule objects to. Same headings tag as MD022/MD024/MD025/MD041, all already disabled here.",
+  "MD001": false,
   "MD012": false,
   "MD013": false,
   "MD022": false,
