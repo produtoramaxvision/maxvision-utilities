@@ -9,7 +9,8 @@ export type ErrorCode =
   | 'POLLING'
   | 'OUTPUT'
   | 'FILESYSTEM'
-  | 'SAFETY_BLOCK';
+  | 'SAFETY_BLOCK'
+  | 'COST_GUARD';
 
 export class MediaForgeError extends Error {
   constructor(
@@ -88,5 +89,35 @@ export interface SafetyBlockContext extends Record<string, unknown> {
 export class SafetyBlockError extends MediaForgeError {
   constructor(message: string, context?: SafetyBlockContext) {
     super(message, 'SAFETY_BLOCK', context);
+  }
+}
+
+/**
+ * Thrown by the cost guard (src/core/cost-guard.ts) when a generation request
+ * is refused before hitting the provider — either a single-call estimate
+ * above the hard block threshold, or the projected daily total (today's
+ * spend + this estimate) above the daily cap. `kind` distinguishes the two
+ * so callers can report which limit fired without re-parsing `message`.
+ */
+export class CostGuardError extends MediaForgeError {
+  constructor(
+    message: string,
+    public readonly estimateUsd: number,
+    public readonly limitUsd: number,
+    /**
+     * Which limit was hit. These are distinct because the user's remedy differs:
+     *   block          — one call is too expensive. Shrink the request.
+     *   daily-cap      — the day's budget is spent. Wait, or raise the cap.
+     *   retake-reserve — (T14) the day's budget is NOT spent, but this is new
+     *                    work and only the slice reserved for reviewer retakes
+     *                    is left. Lower MEDIA_FORGE_BUDGET_RESERVE_PCT or set
+     *                    MEDIA_FORGE_BUDGET_RESERVE_MODE=warn.
+     * Collapsing the third into 'daily-cap' would report a limitUsd below the
+     * configured cap under a name that says the cap was reached, and send the
+     * user off to raise a cap they had not actually hit.
+     */
+    public readonly kind: 'block' | 'daily-cap' | 'retake-reserve',
+  ) {
+    super(message, 'COST_GUARD', { estimateUsd, limitUsd, kind });
   }
 }

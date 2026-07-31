@@ -73,6 +73,22 @@ export default defineConfig({
       'tests/integration/pg-migrate.int.test.ts',
       // SE2: gallery-webhook e2e (embedded-postgres + sqlite, tenant-attributed)
       'tests/integration/se2-gallery-webhook.int.test.ts',
+      // Security: scans shipped skills/**/*.md for prompt-injection content on
+      // every upstream sync (re-runs after the Emily2040/seedance-2.0 absorption).
+      'tests/skills-injection.test.ts',
+      // T9-b: structural/offline ports of upstream's Python skill validators
+      // (prompt_lint.py, schema_check.py, validate_skills.py). Deliberately NOT
+      // wired into test:evals -- these read markdown/JSON off disk, no network,
+      // no API keys, so they belong in the default gate that actually runs.
+      'tests/skills/skill-structure.test.ts',
+      'tests/skills/prompt-lint.test.ts',
+      'tests/skills/schema-contract.test.ts',
+      // T10: Zod ports of skills/_shared/schemas/*.json (clip-contract, prompt-spec,
+      // project-state, generation-run, take-review) plus the sqlite-backed store.
+      'tests/narrative/**/*.test.ts',
+      // T17: CodexImageProvider (src/image/codex-image.ts) — was not covered by
+      // any existing glob (tests/image/ didn't exist before this suite).
+      'tests/image/**/*.test.ts',
     ],
     exclude: ['tests/integration/live-smoke.test.ts', 'tests/golden/**', 'tests/evals/**'],
     // F-I: globalSetup launches embedded-postgres for gallery integration tests.

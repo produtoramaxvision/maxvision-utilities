@@ -1,0 +1,84 @@
+media-forge — Third-Party Notices
+==================================
+
+This distribution of media-forge includes creative-direction and prompt-
+engineering content adapted from the following third-party project, used
+under the terms of its MIT License.
+
+Component
+---------
+
+- Project:    seedance-2.0
+- Repository: https://github.com/Emily2040/seedance-2.0
+- Commit:     6c51262377b96592b9f87a8c8b0219e6335378f7
+- License:    MIT
+
+What was absorbed
+------------------
+
+The 28 `skills/seedance-*` sub-skills, their supporting `references/*.md`
+files (including `references/vocab/*.md`), and the `schemas/*.json` files
+from the above commit were adapted into media-forge's `skills/mf-*` family
+(see `skills/` for the current names) and rebranded for media-forge's
+multi-provider scope (Veo, Kling, Higgsfield, Seedance). Two of the upstream
+skills (`seedance-copyright` and `seedance-filter`) were merged into a single
+`mf-safety-rewrite` skill; one upstream skill (`seedance-prompting`) was
+superseded and removed. Descriptions, cross-references, and file names were
+rewritten; provider-specific guidance was preserved and marked as such inline
+rather than deleted. No content from `references/migrated/v5.2-legacy-skill-bodies/`
+was absorbed.
+
+media-forge's `tests/skills/skill-structure.test.ts`, `tests/skills/
+prompt-lint.test.ts`, and `tests/skills/schema-contract.test.ts` additionally
+port the *logic* of three of the above commit's Python validators --
+`scripts/validate_skills.py` (frontmatter/structure and cross-reference
+existence), `scripts/prompt_lint.py` (draft-marker lint), and
+`scripts/schema_check.py` (JSON Schema execution against example instances)
+-- to Vitest, generalized for media-forge's own file layout and versioning
+scheme rather than upstream's. No upstream source lines were copied; the
+checks were re-derived from reading the Python and its own test suite
+(`tests/test_prompt_lint.py`, `tests/test_schema_check.py`,
+`tests/test_behavior_contract.py`).
+
+This adaptation is permitted under the MIT License. The license requires
+preserving the copyright notice and license text below for any copy or
+substantial portion of the original software — it does not require
+preserving the original names, wording, or file layout, which media-forge
+has changed to fit its own product and namespace.
+
+Original copyright notice
+--------------------------
+
+Copyright (c) 2026 Iamemily2050 (@iamemily2050)
+
+Full license text (MIT)
+------------------------
+
+MIT License
+
+Copyright (c) 2026 Iamemily2050 (@iamemily2050)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+This NOTICE file does not modify the terms of media-forge's own license
+(see `LICENSE` in this directory). It documents an attribution obligation
+owed to a third party whose MIT-licensed work was adapted into this
+product.

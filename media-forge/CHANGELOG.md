@@ -4,6 +4,60 @@ All notable changes to `media-forge` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.9] - 2026-07-31
+
+Collapses everything unshipped since the v0.2.8 deploy. Versions 0.2.5–0.2.8 were
+released without entries here; this entry does not attempt to reconstruct them.
+
+### Added
+
+- **MuAPI is complete and reachable.** `media_muapi_poll` and
+  `media_muapi_download` join the existing models/generate pair. The provider's
+  `pollStatus` and `download` had shipped tested with **no caller anywhere**,
+  which made every submitted MuAPI job unretrievable — a submit-only path that a
+  green suite could not distinguish from a working one.
+- **MuAPI settles at the real charge.** Its jobs now get a `video_jobs` row at
+  submit, and the terminal poll closes it at the amount MuAPI itself reports
+  (verified against `muapi.ai/docs` via context7: both the submit and poll bodies
+  carry `cost.amount_usd` and `refunded`). A refunded task settles at 0. This is
+  the only provider here whose ledger records a fact rather than `rate x duration`.
+- Opt-in tools documented for users for the first time, in `README.md` and
+  `docs/specification.md`. MuAPI previously appeared nowhere as a feature.
+
+### Fixed
+
+- **`media_muapi_generate` returned an id that could not poll anything.** It
+  returned only the local ledger key (`muapi-{ts}-{rand}`), while MuAPI's endpoint
+  is keyed on its own `request_id`. Both are returned now, each named for what it
+  opens.
+- **MuAPI spend bypassed every guard.** Its handler called `generate()` with no
+  ledger hooks, so the one paid provider without a reservation, a cost guard or a
+  daily-cap contribution was this one. It now takes the same `videoGuardOpts` as
+  Kling, Higgsfield and Seedance.
+- **The CLI adapters could not spawn on Windows.** `spawn('codex')` returns
+  ENOENT (no PATHEXT search without a shell) and the `.CMD` shim returns EINVAL
+  (Node blocks it since CVE-2024-27980). `src/utils/cli-binary.ts` resolves the
+  name to a native `.exe` or to `process.execPath` plus the shim's `.js` entry,
+  keeping `shell: false` so a prompt containing `&` or `%VAR%` is never re-parsed
+  as a command. Both npm's `%dp0%` and pnpm's `%~dp0` shim forms are handled.
+- **`codex exec` hung forever on an open stdin pipe.** It waits on stdin that
+  never reaches EOF; `stdio: ['ignore','pipe','pipe']` took the same call from
+  >600s to a 16s exit 0. First live image generation on this branch followed.
+- **`higgsfield-cli` no longer claims it can run `higgsfield` specs.** The two
+  catalogues share zero model names, so the flag routed to a provider that
+  rejected every spec it was handed.
+
+### Changed
+
+- `@anthropic-ai/sdk` 0.98.0 → 0.115.0, and both model pins to `claude-opus-5`.
+  One change, not two: 0.98.0's `Model` union had no `claude-opus-5`, so pinning
+  it there would have type-checked nothing and failed at the first paid call.
+- Two comments that described behaviour the code did not have are gone: MuAPI's
+  `MEDIA_FORGE_MUAPI_ENABLED` gate (the string was read nowhere and both tools
+  always registered) and its claim that `recordActualCostUSD` was real (the method
+  did not exist). The gate is documented as deliberately absent; the method now
+  exists.
+
 ## [0.2.4] - 2026-06-21
 
 ### Fixed

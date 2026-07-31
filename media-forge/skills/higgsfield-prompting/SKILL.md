@@ -1,6 +1,7 @@
 ---
 name: media-forge:higgsfield-prompting
 description: Higgsfield prompting playbook — MCSLA formula, DoP camera verbs, Cinema Studio lens dictionary, Soul ID lifecycle, Marketing Studio templates. Trigger when caller plans a Higgsfield generation.
+allowed-tools: [Read, Grep]
 when_to_invoke: video-router or higgsfield-director needs structural guidance on prompt composition
 inputs:
   - mode: t2v | i2v | lip-sync | targeted-edit | with-refs
@@ -12,7 +13,49 @@ outputs:
 
 # Higgsfield Prompting Playbook
 
-## 1. MCSLA Formula (universal)
+For the provider-neutral craft that applies before any of this — mode gate
+(T2V/I2V/V2V/R2V/FLF2V/edit/extend), the director formula, compression order, and
+the output contract — load `[skill:mf-video-prompt]`. This skill owns Higgsfield's
+own mechanisms; that one owns the shared discipline. When both are loaded and they
+differ on prompt shape, the provider-specific guidance here wins for Higgsfield.
+
+Verified surface facts — endpoints, auth, prompt budget, aggregator behaviour —
+live in `[ref:surface-prompt-profiles]` with sources and dates.
+
+**Two things to know before writing a Higgsfield prompt:**
+
+Higgsfield publishes **no prompt character limit**. The conservative profile
+applies: keep it compact because compactness sharpens intent, not because an API
+bound forces it.
+
+**Do not extend the anti-slop pass to Higgsfield image prompts.** Higgsfield's own
+image documentation recommends quality modifiers such as `"highly detailed"` or
+`"8k"`, and slop class 2 in `[skill:mf-antislop]` deletes exactly those as
+"borrowed image-model tokens".
+
+This is a guard, not a live fix. Today the two never meet: `mf-antislop` scopes
+itself to video prompts in its own description, and its only invokers are
+`[skill:mf-video-prompt]` and `[skill:mf-troubleshoot]` — both video paths. No
+image skill invokes it. So nothing is currently stripping words that Higgsfield
+asks for.
+
+The note exists because the obvious future "improvement" is to run anti-slop over
+image prompts too, for consistency. Doing that would contradict a platform's
+published guidance for one of the four providers. Video prompts keep the pass;
+Higgsfield image prompts must not get it.
+
+## 1. MCSLA Formula (grounded in Higgsfield's own guidance)
+
+Higgsfield's "Writing Effective Motion Prompts" prescribes exactly this shape:
+describe the movement specifically, set the pace ("slowly", "smoothly"), specify
+camera movement explicitly, then add atmospheric detail. Their own better-example
+is camera-first and comma-separated:
+
+> `"Smooth cinematic camera pan from left to right, golden hour lighting, gentle wind rustling through leaves, shallow depth of field"`
+
+So MCSLA's motion-then-camera ordering is documented behaviour, not a guess —
+which is why it takes precedence over the subject-first director formula when the
+target is Higgsfield.
 
 Every Higgsfield prompt benefits from these five concentric layers, in order:
 

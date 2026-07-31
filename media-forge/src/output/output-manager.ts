@@ -2,7 +2,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { safeJoin, jobId as generateJobId } from '../utils/paths.js';
 import { sanitizePayload } from '../core/sanitize.js';
-import { appendCostLogEntry } from '../core/cost.js';
 import { logger } from '../core/logger.js';
 
 export interface CreateJobOpts {
@@ -60,13 +59,6 @@ export interface WriteSummaryOpts {
 export interface MarkFinalOpts {
   jobId: string;
   version: string;
-}
-
-export interface AppendCostLogOpts {
-  jobId: string;
-  model: string;
-  usd: number;
-  breakdown?: Record<string, number>;
 }
 
 // Inline mime → extension map for saveAsset
@@ -268,24 +260,5 @@ export class OutputManager {
 
     logger.debug('OutputManager: markFinal completed', { jobId: opts.jobId, version: opts.version, copies: copies.length });
     return { finalDir, copies };
-  }
-
-  async appendCostLog(opts: AppendCostLogOpts): Promise<void> {
-    const jobDir = this.resolveJobDir(opts.jobId);
-    const logPath = path.join(jobDir, 'cost.jsonl');
-
-    // Forward structured Record<string, number> straight to the cost log so the
-    // payload preserves per-component costs (cost.ts accepts CostBreakdown).
-    const breakdown = opts.breakdown
-      ? opts.breakdown
-      : `${opts.model}: $${opts.usd}`;
-
-    appendCostLogEntry(logPath, {
-      model: opts.model,
-      usd: opts.usd,
-      breakdown,
-    });
-
-    logger.debug('OutputManager: cost log appended', { jobId: opts.jobId, model: opts.model, usd: opts.usd });
   }
 }

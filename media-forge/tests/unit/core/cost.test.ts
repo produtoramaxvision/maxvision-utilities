@@ -1,14 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
+import { describe, it, expect } from 'vitest';
 import {
   estimateImageCost,
   estimateVideoCost,
   estimateWithRetries,
   estimateRefsCost,
-  dailyTotal,
-  appendCostLogEntry,
 } from '../../../src/core/cost.js';
 
 describe('estimateImageCost', () => {
@@ -122,40 +117,7 @@ describe('estimateRefsCost (R6)', () => {
   });
 });
 
-describe('dailyTotal + appendCostLogEntry', () => {
-  let tmpDir: string;
-  let logPath: string;
-
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cost-test-'));
-    logPath = path.join(tmpDir, 'cost-log.jsonl');
-  });
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it('returns {0, 0} when log missing', () => {
-    expect(dailyTotal({ logPath })).toEqual({ usd: 0, entries: 0 });
-  });
-
-  it('aggregates entries by date', () => {
-    appendCostLogEntry(logPath, { date: '2026-05-22', usd: 0.24, model: 'nano', breakdown: 'x' });
-    appendCostLogEntry(logPath, { date: '2026-05-22', usd: 0.4, model: 'veo', breakdown: 'y' });
-    appendCostLogEntry(logPath, { date: '2026-05-21', usd: 1.0, model: 'old', breakdown: 'z' });
-    const r22 = dailyTotal({ logPath, date: '2026-05-22' });
-    expect(r22.entries).toBe(2);
-    expect(r22.usd).toBeCloseTo(0.64, 5);
-    expect(dailyTotal({ logPath, date: '2026-05-21' })).toEqual({ usd: 1.0, entries: 1 });
-  });
-
-  it('skips malformed lines gracefully', () => {
-    fs.writeFileSync(logPath, 'not json\n{"date":"2026-05-22","usd":0.5}\n{}\n');
-    expect(dailyTotal({ logPath, date: '2026-05-22' })).toEqual({ usd: 0.5, entries: 1 });
-  });
-
-  it('creates parent dirs on append', () => {
-    const deep = path.join(tmpDir, 'a', 'b', 'log.jsonl');
-    appendCostLogEntry(deep, { usd: 0.1, model: 'x', breakdown: 'y' });
-    expect(fs.existsSync(deep)).toBe(true);
-  });
-});
+// The `dailyTotal + appendCostLogEntry` block was removed on 2026-07-31 with the
+// cost.jsonl subsystem it covered. Nothing in production wrote that file, so the
+// tests were exercising a second cost record that could only ever be empty.
+// The live ledger is video_jobs + image_jobs — see tests/cli/cost-summary-ledger.test.ts.

@@ -71,6 +71,10 @@ export interface MediaForgeConfig {
   readonly dailyCapUsd: number;
   readonly confirmThresholdUsd: number;
   readonly blockThresholdUsd: number;
+  /** T14: fraction of dailyCapUsd held back for reviewer retakes, 0..1. */
+  readonly budgetReservePct: number;
+  /** T14: how the reserve is enforced. 'observe' is the pre-T14 behaviour. */
+  readonly budgetReserveMode: 'observe' | 'warn' | 'cap';
   readonly retryBudgetMultiplier: number;
   readonly showRetryBudget: boolean;
   readonly ocrBackend: 'cloud-vision' | 'paddleocr-wasm';
@@ -179,6 +183,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MediaForgeConf
     dailyCapUsd: envFloat(env, 'MEDIA_FORGE_DAILY_CAP_USD', 25),
     confirmThresholdUsd: envFloat(env, 'MEDIA_FORGE_CONFIRM_THRESHOLD_USD', 0.5),
     blockThresholdUsd: envFloat(env, 'MEDIA_FORGE_BLOCK_THRESHOLD_USD', 2.0),
+    // T14. The percentage defaults to the planned 0.10, but the MODE defaults to
+    // 'observe' so nothing changes for an existing install until it opts in.
+    // Shipping 'cap' by default would quietly shrink every user's usable daily
+    // budget by 10% in a patch release.
+    budgetReservePct: envFloat(env, 'MEDIA_FORGE_BUDGET_RESERVE_PCT', 0.1),
+    budgetReserveMode: envEnum(
+      env,
+      'MEDIA_FORGE_BUDGET_RESERVE_MODE',
+      ['observe', 'warn', 'cap'] as const,
+      'observe',
+    ),
     retryBudgetMultiplier: envInt(env, 'MEDIA_FORGE_RETRY_BUDGET_MULTIPLIER', 3),
     showRetryBudget: envBool(env, 'MEDIA_FORGE_SHOW_RETRY_BUDGET', true),
     ocrBackend: pickEnum(

@@ -22,8 +22,15 @@ export interface GrantArgs {
 }
 
 export class InsufficientCreditError extends Error {
-  constructor(public tenantId: string, public amount: number) {
-    super(`insufficient credit: tenant=${tenantId} needs ${amount}`);
+  constructor(public tenantId: string, public amount: number, public balance?: number) {
+    // `balance` is only known at preflight call sites (we already fetched it to
+    // compare) — the reserve()-402 path below doesn't have it, so the original
+    // 2-arg message is preserved exactly when balance is omitted.
+    super(
+      balance !== undefined
+        ? `insufficient credit: tenant=${tenantId} needs ${amount} credits but has ${balance} — top up to continue`
+        : `insufficient credit: tenant=${tenantId} needs ${amount}`,
+    );
     this.name = 'InsufficientCreditError';
   }
 }

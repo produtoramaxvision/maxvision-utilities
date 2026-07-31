@@ -85,82 +85,19 @@ export function estimateWithRetries(base: CostEstimate, multiplier: number): Cos
   };
 }
 
-export interface DailyTotalOpts {
-  logPath: string;
-  date?: string; // YYYY-MM-DD, defaults to today UTC
-}
-
-export function dailyTotal(opts: DailyTotalOpts): { usd: number; entries: number } {
-  const target = opts.date ?? new Date().toISOString().slice(0, 10);
-  if (!fs.existsSync(opts.logPath)) return { usd: 0, entries: 0 };
-  const lines = fs.readFileSync(opts.logPath, 'utf8').split('\n').filter((l) => l.trim() !== '');
-  let usd = 0;
-  let entries = 0;
-  for (const line of lines) {
-    try {
-      const obj = JSON.parse(line) as { date?: string; usd?: number };
-      if (obj.date === target && typeof obj.usd === 'number') {
-        usd += obj.usd;
-        entries++;
-      }
-    } catch {
-      // skip malformed lines
-    }
-  }
-  return { usd, entries };
-}
-
-/**
- * Total cost across entries whose ISO `date` field starts with `month`
- * (format `YYYY-MM`). Used by `media-forge cost summary --month`.
- */
-export function monthlyTotal(opts: {
-  logPath: string;
-  month?: string;
-}): { usd: number; entries: number } {
-  const target = opts.month ?? new Date().toISOString().slice(0, 7);
-  if (!fs.existsSync(opts.logPath)) return { usd: 0, entries: 0 };
-  const lines = fs.readFileSync(opts.logPath, 'utf8').split('\n').filter((l) => l.trim() !== '');
-  let usd = 0;
-  let entries = 0;
-  for (const line of lines) {
-    try {
-      const obj = JSON.parse(line) as { date?: string; usd?: number };
-      if (typeof obj.date === 'string' && obj.date.startsWith(target) && typeof obj.usd === 'number') {
-        usd += obj.usd;
-        entries++;
-      }
-    } catch {
-      // skip malformed lines
-    }
-  }
-  return { usd, entries };
-}
-
-/**
- * Total cost across every entry in the log regardless of date.
- * Used by `media-forge cost summary` without `--today` / `--month`.
- */
-export function allTimeTotal(opts: {
-  logPath: string;
-}): { usd: number; entries: number } {
-  if (!fs.existsSync(opts.logPath)) return { usd: 0, entries: 0 };
-  const lines = fs.readFileSync(opts.logPath, 'utf8').split('\n').filter((l) => l.trim() !== '');
-  let usd = 0;
-  let entries = 0;
-  for (const line of lines) {
-    try {
-      const obj = JSON.parse(line) as { usd?: number };
-      if (typeof obj.usd === 'number') {
-        usd += obj.usd;
-        entries++;
-      }
-    } catch {
-      // skip malformed lines
-    }
-  }
-  return { usd, entries };
-}
+// The cost.jsonl helpers (dailyTotal / monthlyTotal / allTimeTotal /
+// appendCostLogEntry / DailyTotalOpts) were REMOVED on 2026-07-31.
+//
+// They read and wrote a second, parallel record of what a generation cost. The
+// writer (OutputManager.appendCostLog) had no production caller and the reader
+// (getCostSummary) had none either — `bbc857b` had already repointed the CLI at
+// the sqlite ledger because the jsonl file was always empty and `cost --today`
+// always reported $0.00.
+//
+// Removed rather than kept: two records of the same event drift, and the one
+// that drifts silently is the one nothing writes to. Keeping a dormant second
+// cost source next to the live one is how a future caller picks the wrong one.
+// The live ledger is video_jobs + image_jobs, read through cost-tracker.ts.
 
 export type CostBreakdown = string | Record<string, number>;
 

@@ -13,6 +13,20 @@ export const LineageEntry = z
     fixTargetAgent: z.string().min(1),
     fixDirective: z.string().min(1),
     verdict: z.enum(['pass', 'fail', 'partial']),
+
+    // T11. Optional so entries written before the retake protocol still parse —
+    // lineage.jsonl is append-only and historical files must stay readable.
+    /** Router triage for this attempt. See src/review/router.ts. */
+    triage: z.enum(['keep', 'fix-in-post', 'edit', 're-roll', 'rewrite']).optional(),
+    /**
+     * The single variable this attempt changed. Reading the column down a job's
+     * lineage shows whether the retries were actually exploring different
+     * hypotheses or repeating one that had already failed.
+     */
+    changedVariable: z
+      .enum(['prompt', 'negative-prompt', 'seed', 'reference-set', 'model', 'duration', 'post-processing'])
+      .nullable()
+      .optional(),
   })
   .strict();
 
@@ -26,6 +40,10 @@ export interface RecordLineageOpts {
   fixDirective: string;
   verdict: 'pass' | 'fail' | 'partial';
   ts?: string;
+  /** T11: router triage for this attempt. Omitted by pre-T11 callers. */
+  triage?: LineageEntryT['triage'];
+  /** T11: the single variable this attempt changed. */
+  changedVariable?: LineageEntryT['changedVariable'];
 }
 
 export async function recordLineage(opts: RecordLineageOpts): Promise<void> {
@@ -38,6 +56,11 @@ export async function recordLineage(opts: RecordLineageOpts): Promise<void> {
     fixTargetAgent: opts.fixTargetAgent,
     fixDirective: opts.fixDirective,
     verdict: opts.verdict,
+    // Spread conditionally: LineageEntry is .strict(), and writing an explicit
+    // `undefined` for a caller that never had these fields would be a different
+    // record shape than the one those callers produced before T11.
+    ...(opts.triage !== undefined ? { triage: opts.triage } : {}),
+    ...(opts.changedVariable !== undefined ? { changedVariable: opts.changedVariable } : {}),
   };
 
   let validated: LineageEntryT;

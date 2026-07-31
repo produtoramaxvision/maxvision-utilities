@@ -251,58 +251,9 @@ describe('OutputManager', () => {
     }
   });
 
-  // ── 15. appendCostLog adds JSONL line with model, usd, timestamp ──────────────
-  it('appendCostLog adds a JSONL line with model, usd, and a timestamp', async () => {
-    const { jobId, jobDir } = await manager.createJob({});
-    await manager.appendCostLog({ jobId, model: 'imagen-4', usd: 0.06 });
-    const logPath = path.join(jobDir, 'cost.jsonl');
-    expect(fs.existsSync(logPath)).toBe(true);
-    const lines = fs.readFileSync(logPath, 'utf8').trim().split('\n');
-    expect(lines.length).toBe(1);
-    const entry = JSON.parse(lines[0]!) as { model: string; usd: number; ts: string };
-    expect(entry.model).toBe('imagen-4');
-    expect(entry.usd).toBe(0.06);
-    expect(entry.ts).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-  });
-
-  it('appendCostLog preserves structured breakdown record (round-trip JSON)', async () => {
-    const { jobId, jobDir } = await manager.createJob({});
-    await manager.appendCostLog({
-      jobId,
-      model: 'veo-3.1',
-      usd: 0.4,
-      breakdown: { base: 0.3, audio: 0.1 },
-    });
-    const logPath = path.join(jobDir, 'cost.jsonl');
-    const raw = fs.readFileSync(logPath, 'utf8').trim();
-    const parsed = JSON.parse(raw) as {
-      model: string;
-      usd: number;
-      breakdown: { base: number; audio: number };
-    };
-    expect(parsed.model).toBe('veo-3.1');
-    expect(parsed.usd).toBeCloseTo(0.4);
-    expect(parsed.breakdown).toEqual({ base: 0.3, audio: 0.1 });
-  });
-
-  // ── 16. appendCostLog atomic under concurrent calls ──────────────────────────
-  it('appendCostLog under 10 concurrent calls produces 10 lines without truncation', async () => {
-    const { jobId, jobDir } = await manager.createJob({});
-    await Promise.all(
-      Array.from({ length: 10 }, (_, i) =>
-        manager.appendCostLog({ jobId, model: `model-${i}`, usd: i * 0.01 }),
-      ),
-    );
-    const logPath = path.join(jobDir, 'cost.jsonl');
-    const lines = fs.readFileSync(logPath, 'utf8')
-      .split('\n')
-      .filter((l) => l.trim() !== '');
-    expect(lines.length).toBe(10);
-    // All lines are valid JSON
-    for (const line of lines) {
-      expect(() => JSON.parse(line)).not.toThrow();
-    }
-  });
+  // Sections 15 and 16 covered OutputManager.appendCostLog, removed on
+  // 2026-07-31 together with the cost.jsonl path. It had no production caller;
+  // the live cost record is the sqlite ledger in cost-tracker.ts.
 
   // ── 17. Path traversal: resolveJobDir throws FileSystemError ─────────────────
   it('resolveJobDir with traversal path throws FileSystemError', () => {

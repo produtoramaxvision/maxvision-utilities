@@ -3,6 +3,7 @@ import { logger } from '../core/logger.js';
 import type { MediaForgeClient } from '../core/client.js';
 import { VIDEO_MODEL_VEO_3_1_PRO } from '../core/models.js';
 import type { GenerateVideoResult } from './veo-t2v.js';
+import { assertPromptWithinBudget, VEO_ENHANCE_PROMPT_DEFAULT } from '../core/prompt-budget.js';
 
 export interface ExtendResult extends GenerateVideoResult {
   hopIndex: number;
@@ -28,6 +29,7 @@ export async function extendVideo(opts: ExtendOpts): Promise<ExtendResult> {
   }
 
   const prompt = buildExtensionPrompt(opts.originalPrompt, opts.extensionDirective);
+  assertPromptWithinBudget({ provider: 'google', prompt, field: 'prompt' });
 
   if (opts.client.dryRun) {
     return {
@@ -53,6 +55,7 @@ export async function extendVideo(opts: ExtendOpts): Promise<ExtendResult> {
       resolution: '720p',
       durationSeconds: 7,
       numberOfVideos: 1,
+      enhancePrompt: VEO_ENHANCE_PROMPT_DEFAULT,
     },
   });
 

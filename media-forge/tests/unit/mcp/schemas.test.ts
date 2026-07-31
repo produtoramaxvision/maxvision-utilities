@@ -23,7 +23,7 @@ const EXPECTED_TOOL_NAMES = [
   'media_compose_scene',
   'media_describe_image',
   'media_extract_palette',
-  // video (7)
+  // video (8 — T9-d adds media_extract_last_frame)
   'media_generate_video_t2v',
   'media_generate_video_i2v',
   'media_generate_video_interpolate',
@@ -31,6 +31,7 @@ const EXPECTED_TOOL_NAMES = [
   'media_extend_video',
   'media_poll_video_operation',
   'media_download_video',
+  'media_extract_last_frame',
   // pipeline / utility (8)
   'media_dry_run_payload',
   'media_estimate_cost',
@@ -91,14 +92,30 @@ const EXPECTED_TOOL_NAMES = [
   'media_seedance_reference_fusion',
   // gallery (1 — F-I: list tenant's own generation history)
   'list_my_generations',
+  // narrative planner (2 — T13: the entry point into src/narrative/, which
+  // shipped with fifteen tested modules and no way to invoke any of them)
+  'media_narrative_plan',
+  'media_narrative_assemble',
+  // opt-in providers (3 — T17 Codex images, T6 Higgsfield Soul-ID). T6's two
+  // tools are on the plan's own checklist and had never been exposed, so the
+  // soul-id cache that has existed since P14 had no way to be populated.
+  'media_image_codex',
+  'media_higgsfield_soul_id_train',
+  'media_higgsfield_soul_id_list',
 ] as const;
 
 // ---------------------------------------------------------------------------
 // Registry shape assertions
 // ---------------------------------------------------------------------------
 describe('MCP_TOOLS registry', () => {
-  it('contains exactly 55 tools', () => {
-    expect(MCP_TOOLS.length).toBe(55);
+  // 56 -> 58 (T13's two narrative tools) -> 61 (T17 Codex images + T6's two
+  // Soul-ID tools). The count is asserted so a tool cannot appear or vanish
+  // unnoticed; it moves only when tools are deliberately added, and
+  // EXPECTED_TOOL_NAMES gains every new name in the same change. Bumping the
+  // number alone would leave the sibling test reading "all 61 expected" while
+  // actually checking fewer.
+  it('contains exactly 68 tools', () => {
+    expect(MCP_TOOLS.length).toBe(68);
   });
 
   it('is frozen (Object.isFrozen)', () => {
@@ -143,11 +160,11 @@ describe('MCP_TOOLS registry', () => {
 // listMCPToolNames()
 // ---------------------------------------------------------------------------
 describe('listMCPToolNames()', () => {
-  it('returns an array of length 55', () => {
-    expect(listMCPToolNames().length).toBe(55);
+  it('returns an array of length 68', () => {
+    expect(listMCPToolNames().length).toBe(68);
   });
 
-  it('contains all 55 expected tool names', () => {
+  it('contains all 61 expected tool names', () => {
     const names = listMCPToolNames();
     for (const expected of EXPECTED_TOOL_NAMES) {
       expect(names).toContain(expected);

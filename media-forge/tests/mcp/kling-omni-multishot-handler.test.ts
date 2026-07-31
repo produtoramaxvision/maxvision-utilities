@@ -53,7 +53,12 @@ describe('media_kling_omni_multishot handler', () => {
       { fetchImpl: fetchImpl as never },
     );
     expect(result.modelId).toBe('kling-v3-omni');
-    expect(result.estimatedCostUSD).toBeCloseTo(0.168 * 20, 4);
+    // A8 (2026-07-30): was 0.168. That figure was the PLACEHOLDER copied from the
+    // Pro tier. The official page prices Omni per condition, and this entry
+    // declares audioNative with no video-reference capability, which maps it to
+    // "No Video Input x With Native Audio" = $0.14/s at 1080p. 0.168 is the
+    // "With Video Input x No Native Audio" row — the wrong axis for this entry.
+    expect(result.estimatedCostUSD).toBeCloseTo(0.14 * 20, 4);
     const [url, init] = fetchImpl.mock.calls[0];
     expect(url).toBe('https://api-singapore.klingai.com/v1/videos/omni-video/');
     const body = JSON.parse(init.body as string);

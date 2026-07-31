@@ -7,11 +7,31 @@ import type {
   DownloadedAsset,
   KlingExtras,
   ProviderExtras,
+  VideoLedgerHooks,
 } from './base.js';
 import { VIDEO_MODELS, type Provider, type VideoModelSpec } from '../../core/models.js';
 import { recordJob, recordActualCost } from '../../core/cost-tracker.js';
 import { openDb, runMigrations } from '../../core/db.js';
+import { logger } from '../../core/logger.js';
 import { getKlingAuthHeader, type KlingEnvSubset } from './auth/kling-jwt.js';
+import {
+  isKlingV2Enabled,
+  resolveV2Route,
+  isV2OnlyModel,
+  assertV2AuthAvailable,
+  submitPathFor as v2SubmitPathFor,
+  pollPathFor as v2PollPathFor,
+  buildV2Body,
+  parseV2SubmitResponse,
+  parseV2TaskResponse,
+} from './kling-v2.js';
+import { fetchTaskBillingPage, compareEstimateToActual } from './kling-billing.js';
+import {
+  auditDeductions,
+  findOrphanCharges,
+  type DeductionAudit,
+  type OrphanCharge,
+} from './kling-deduction.js';
 
 const KLING_API_BASE = 'https://api-singapore.klingai.com';
 
@@ -50,6 +70,15 @@ type KlingEndpointKind =
 interface JobTypeRecord {
   readonly endpointKind: KlingEndpointKind;
   readonly nativeTaskId: string;
+  /**
+   * Which protocol submitted this job.
+   *
+   * Recorded rather than re-derived from the flag at poll time: the flag can be
+   * toggled between submit and poll, and polling a legacy job on /tasks (or a
+   * 2.0 job on /v1/videos/{type}/{id}) returns "task not found" for a job that
+   * is running fine. The protocol is a property of the JOB, not of the process.
+   */
+  readonly protocol?: 'legacy' | 'v2';
 }
 
 interface KlingErrorBody {
@@ -162,10 +191,26 @@ export class KlingProvider implements VideoProvider {
     if (spec.pricing.unit !== 'usd-per-second') {
       throw new Error(`Kling pricing unit expected usd-per-second, got ${spec.pricing.unit}`);
     }
-    return spec.pricing.rate * req.durationSec;
+    // A8 (2026-07-30): apply resolutionMultipliers, which this method previously
+    // ignored. Kling's official pricing is per-second AND per-resolution — a
+    // Kling 3.0 second costs $0.126 at 720P but $0.168 at 1080P — so a flat
+    // `rate * durationSec` under-estimates every 1080p clip by 25%.
+    //
+    // That mattered because this is the billing path: every Kling MCP handler
+    // calls estimateCostUSD() directly, and its result feeds the cost guard, the
+    // ledger row and the credit reservation. normalizeCostUSD (pricing.ts:50)
+    // already applied the multiplier, but that is the cross-provider ROUTER path
+    // and is ranking-only — so the registry data was correct and inert where it
+    // actually spent money.
+    //
+    // Mirrors BytedanceSeedanceProvider (bytedance-seedance.ts:249), which has
+    // read the multiplier since PR#12. Absent multipliers default to 1, so models
+    // priced flat across resolutions are unaffected.
+    const multiplier = spec.pricing.resolutionMultipliers?.[req.resolution] ?? 1;
+    return spec.pricing.rate * multiplier * req.durationSec;
   }
 
-  async generate(req: VideoGenerationRequest): Promise<JobHandle> {
+  async generate(req: VideoGenerationRequest, ledgerHooks?: VideoLedgerHooks): Promise<JobHandle> {
     const spec = VIDEO_MODELS[req.modelId];
     if (!spec) throw new Error(`unknown model: ${req.modelId}`);
     if (spec.provider !== 'kling') {
@@ -174,10 +219,40 @@ export class KlingProvider implements VideoProvider {
 
     const klingExtras = isKlingExtras(req.extras) ? req.extras : undefined;
     const jobId = `kling-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // A5: estimateCostUSD is pure (no I/O) — moved up from post-submit (it used
+    // to run only right before recordJob, after the fetch already succeeded) so
+    // ledgerHooks.beforeSubmit has a real estimate BEFORE the network call.
+    // Same value either way; only the timing of the computation changed.
+    const estUsd = this.estimateCostUSD(req);
 
     const endpointKind = pickEndpoint(req.mode, klingExtras);
-    const endpointPath = endpointPathFor(endpointKind);
-    const body = buildRequestBody({ req, spec, jobId, extras: klingExtras, env: this.env });
+
+    // API 2.0 routing. Only engages when the flag is on AND this model has a
+    // VERIFIED 2.0 route; anything else stays on the legacy protocol untouched.
+    // A model that exists only on 2.0 (kling-3.0-turbo) fails loudly rather than
+    // silently falling back to an endpoint that does not serve it.
+    const v2Route = isKlingV2Enabled() ? resolveV2Route(req.modelId) : undefined;
+    if (v2Route === undefined && isV2OnlyModel(req.modelId)) {
+      throw new Error(
+        `${req.modelId} exists only on the Kling API 2.0 and has no legacy endpoint. ` +
+          `Set MEDIA_FORGE_KLING_API_V2=true (and KLING_API_KEY, which 2.0 requires).`,
+      );
+    }
+    if (v2Route !== undefined) assertV2AuthAvailable(this.env as NodeJS.ProcessEnv);
+
+    const endpointPath =
+      v2Route !== undefined
+        ? v2SubmitPathFor(v2Route.operation, v2Route.modelVersion)
+        : endpointPathFor(endpointKind);
+
+    const body =
+      v2Route !== undefined
+        ? buildV2Body({
+            req,
+            externalTaskId: jobId,
+            watermark: klingExtras?.watermarkEnabled === true,
+          })
+        : buildRequestBody({ req, spec, jobId, extras: klingExtras, env: this.env });
 
     const watermarkOn = klingExtras?.watermarkEnabled === true;
     if (watermarkOn) {
@@ -187,48 +262,88 @@ export class KlingProvider implements VideoProvider {
       );
     }
 
+    // A5 (2026-07-30): reserve credit BEFORE the network submit, closing C8 for
+    // Kling. May throw (InsufficientCreditError) — that must propagate straight
+    // out of generate() and block the call; nothing has been sent to Kling yet.
+    if (ledgerHooks) {
+      await ledgerHooks.beforeSubmit(jobId, estUsd);
+    }
+
     const auth = getKlingAuthHeader(this.env);
     const url = `${KLING_API_BASE}${endpointPath}`;
-    const res = await this.doFetch(url, {
-      method: 'POST',
-      headers: { ...auth, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
 
-    if (!res.ok) {
-      const errBody = (await res.json().catch(() => ({}))) as KlingErrorBody;
-      throw new Error(
-        `Kling API ${res.status} ${errBody.code ?? 'unknown'}: ${errBody.message ?? '(no message)'}`,
-      );
+    let nativeTaskId: string;
+    try {
+      const res = await this.doFetch(url, {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => ({}))) as KlingErrorBody;
+        throw new Error(
+          `Kling API ${res.status} ${errBody.code ?? 'unknown'}: ${errBody.message ?? '(no message)'}`,
+        );
+      }
+      const rawPayload: unknown = await res.json();
+
+      if (v2Route !== undefined) {
+        // 2.0 nests the id as data.id, not data.task_id, and reports application
+        // failures as a non-zero `code` under HTTP 200 — parseV2SubmitResponse
+        // checks the envelope before reading the id for exactly that reason.
+        nativeTaskId = parseV2SubmitResponse(rawPayload).taskId;
+      } else {
+        const payload = rawPayload as KlingGenerateResponseBody;
+        if (payload.code !== 0 || !payload.data?.task_id) {
+          throw new Error(
+            `Kling API returned non-zero code ${payload.code ?? 'unknown'} ${payload.message ?? ''}`.trim(),
+          );
+        }
+        nativeTaskId = payload.data.task_id;
+      }
+    } catch (err) {
+      // Kling never accepted the job — release the reservation opened above.
+      if (ledgerHooks) {
+        await ledgerHooks.onSubmitFailed(jobId, estUsd);
+      }
+      throw err;
     }
-    const payload = (await res.json()) as KlingGenerateResponseBody;
-    if (payload.code !== 0 || !payload.data?.task_id) {
-      throw new Error(
-        `Kling API returned non-zero code ${payload.code ?? 'unknown'} ${payload.message ?? ''}`.trim(),
-      );
+
+    try {
+      // Remember the endpoint kind so pollStatus knows which GET path to use
+      this.jobTypeMap.set(jobId, {
+        endpointKind,
+        nativeTaskId,
+        protocol: v2Route !== undefined ? 'v2' : 'legacy',
+      });
+
+      // Cost-tracker entry (estimate, status=pending)
+      // FIX (Codex P2 round 17, PR#11): persist endpointKind so hydrateFromDb
+      // can reconstruct the actual poll path. Without this, extras-routed jobs
+      // (base mode + elementIds/lipSync) become unpollable after a restart
+      // because pickEndpoint(mode, undefined) returns the wrong endpoint.
+      recordJob({
+        dbPath: this.dbPath,
+        jobId,
+        provider: 'kling',
+        model: req.modelId,
+        mode: req.mode,
+        paramsHash: hashParams(req),
+        estUsd,
+        nativeTaskId,
+        endpointKind,
+      });
+    } catch (err) {
+      // A5: Kling DID accept the job (nativeTaskId above) — the reservation
+      // must NOT be released here (see VideoLedgerHooks.onPostSubmitError's
+      // doc comment in base.ts). Log for manual reconciliation and propagate
+      // the original error unchanged.
+      if (ledgerHooks) {
+        ledgerHooks.onPostSubmitError(jobId, estUsd, err);
+      }
+      throw err;
     }
-    const nativeTaskId = payload.data.task_id;
-
-    // Remember the endpoint kind so pollStatus knows which GET path to use
-    this.jobTypeMap.set(jobId, { endpointKind, nativeTaskId });
-
-    // Cost-tracker entry (estimate, status=pending)
-    // FIX (Codex P2 round 17, PR#11): persist endpointKind so hydrateFromDb
-    // can reconstruct the actual poll path. Without this, extras-routed jobs
-    // (base mode + elementIds/lipSync) become unpollable after a restart
-    // because pickEndpoint(mode, undefined) returns the wrong endpoint.
-    const estUsd = this.estimateCostUSD(req);
-    recordJob({
-      dbPath: this.dbPath,
-      jobId,
-      provider: 'kling',
-      model: req.modelId,
-      mode: req.mode,
-      paramsHash: hashParams(req),
-      estUsd,
-      nativeTaskId,
-      endpointKind,
-    });
 
     // NOTE: no global request_id<->jobId map needed. The webhook handler resolves identity from
     // the URL path `/webhooks/kling/{jobId}` (P14 router extracts as `ctx.jobId`). The native
@@ -252,7 +367,11 @@ export class KlingProvider implements VideoProvider {
       );
     }
     const auth = getKlingAuthHeader(this.env);
-    const url = `${KLING_API_BASE}${pollPathFor(rec.endpointKind, rec.nativeTaskId)}`;
+    // Poll the protocol this JOB was submitted with — see JobTypeRecord.protocol.
+    const isV2Job = rec.protocol === 'v2';
+    const url = isV2Job
+      ? `${KLING_API_BASE}${v2PollPathFor({ taskIds: [rec.nativeTaskId] })}`
+      : `${KLING_API_BASE}${pollPathFor(rec.endpointKind, rec.nativeTaskId)}`;
     const res = await this.doFetch(url, {
       method: 'GET',
       headers: { ...auth },
@@ -260,6 +379,12 @@ export class KlingProvider implements VideoProvider {
     if (!res.ok) {
       const errBody = (await res.json().catch(() => ({}))) as KlingErrorBody;
       throw new Error(`Kling poll API ${res.status}: ${errBody.message ?? '(no message)'}`);
+    }
+    if (isV2Job) {
+      // 2.0 returns data as an ARRAY (the endpoint serves batch queries) and
+      // nests urls under outputs[]. Reading it with the legacy shape yields
+      // undefined and looks like a job that vanished.
+      return parseV2TaskResponse(await res.json(), jobId);
     }
     const payload = (await res.json()) as KlingPollResponseBody;
     // FIX (Codex P2 round 15, PR#11): mirror the generate() envelope check.
@@ -367,6 +492,224 @@ export class KlingProvider implements VideoProvider {
   async recordActualCostUSD(jobId: string, usd: number): Promise<void> {
     recordActualCost({ dbPath: this.dbPath, jobId, actualUsd: usd });
   }
+
+  /**
+   * Settles jobs against what Kling ACTUALLY charged, not what this repo
+   * estimated.
+   *
+   * Everything else here records `rate x multiplier x duration` from the local
+   * rate table — an estimate wearing the costume of a fact, correct only while
+   * that table matches Kling's real pricing and silent when it stops. Kling
+   * reports the charge per task; this reads it and overwrites the estimate.
+   *
+   * Deliberately a SEPARATE method rather than folded into the poll path:
+   * settlement is a reconciliation pass over a window, not a per-job side effect,
+   * and billing is not populated the instant a job completes.
+   *
+   * Returns what it settled and what it could not, rather than throwing on a
+   * partial result — a window where one task is uninterpretable should still
+   * settle every other task in it.
+   */
+  async reconcileBillingWindow(args: {
+    readonly startTimeMs: number;
+    readonly endTimeMs: number;
+    readonly limit?: number;
+    readonly fetchImpl?: typeof fetch;
+  }): Promise<{
+    settled: ReadonlyArray<{ taskId: string; actualUsd: number }>;
+    drift: ReadonlyArray<{ taskId: string; estimateUsd: number; actualUsd: number; ratio: number }>;
+  }> {
+    const apiKey = this.env.KLING_API_KEY;
+    if (apiKey === undefined || apiKey.length === 0) {
+      throw new Error(
+        'Kling billing reconciliation needs KLING_API_KEY — the billing endpoints are part ' +
+          'of the API 2.0 surface, which accepts API-key auth only.',
+      );
+    }
+
+    // Paginate. A single page settles at most `limit` tasks (default 100, max
+    // 500), and stopping there while has_more is true would leave real charges
+    // unsettled while REPORTING success — the reconciliation would look complete
+    // and the ledger would stay wrong for everything past the first page.
+    //
+    // MAX_PAGES is a bound on a loop whose exit condition comes from the server.
+    // Same discipline as the narrative planner's runBoundedLoop: a provider that
+    // never stops returning has_more must not hang a cron job. 50 pages at the
+    // 500 ceiling is 25,000 tasks, far past any real window.
+    const MAX_PAGES = 50;
+    const allTasks: Array<{ taskId: string; actualUsd: number }> = [];
+    let cursor: string | undefined;
+    let pagesFetched = 0;
+    let truncated = false;
+
+    for (;;) {
+      const page = await fetchTaskBillingPage(
+        {
+          startTimeMs: args.startTimeMs,
+          endTimeMs: args.endTimeMs,
+          ...(args.limit !== undefined ? { limit: args.limit } : {}),
+          ...(cursor !== undefined ? { cursor } : {}),
+        },
+        {
+          apiKey,
+          ...(args.fetchImpl !== undefined ? { fetchImpl: args.fetchImpl } : {}),
+        },
+      );
+
+      allTasks.push(...page.tasks);
+      pagesFetched += 1;
+
+      if (!page.hasMore || page.nextCursor === undefined) break;
+      if (pagesFetched >= MAX_PAGES) {
+        truncated = true;
+        break;
+      }
+      cursor = page.nextCursor;
+    }
+
+    if (truncated) {
+      // Said out loud rather than returned as a quiet partial. A caller that
+      // believes a window is fully settled when it is not will not come back.
+      logger.warn('kling billing: stopped at the page cap with more results pending', {
+        pagesFetched,
+        maxPages: MAX_PAGES,
+        settledSoFar: allTasks.length,
+      });
+    }
+
+    const page = { tasks: allTasks };
+
+    const settled: Array<{ taskId: string; actualUsd: number }> = [];
+    const drift: Array<{
+      taskId: string;
+      estimateUsd: number;
+      actualUsd: number;
+      ratio: number;
+    }> = [];
+
+    for (const task of page.tasks) {
+      const local = this.findJobByNativeTaskId(task.taskId);
+      if (local === undefined) {
+        // A task Kling billed that this install has no row for. Not an error —
+        // the same key may be used from more than one machine — but recording it
+        // against a guessed job would attribute someone else's spend here.
+        continue;
+      }
+
+      recordActualCost({ dbPath: this.dbPath, jobId: local.jobId, actualUsd: task.actualUsd });
+      settled.push({ taskId: task.taskId, actualUsd: task.actualUsd });
+
+      if (local.estimateUsd !== undefined) {
+        const cmp = compareEstimateToActual({
+          estimateUsd: local.estimateUsd,
+          actualUsd: task.actualUsd,
+        });
+        // 1% is wide enough to ignore rounding and narrow enough that a real
+        // rate change shows up rather than being averaged away.
+        if (Math.abs(cmp.ratio - 1) > 0.01) {
+          drift.push({
+            taskId: task.taskId,
+            estimateUsd: local.estimateUsd,
+            actualUsd: task.actualUsd,
+            ratio: cmp.ratio,
+          });
+        }
+      }
+    }
+
+    if (drift.length > 0) {
+      // Loud on purpose. Drift means src/core/models.ts disagrees with what the
+      // provider charges, which makes every future ESTIMATE wrong too — including
+      // the ones the daily cap gates on before submit.
+      logger.warn('kling billing: estimate disagrees with the provider charge', {
+        count: drift.length,
+        sample: drift.slice(0, 3),
+      });
+    }
+
+    return { settled, drift };
+  }
+
+  /**
+   * Audits what Kling charged the ACCOUNT over a window, and names charges this
+   * install has no ledger row for.
+   *
+   * Distinct from reconcileBillingWindow, which settles jobs we already know
+   * about. This asks the opposite question — what did Kling bill that we do NOT
+   * know about — and that is the only way the known post-submit loss becomes
+   * visible: a submit that succeeded, started billing, and threw before the
+   * ledger row was written leaves exactly this signature.
+   *
+   * Read-only by design. It reports orphans; it never fabricates the missing
+   * row. The row is absent precisely because writing it failed, and inventing
+   * one would put a job with no local provenance into the cost history.
+   */
+  async auditBillingWindow(args: {
+    readonly startTimeMs: number;
+    readonly endTimeMs: number;
+    readonly limit?: number;
+    readonly fetchImpl?: typeof fetch;
+  }): Promise<DeductionAudit & { orphans: ReadonlyArray<OrphanCharge> }> {
+    const apiKey = this.env.KLING_API_KEY;
+    if (apiKey === undefined || apiKey.length === 0) {
+      throw new Error(
+        'Kling deduction audit needs KLING_API_KEY — the deduction endpoints are part of ' +
+          'the API 2.0 surface, which accepts API-key auth only.',
+      );
+    }
+
+    const audit = await auditDeductions(
+      {
+        startTimeMs: args.startTimeMs,
+        endTimeMs: args.endTimeMs,
+        ...(args.limit !== undefined ? { limit: args.limit } : {}),
+      },
+      { apiKey, ...(args.fetchImpl !== undefined ? { fetchImpl: args.fetchImpl } : {}) },
+    );
+
+    const orphans = findOrphanCharges(audit, (taskId) => this.findJobByNativeTaskId(taskId) !== undefined);
+
+    if (orphans.length > 0) {
+      // Loud. Every orphan is either real money spent with no local record, or
+      // a job submitted from another machine on the same key. Both are things an
+      // operator has to look at; neither should sit in a return value nobody reads.
+      logger.warn('kling deduction audit: charges with no local ledger row', {
+        count: orphans.length,
+        totalUsd: orphans.reduce((sum, o) => sum + o.usd, 0),
+        sample: orphans.slice(0, 3),
+      });
+    }
+    if (!audit.usdAssumptionHolds && audit.balance.length > 0) {
+      // kling-billing.ts reads the cash branch of billing[] as dollars and has
+      // no currency field to check it against. This is where that check lives.
+      logger.warn('kling deduction audit: cash deductions are NOT all USD', {
+        currenciesSeen: audit.currenciesSeen,
+      });
+    }
+
+    return { ...audit, orphans };
+  }
+
+  /** Local job row for a Kling native task id, if this install submitted it. */
+  private findJobByNativeTaskId(
+    nativeTaskId: string,
+  ): { jobId: string; estimateUsd?: number } | undefined {
+    // runMigrations, matching ensureDb() in cost-tracker.ts. Without it a
+    // reconcile-only process — a cron job that never submits anything — hits a
+    // fresh db and throws "no such table: video_jobs" instead of cleanly
+    // reporting that the task has no local row.
+    const db = openDb(this.dbPath);
+    runMigrations(db);
+    const row = db
+      .prepare('SELECT id, est_usd FROM video_jobs WHERE native_task_id = ?')
+      .get(nativeTaskId) as { id?: string; est_usd?: number } | undefined;
+
+    if (row?.id === undefined) return undefined;
+    return {
+      jobId: row.id,
+      ...(typeof row.est_usd === 'number' ? { estimateUsd: row.est_usd } : {}),
+    };
+  }
 }
 
 function isKlingExtras(extras: ProviderExtras | undefined): extras is KlingExtras {
@@ -441,8 +784,13 @@ interface BuildBodyArgs {
 
 function buildRequestBody(args: BuildBodyArgs): Record<string, unknown> {
   const { req, spec, jobId, extras, env } = args;
+  // FIX (T4-b): '-master' must derive '4k', not 'pro' — kling-v3-master is the
+  // only 4K-native model in the registry (resolutions: ['4k']) and Kling's
+  // `mode` enum is std=720P / pro=1080P / 4k=4K. Sending 'pro' for a 4K
+  // request under-delivers resolution while billing at the 4K rate.
   const klingMode =
-    extras?.klingMode ?? (spec.id.includes('-pro') || spec.id.includes('-master') ? 'pro' : 'std');
+    extras?.klingMode ??
+    (spec.id.includes('-master') ? '4k' : spec.id.includes('-pro') ? 'pro' : 'std');
   const watermarkEnabled = extras?.watermarkEnabled ?? false;
 
   // FIX (Codex P1, PR#11): media-forge webhook router rejects POSTs without

@@ -1,9 +1,33 @@
 import type { Command } from 'commander';
-import { estimateImageCost, estimateVideoCost, estimateWithRetries, dailyTotal, monthlyTotal, allTimeTotal } from '../../core/cost.js';
+import { estimateImageCost, estimateVideoCost, estimateWithRetries } from '../../core/cost.js';
 import { IMAGE_MODEL_NANO_BANANA_PRO, IMAGE_MODEL_IMAGEN_4_ULTRA, VIDEO_MODEL_VEO_3_1_PRO } from '../../core/models.js';
-import { queryReport, type CostReport } from '../../core/cost-tracker.js';
+import { queryReport, dailySpendReport, monthlySpendUsd, allTimeSpendUsd, type CostReport } from '../../core/cost-tracker.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
+
+// P1 fix (2026-07-29): `cost summary` used to read `<projectDir>/cost.jsonl`, a
+// file NOTHING in production writes, so the command always reported $0.00. It
+// was repointed at the SQLite ledger (video_jobs + image_jobs) that
+// cost-tracker.ts populates on every generation.
+//
+// 2026-07-31: the cost.jsonl path was removed outright — writer
+// (OutputManager.appendCostLog), reader (getCostSummary) and helpers, none of
+// which had a production caller. Leaving a dormant duplicate of the cost record
+// beside the live one is how a future caller reaches for the wrong one.
+
+/**
+ * Resolves the SQLite ledger path the same way `defaultDbPath()` in
+ * src/mcp/handlers/shared.ts does. Not imported directly: that module also
+ * pulls in HiggsfieldProvider + feature-flags (MCP video-provider wiring),
+ * which is the wrong dependency direction for a CLI command that only needs a
+ * path string. `buildCostReport` below already replicates the same logic
+ * inline for the same reason — this matches existing precedent.
+ */
+function resolveDbPath(projectDirOverride?: string): string {
+  const projectDir =
+    projectDirOverride ?? process.env['MEDIA_FORGE_PROJECT_DIR'] ?? path.join(process.cwd(), '.media-forge');
+  return path.join(projectDir, 'cost.db');
+}
 
 // Supported op values for cost estimate
 const IMAGE_OPS = ['image-nano-banana-pro', 'nano-banana-pro'] as const;
@@ -69,39 +93,18 @@ export function registerCostCommands(program: Command): void {
   // --- summary ---
   cost
     .command('summary')
-    .description('Show cost summary from cost.jsonl logs')
+    .description('Show cost summary from the SQLite cost ledger (video_jobs + image_jobs)')
     .option('--today', 'Today only', false)
     .option('--month', 'Current month', false)
     .option('--project-dir <dir>', 'Override .media-forge project dir')
     .option('--json', 'Emit JSON')
     .action(
       (opts: { today?: boolean; month?: boolean; projectDir?: string; json?: boolean }) => {
-        const projectDir =
-          opts.projectDir ??
-          process.env['MEDIA_FORGE_PROJECT_DIR'] ??
-          path.join(process.cwd(), '.media-forge');
-        const logPath = path.join(projectDir, 'cost.jsonl');
-        const today = new Date().toISOString().slice(0, 10);
-        const month = new Date().toISOString().slice(0, 7);
-        let label: string;
-        let usd: number;
-        let entries: number;
-        if (opts.month) {
-          ({ usd, entries } = monthlyTotal({ logPath, month }));
-          label = month;
-        } else if (opts.today) {
-          ({ usd, entries } = dailyTotal({ logPath, date: today }));
-          label = today;
-        } else {
-          ({ usd, entries } = allTimeTotal({ logPath }));
-          label = 'all-time';
-        }
-
-        const result = { date: label, usd, entries };
+        const result = buildCostSummary(opts);
         if (opts.json) {
           process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
         } else {
-          process.stdout.write(`date: ${result.date}\ntotal: $${usd.toFixed(4)} (${entries} entries)\n`);
+          process.stdout.write(`date: ${result.date}\ntotal: $${result.usd.toFixed(4)} (${result.entries} entries)\n`);
         }
       },
     );
@@ -177,27 +180,36 @@ export function buildCostEstimate(opts: {
   };
 }
 
-export function getCostSummary(opts: {
+/**
+ * The `cost summary` CLI command, over the sqlite ledger.
+ *
+ * Sums video_jobs + image_jobs via dailySpendReport / monthlySpendUsd /
+ * allTimeSpendUsd in cost-tracker.ts — the same ledger every image and video
+ * tool call writes to.
+ *
+ * The cost.jsonl-backed `getCostSummary` this replaced was removed on
+ * 2026-07-31 along with the rest of that path: nothing wrote the file, so it
+ * always reported $0.00, and a dormant second cost source next to the live one
+ * is how a future caller picks the wrong one.
+ */
+export function buildCostSummary(opts: {
   projectDir?: string;
+  dbPath?: string;
   today?: boolean;
   month?: boolean;
-}) {
-  const projectDir =
-    opts.projectDir ??
-    process.env['MEDIA_FORGE_PROJECT_DIR'] ??
-    path.join(process.cwd(), '.media-forge');
-  const logPath = path.join(projectDir, 'cost.jsonl');
+}): { date: string; usd: number; entries: number } {
+  const dbPath = opts.dbPath ?? resolveDbPath(opts.projectDir);
   if (opts.month) {
     const month = new Date().toISOString().slice(0, 7);
-    const { usd, entries } = monthlyTotal({ logPath, month });
+    const { usd, entries } = monthlySpendUsd({ dbPath, monthUtc: month });
     return { date: month, usd, entries };
   }
   if (opts.today) {
     const today = new Date().toISOString().slice(0, 10);
-    const { usd, entries } = dailyTotal({ logPath, date: today });
+    const { usd, entries } = dailySpendReport({ dbPath, dateUtc: today });
     return { date: today, usd, entries };
   }
-  const { usd, entries } = allTimeTotal({ logPath });
+  const { usd, entries } = allTimeSpendUsd({ dbPath });
   return { date: 'all-time', usd, entries };
 }
 

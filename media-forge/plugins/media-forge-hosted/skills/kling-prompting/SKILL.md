@@ -20,7 +20,35 @@ Every Kling prompt should answer five questions in order:
 4. **Vibe** — adjectives for mood + film stock + grade. Examples: "melancholic, Kodak Portra 400, desaturated cyan-orange" / "tense, anamorphic flares, high-contrast green grade".
 5. **Time** — duration + pace + rhythm. Examples: "5s, deliberate, single beat" / "10s, two-beat: setup then reveal".
 
-Concatenate with commas. Do NOT use bullet lists in the prompt itself — Kling parses better with a single descriptive sentence stream of 30-80 tokens.
+Concatenate with commas and do not put bullet lists inside the prompt itself.
+
+**Status of this shape: field-derived craft, not a documented requirement.** Kling
+publishes no prescribed slot order, and its own documented examples lead with
+subject and action, then mood, written as several sentences separated by periods:
+
+> `"Two friends talking under a streetlight at night. Warm glow, casual poses, no dialogue."`
+
+So treat camera-first as a working preference from testing, not as a rule the API
+enforces. Either shape is valid.
+
+**Verified budget — this replaces the old "30-80 tokens" claim, which was wrong.**
+Kling accepts **2,500 characters** in `prompt` and in `negative_prompt`, and
+**512 characters per storyboard** in `multi_prompt` with at most 6 storyboards.
+The old figure was roughly eight times more restrictive than the documented limit
+and had no source. Compactness is still good craft — a bloated prompt dilutes
+intent — but do not refuse length the API accepts.
+
+Enforced in code by `src/core/prompt-budget.ts`; full profile with sources and
+verification dates in `[ref:surface-prompt-profiles]`.
+
+Kling's official advice on negatives is to write negative sentences inside the
+positive prompt rather than relying only on `negative_prompt`.
+
+For the provider-neutral craft that applies before any of this — mode gate
+(T2V/I2V/V2V/R2V/FLF2V/edit/extend), the director formula, compression order, and
+the output contract — load `[skill:mf-video-prompt]`. This skill owns Kling's own
+mechanisms; that one owns the shared discipline. When both are loaded and they
+differ on prompt shape, the provider-specific guidance here wins for Kling.
 
 ### Worked example
 

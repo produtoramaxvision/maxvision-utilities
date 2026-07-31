@@ -124,21 +124,29 @@ describe('P15 — Kling models registered', () => {
     expect(spec.resolutions).toEqual(expect.arrayContaining(['1080p', '2k']));
   });
 
-  it('registers kling-v3-master at 4K with t2v mode (pricing flagged volatile)', () => {
+  // A8 (2026-07-30): these two used to assert `volatile-by-tier` and the
+  // "verify on first live invocation" note — i.e. they locked in the UNVERIFIED
+  // state. Both rates have since been read off kling.ai/dev/pricing in an
+  // authenticated session, so asserting volatility now asserts staleness.
+  // The master rate was wrong by 133% (0.18 vs the official 0.42 at 4K).
+  it('registers kling-v3-master at 4K with t2v mode (pricing verified against the official page)', () => {
     const spec = VIDEO_MODELS['kling-v3-master'];
     expect(spec).toBeDefined();
     expect(spec.resolutions).toContain('4k');
     expect(spec.fps).toContain(60);
     expect(spec.modes).toContain('t2v');
-    expect(spec.pricing.source).toBe('volatile-by-tier');
-    expect(spec.pricing.notes).toMatch(/verify on first live invocation/i);
+    expect(spec.pricing.source).toBe('fixed-public-rate');
+    expect(spec.pricing.rate).toBe(0.42);
+    expect(spec.pricing.updatedAt).toBe('2026-07-30');
+    expect(spec.pricing.notes).not.toMatch(/placeholder|verify on first live invocation/i);
   });
 
   it('registers kling-v3-omni with multi-shot mode (Omni differentiator)', () => {
     const spec = VIDEO_MODELS['kling-v3-omni'];
     expect(spec).toBeDefined();
     expect(spec.modes).toContain('multi-shot');
-    expect(spec.pricing.source).toBe('volatile-by-tier');
+    expect(spec.pricing.source).toBe('fixed-public-rate');
+    expect(spec.pricing.updatedAt).toBe('2026-07-30');
   });
 
   it('ipRiskLevel is set on all 4 Kling models (Kuaishou is a Chinese provider — flag medium)', () => {

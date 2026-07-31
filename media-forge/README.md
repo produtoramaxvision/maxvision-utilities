@@ -18,7 +18,7 @@ media-forge exposes **only** the three highest-tier Google AI models available a
 | `imagen-4.0-ultra-generate-001` | Image generation with seed / negative-prompt / multi-image batches | 2K |
 | `veo-3.1-generate-preview` | Video generation (text-to-video, image-to-video, interpolation, extension) | 720p (1080p/4K available with `durationSeconds=8`) |
 
-Cost guards (dry-run default, confirmation prompt above $0.50, hard block above $2.00, daily cap at $25) mitigate budget exposure from this quality-first policy.
+Cost guards (dry-run default, warning above $0.50, hard block above $2.00, daily cap at $25) mitigate budget exposure from this quality-first policy.
 
 ---
 
@@ -34,7 +34,7 @@ claude plugin install ./media-forge
 claude plugin install @produtoramaxvision/media-forge
 ```
 
-After installation, all 14 agents, 14 skills, and 10 slash commands become available inside your Claude Code session.
+After installation, all 14 agents, 40 skills, and 10 slash commands become available inside your Claude Code session.
 
 ### Install path B — MCP standalone (any MCP-compatible client)
 
@@ -74,9 +74,95 @@ node bin/media-forge doctor
 
 | Variable | Required | Purpose | Where to get it |
 |---|---|---|---|
-| `GOOGLE_API_KEY` | Yes (or Vertex AI) | All image and video generation | [AI Studio](https://aistudio.google.com/app/apikey) |
+| `GOOGLE_API_KEY` | Yes (or Vertex AI) | Google Veo image and video generation | [AI Studio](https://aistudio.google.com/app/apikey) |
 | `ANTHROPIC_API_KEY` | Optional | Standalone MCP LLM judge (fallback when not inside Claude Code) | [Anthropic Console](https://console.anthropic.com/settings/keys) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Optional | Cloud Vision OCR for text validation in reviewer Stage 1 | [GCP IAM](https://console.cloud.google.com/iam-admin/serviceaccounts) |
+| `KLING_API_KEY` | Optional | Kling video generation, **API 2.0 auth (preferred)**. Sent as `Bearer <key>` | [Kling dev console](https://app.klingai.com/global/dev/) |
+| `KLING_ACCESS_KEY` + `KLING_SECRET_KEY` | Optional | Kling **legacy** auth. Signs a short-lived JWT. Only consulted when `KLING_API_KEY` is empty | same console |
+| `HF_API_KEY` + `HF_API_SECRET` | Optional | Higgsfield generation (Soul, DoP, Speak, Recast) | [Higgsfield platform](https://platform.higgsfield.ai/) |
+| `FAL_KEY` | Optional | Seedance 2.0 via fal.ai | [fal.ai keys](https://fal.ai/dashboard/keys) |
+| `BYTEPLUS_ARK_API_KEY` | Optional | Seedance 2.0 via BytePlus Ark (alternative route) | BytePlus console |
+
+Each provider is optional and independent: the plugin only registers the models
+whose credentials are present. Setting none of the optional keys leaves a
+working Google-only install.
+
+### Optional providers that use no API key
+
+Three providers authenticate differently and are opt-in:
+
+| Provider | Flag | How it authenticates |
+|---|---|---|
+| Higgsfield CLI | `MEDIA_FORGE_HF_CLI_ENABLED=true` | `higgsfield auth login` on this machine. Bills the logged-in user's workspace, not API credits |
+| Wan2GP | `MEDIA_FORGE_WAN2GP_ENABLED=true` | none — a Gradio server you host yourself |
+| Codex images | `MEDIA_FORGE_CODEX_IMAGE_ENABLED` (default on) | `codex login` OAuth, **or** `OPENAI_API_KEY` — see below |
+
+**Codex image generation has two credential paths**, and which one runs is
+detected automatically:
+
+- **`builtin`** — the Codex CLI's built-in `image_gen` tool, riding the OAuth
+  session created by `codex login` on your machine. Requires **no**
+  `OPENAI_API_KEY` and costs nothing beyond the ChatGPT subscription you already
+  pay. This is the path for local and personal use.
+- **`cli`** — the bundled `scripts/image_gen.py` against the OpenAI Images API.
+  Requires `OPENAI_API_KEY` and is **metered**. This is the path for multi-tenant
+  hosting, where a single machine-wide OAuth session cannot serve separate
+  tenants.
+
+`OPENAI_API_KEY` present selects `cli`; otherwise `builtin`. Override with
+`MEDIA_FORGE_CODEX_IMAGE_MODE`. In `cli` mode you must set
+`MEDIA_FORGE_CODEX_IMAGE_USD_PER_IMAGE` — there is no default, because this
+repository has no verified OpenAI image rate and a guessed one would enter the
+cost ledger looking authoritative.
+
+Codex images use `gpt-image-2` at `quality: high`. `gpt-image-1.5` is
+deliberately excluded, which means **no native transparency** — `gpt-image-2`
+does not support `background=transparent`. When you need real alpha, use Nano
+Banana Pro or Imagen 4 Ultra, which do it natively.
+
+**Zero-cost providers are never chosen automatically.** Wan2GP and Codex
+`builtin` both price at $0, which would win every cost-sorted route outright and
+silently displace Veo and Kling. They are excluded from automatic routing and
+selected only by naming them in `preferProvider`.
+
+### MuAPI — the aggregator route
+
+MuAPI resells Kling, Veo, Seedance and others behind one key, which is useful if
+you would rather hold a single account than one per vendor. It needs no flag:
+set `MUAPI_API_KEY` and its four tools work. Without the key they refuse by name.
+
+| Tool | What it does |
+|---|---|
+| `media_muapi_models` | Lists the live catalogue with per-model price and endpoint. Free. |
+| `media_muapi_generate` | Submits by exact catalogue name. Returns `jobId` **and** `requestId`. |
+| `media_muapi_poll` | Checks a job by `requestId`, and settles its real cost. |
+| `media_muapi_download` | Saves a finished output into your outputs directory. |
+
+Three things about MuAPI differ from every other provider here, and they are
+deliberate:
+
+- **media-forge keeps no price table for it.** MuAPI is an aggregator and its
+  markup is its own — its price for Kling is not Kling's price. Costs come from
+  `media_muapi_models` or from MuAPI's estimate endpoint at request time, so
+  there is no local rate to go stale. `media_muapi_models` is the only place to
+  see what a model costs.
+- **It reports the real charge, so the ledger records a fact.** Everywhere else
+  media-forge stores `rate x duration` and hopes it matches the invoice. MuAPI
+  returns the amount actually billed, which `media_muapi_poll` writes to the
+  cost ledger when the job finishes. Pass the `jobId` from generate along with
+  the `requestId` for that to happen — a refunded job settles at 0.
+- **It is never picked by automatic routing.** The catalogue is fetched at
+  runtime rather than registered locally, so routing has nothing to rank. Name
+  the model yourself through the tools above.
+
+`jobId` and `requestId` are not interchangeable: `jobId` is media-forge's local
+ledger key and MuAPI has never heard of it, while `requestId` is the only value
+MuAPI's own endpoints accept. Generate returns both.
+
+**Kling auth precedence is not a fallback chain.** When `KLING_API_KEY` is set it
+wins outright and no JWT is ever signed, even if the access/secret pair is also
+present ([`kling-jwt.ts:93`](src/video/providers/auth/kling-jwt.ts)). Set one
+scheme or the other, not both, or the one you think is active may not be.
 
 Alternative to `GOOGLE_API_KEY`: set `GOOGLE_GENAI_USE_VERTEXAI=true` + `GOOGLE_CLOUD_PROJECT` + `GOOGLE_CLOUD_LOCATION` for Vertex AI mode.
 
@@ -87,6 +173,45 @@ Set keys in one of three ways:
 3. `.mcp.json` env interpolation: `"GOOGLE_API_KEY": "${GOOGLE_API_KEY}"`
 
 > SynthID watermarks are applied by Google to all generated outputs. This cannot be disabled and is not controlled by the plugin.
+
+---
+
+## Higgsfield remote MCP — manual probe, not a production path
+
+Higgsfield publishes its own remote MCP server. media-forge **deliberately does
+not ship it** in `.mcp.json`, and that omission is the design, not an oversight.
+
+The reason is governance. Everything media-forge routes through its own
+Higgsfield provider is metered: it is priced before submit, reserved against the
+credit ledger, captured on completion and swept if abandoned. A second, direct
+MCP surface to the same account bypasses all of it. Generations would land on
+your Higgsfield bill with no corresponding row in the local ledger, so the daily
+cap and the block threshold would both be computing against an incomplete
+picture of what you actually spent.
+
+Add it only as a temporary probe — to inspect Higgsfield's own parameter surface
+or confirm an account state — and remove it afterwards:
+
+```jsonc
+{
+  "mcpServers": {
+    "higgsfield": {
+      "type": "http",
+      "url": "https://mcp.higgsfield.ai/mcp"
+    }
+  }
+}
+```
+
+Authentication is OAuth in the client; there is no secret to place in the config.
+
+**Plan credits do not carry over.** Unlimited and free-tier generations included
+with a Higgsfield subscription apply to the web app. Work dispatched through the
+API or the remote MCP is billed against your credit balance at standard rates.
+Budget for API work as a separate line from the subscription.
+
+<sub>Source: footnote on higgsfield.ai/pricing, read 2026-07-29. Verify before
+relying on it for a budget — provider pricing terms change without notice.</sub>
 
 ---
 
@@ -156,17 +281,36 @@ This reads `.media-forge/cost-log.jsonl` and aggregates per-job and per-day spen
 
 ## Cost Guard
 
-media-forge applies a four-tier guard to every generation call:
+The MCP image tools (`media_generate_image`, `media_generate_imagen`, `media_edit_image`) and the five Kling video submit tools (`media_kling_motion_brush`, `media_kling_elements`, `media_kling_lip_sync`, `media_kling_omni_multishot`, `media_kling_video_extend`) are gated by a three-tier guard, evaluated against a real per-tenant SQLite ledger before every call:
 
 | Tier | Threshold | Behavior |
 |---|---|---|
-| Silent | < $0.10 per job | Proceed without interruption |
-| Notice | $0.10 – $0.50 per job | Log estimated cost to console |
-| Confirm | $0.50 – $2.00 per job | Prompt user to confirm before calling the API |
-| Block | > $2.00 per job | Hard block; requires `--force` flag |
-| Daily cap | $25 / day (configurable) | Blocks all spending past the cap; requires `--override-daily-cap` |
+| Warn | above $0.50 per call | Non-blocking — the call proceeds, and a `costWarning` string is returned in the tool's `structuredContent` |
+| Block | above $2.00 per call | Hard block — the call is refused before the provider is ever invoked |
+| Daily cap | $25/day (configurable), UTC calendar day | Hard block once today's recorded spend + this call's estimate would exceed the cap |
 
-The `--dry-run` flag returns the assembled payload and cost estimate without calling any API. Skills include a "Confirm cost" step for production runs.
+The daily cap counts **both image and video generations** for the current UTC day, and counts **pending (not-yet-settled) jobs at their estimated cost** — a job that is submitted but never completes still counts against the cap, so an unbounded number of in-flight generations cannot slip past it. There is no `--override-daily-cap` flag; raise `MEDIA_FORGE_DAILY_CAP_USD` (or the sibling `MEDIA_FORGE_CONFIRM_THRESHOLD_USD` / `MEDIA_FORGE_BLOCK_THRESHOLD_USD`) instead.
+
+All four video providers are wired to the guard and to the ledger: Veo through `submitVeoWithLedger`, and Kling, Higgsfield and Seedance through the `checkCostGuard` hook on their handler options. Each reserves credit **before** submitting and settles or releases afterwards, so an abandoned job cannot hold a reservation forever.
+
+**CLI generation commands are still not guarded.** They call the providers directly and do not consult the ledger, so spend through the CLI does not count against the daily cap and is not blocked by it. Use the MCP surface when the cap matters.
+
+### Retake reserve (`MEDIA_FORGE_BUDGET_RESERVE_PCT`)
+
+The reviewer retries a failed take up to `MEDIA_FORGE_MAX_FIX_ATTEMPTS` times, and each retry is a real paid generation. Without a reserve, a day of first-attempt generations can consume the entire cap and leave the reviewer unable to fix any of them — the job dies mid-flight having spent the full budget on output nobody accepted.
+
+The reserve holds back a slice of the daily cap that only retakes may spend:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MEDIA_FORGE_BUDGET_RESERVE_PCT` | `0.10` | Fraction of the daily cap reserved for retakes. Clamped to 0..1 |
+| `MEDIA_FORGE_BUDGET_RESERVE_MODE` | `observe` | `observe` = record only, no behaviour change · `warn` = allow and warn · `cap` = block new work once only the reserve is left |
+
+**The default mode is `observe`, so the reserve is inert until you opt in.** That is deliberate: defaulting to `cap` would quietly shrink every existing install's usable daily budget by 10% in a patch release. Set `MEDIA_FORGE_BUDGET_RESERVE_MODE=cap` to enforce it.
+
+With the defaults plus `cap`, a $25 cap leaves $22.50 for new generations and holds $2.50 for retakes. Retakes themselves are bounded by the full cap, not the reserve — the reserve is what they draw on.
+
+The `--dry-run` flag returns the assembled payload and cost estimate without calling any API, and is exempt from the guard and the ledger (a dry run never reaches the provider and costs $0).
 
 ---
 

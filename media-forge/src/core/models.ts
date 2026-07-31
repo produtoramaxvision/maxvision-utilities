@@ -59,9 +59,41 @@ export type VideoDurationSeconds = (typeof VIDEO_DURATION_SECONDS)[number];
 // P14 appends `higgsfield`, P15 appends `kling`, P16 appends `bytedance`. The type
 // must NEVER promise providers without backing adapters — otherwise downstream code
 // type-checks against names that throw at runtime.
-export const PROVIDERS = ['google', 'higgsfield', 'kling', 'bytedance'] as const;
+export const PROVIDERS = [
+  'google',
+  'higgsfield',
+  'kling',
+  'bytedance',
+  'higgsfield-cli',
+  'muapi',
+  'wan2gp',
+] as const;
 export type Provider = (typeof PROVIDERS)[number];
 // ^ Provider type derives from the runtime array. bytedance is now a shipped adapter (P16).
+//
+// T5: 'higgsfield-cli' is a SEPARATE provider from 'higgsfield', not a transport
+// flag on it. They authenticate differently and therefore bill differently — the
+// API adapter draws on API credits, the CLI on the logged-in user's workspace.
+// PROVIDERS is what the router and the cost report key on, so collapsing two
+// billing surfaces into one entry would make spend unattributable between them.
+// Registration is gated by MEDIA_FORGE_HF_CLI_ENABLED (default false); the CLI
+// holds one OAuth session per machine and so cannot serve multi-tenant hosting.
+//
+// PR7: 'muapi' is an AGGREGATOR — it resells Kling, Veo and others under its own
+// endpoints with its own markup. It therefore has NO entry in VIDEO_MODELS and no
+// rate in this file, deliberately: its catalogue and prices come from its own
+// /api/v1/models endpoint at runtime. Pricing a MuAPI job from the direct-vendor
+// rates below would under-report spend by the margin, which is the same
+// "aggregator blindness" already filed as P1 for Higgsfield.
+//
+// NOT gated by an enable flag, unlike higgsfield-cli and wan2gp. This comment
+// used to claim `MEDIA_FORGE_MUAPI_ENABLED (default false)`; that string was read
+// nowhere in src/ and the tools always registered, so the comment described a
+// gate that did not exist. The flag is not the right shape here either: the other
+// two guard a MACHINE-level resource (one OAuth session, one local GPU server)
+// that cannot be shared between tenants. MuAPI is an ordinary hosted API keyed by
+// MUAPI_API_KEY — its tools register for everyone and refuse, by name, when the
+// key is absent. An extra flag would only add a second way to be switched off.
 
 export const VIDEO_MODES = [
   't2v',
@@ -329,8 +361,58 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
       unit: 'usd-per-second',
       rate: 0.126,
       source: 'fixed-public-rate',
-      updatedAt: '2026-05-27',
-      notes: 'Kling V3 Standard tier per kling.ai pricing docs (context7 verified 2026-05-27)',
+      updatedAt: '2026-07-30',
+      notes:
+        'Confirmed via kling.ai/dev/pricing (read live 2026-07-30): "Kling 3.0 / With Native Audio" row — ' +
+        '720P $0.126/s (this rate), 1080P $0.168/s (see resolutionMultipliers below).',
+      // Official 1080P rate ($0.168) ÷ official 720P rate ($0.126) for the same
+      // "Kling 3.0 / With Native Audio" row = 4/3 exactly. Written as a quotient of
+      // the two published cells rather than a rounded decimal so the derivation is
+      // auditable: 0.126 * (0.168/0.126) = 0.168.
+      resolutionMultipliers: {
+        '720p': 1.0,
+        '1080p': 0.168 / 0.126,
+      },
+    },
+    ipRiskLevel: 'medium',
+  },
+  // Reachable only through the API 2.0 protocol (MEDIA_FORGE_KLING_API_V2=true).
+  // It has no legacy `/v1/videos/{type}` equivalent — that is exactly why the
+  // migration matters, and why this entry is the first proof the flag does
+  // something rather than being inert.
+  'kling-3.0-turbo': {
+    id: 'kling-3.0-turbo',
+    provider: 'kling',
+    modes: ['t2v', 'i2v'],
+    // "durations (3-15 seconds)" per the model page's capability map.
+    maxDurationSec: 15,
+    resolutions: ['720p', '1080p'],
+    fps: [24, 30],
+    audioNative: true,
+    pricing: {
+      unit: 'usd-per-second',
+      // Kling bills this model in UNITS, not dollars: the 2026-06-17 API update
+      // states "0.8 units/second for 720P and 1.0 unit/second for 1080P". One
+      // unit is $0.14, read off kling.ai/dev/pricing in an authenticated session
+      // on 2026-07-30 (the same figure the other Kling rates here derive from).
+      //
+      // Written as the multiplication rather than the product so the derivation
+      // stays auditable if either number moves: 0.8 * 0.14 = 0.112.
+      rate: 0.8 * 0.14,
+      source: 'fixed-public-rate',
+      updatedAt: '2026-07-30',
+      notes:
+        'kling.ai/document-api/updates/api, 06/17/2026 entry: "Billing is based on video ' +
+        'duration: 0.8 units/second for 720P and 1.0 unit/second for 1080P." Unit = $0.14 ' +
+        'from kling.ai/dev/pricing. Requires MEDIA_FORGE_KLING_API_V2=true — this model has ' +
+        'no legacy endpoint. The 2.0 API also accepts ONLY API-key auth, so KLING_API_KEY ' +
+        'must be set; the legacy JWT is rejected.',
+      // 1.0 unit/s at 1080P over 0.8 unit/s at 720P. Kept as the quotient of the
+      // two published figures for the same reason as kling-v3-standard.
+      resolutionMultipliers: {
+        '720p': 1.0,
+        '1080p': 1.0 / 0.8,
+      },
     },
     ipRiskLevel: 'medium',
   },
@@ -339,6 +421,9 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
     provider: 'kling',
     modes: ['t2v', 'i2v', 'motion-brush', 'elements', 'lip-sync', 'extend'],
     maxDurationSec: 10,
+    // '2k' unverified: Kling's `mode` enum (std/pro/4k) maps 'pro' to 1080P output only —
+    // no dedicated 2K mode exists per docs. Left in place: tests/core/models-registry.test.ts:124
+    // asserts on it and it's part of the shared cross-provider resolution union (base.ts/schemas.ts).
     resolutions: ['1080p', '2k'],
     fps: [24, 30],
     audioNative: true,
@@ -346,8 +431,12 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
       unit: 'usd-per-second',
       rate: 0.168,
       source: 'fixed-public-rate',
-      updatedAt: '2026-05-27',
-      notes: 'Kling V3 Pro tier per kling.ai pricing docs (context7 verified 2026-05-27)',
+      updatedAt: '2026-07-30',
+      notes:
+        'Verified via kling.ai/dev/pricing (read live 2026-07-30): "Kling 3.0 / With Native Audio" row, ' +
+        '1080P $0.168/s. "2k" resolution entry remains unverified — Kling has no 2K tier per official ' +
+        'pricing page, but is left in place per tests/core/models-registry.test.ts:124 and the shared ' +
+        'cross-provider resolution union.',
     },
     ipRiskLevel: 'medium',
   },
@@ -361,11 +450,15 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
     audioNative: true,
     pricing: {
       unit: 'usd-per-second',
-      rate: 0.18, // PLACEHOLDER — verify on first live invocation
-      source: 'volatile-by-tier',
-      updatedAt: '2026-05-27',
+      rate: 0.42,
+      source: 'fixed-public-rate',
+      updatedAt: '2026-07-30',
       notes:
-        'Kling V3 Master (4K native, 60fps) pricing NOT confirmed by context7 fetch — verify on first live invocation and update rate via PRICING_OVERRIDES or commit a correction',
+        'Confirmed via kling.ai/dev/pricing (read live 2026-07-30): Kling 3.0 at 4K is $0.42/s regardless ' +
+        'of the Native Audio / Voice Control axis — all three Kling 3.0 rows ("No Native Audio", ' +
+        '"With Native Audio x No Voice Control", and both Omni "No Video Input" rows) list $0.42/s for 4K. ' +
+        'Prior unverified 0.18 rate under-estimated by 133% (10s clip: $1.80 vs actual $4.20), which suppressed ' +
+        'the $2.00 blockThresholdUsd hard block, under-counted the daily cap, and under-reserved credits.',
     },
     ipRiskLevel: 'medium',
   },
@@ -379,11 +472,19 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
     audioNative: true,
     pricing: {
       unit: 'usd-per-second',
-      rate: 0.168, // PLACEHOLDER — matches Pro tier; verify on first live invocation
-      source: 'volatile-by-tier',
-      updatedAt: '2026-05-27',
+      rate: 0.14,
+      source: 'fixed-public-rate',
+      updatedAt: '2026-07-30',
       notes:
-        'Kling V3 Omni multi-shot pricing NOT confirmed by context7 fetch — assumed to match Pro tier per kling.ai pricing Q&A wording. Verify on first live invocation.',
+        'Resolved via kling.ai/dev/pricing (read live 2026-07-30). Omni has 3 official 1080P rows: ' +
+        '"No Video Input x No Native Audio" $0.112, "No Video Input x With Native Audio" $0.14, ' +
+        '"With Video Input x No Native Audio" $0.168 — there is no published "With Video Input x With ' +
+        'Native Audio" row. This entry declares audioNative:true, and its modes (t2v, i2v, multi-shot) ' +
+        'accept only text/image input — i2v is image-to-video, not a video reference — and it carries no ' +
+        'maxVideoRefs limit (contrast Seedance, which does), so it has no video-input capability. That maps ' +
+        'it to "No Video Input x With Native Audio" = $0.14/s, not the previous $0.168 (which is the ' +
+        '"With Video Input x No Native Audio" row — wrong axis, since this entry has audio but no video ' +
+        'input). If a video-reference mode is ever added to this entry, re-derive against the $0.168 row.',
     },
     // Single source of truth for Omni multi-shot caps. Task 9 schema + handler reference these
     // (do NOT hardcode MAX_OMNI_SHOTS / MAX_OMNI_DURATION_SEC elsewhere).

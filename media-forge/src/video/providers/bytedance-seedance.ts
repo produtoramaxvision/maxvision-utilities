@@ -7,9 +7,11 @@ import type {
   JobState,
   DownloadedAsset,
   BytedanceSeedanceExtras,
+  VideoLedgerHooks,
 } from './base.js';
 import { VIDEO_MODELS, type Provider, type VideoModelSpec } from '../../core/models.js';
 import { recordJob, recordActualCost, getJobRecord } from '../../core/cost-tracker.js';
+import { videoActualCredits } from '../../billing/pricing.js';
 import { getFalApiKey, type FalEnvSubset } from './auth/fal-key.js';
 import {
   submitArkTask,
@@ -249,7 +251,7 @@ export class BytedanceSeedanceProvider implements VideoProvider {
     return spec.pricing.rate * multiplier * req.durationSec;
   }
 
-  async generate(req: VideoGenerationRequest): Promise<JobHandle> {
+  async generate(req: VideoGenerationRequest, ledgerHooks?: VideoLedgerHooks): Promise<JobHandle> {
     const spec = VIDEO_MODELS[req.modelId];
     if (!spec) throw new Error(`unknown model: ${req.modelId}`);
     if (spec.provider !== 'bytedance') {
@@ -274,6 +276,17 @@ export class BytedanceSeedanceProvider implements VideoProvider {
       req.extras?.providerKind === 'bytedance' ? (req.extras as BytedanceSeedanceExtras) : undefined;
     const finalPrompt = serializePromptWithExtras(req, extras);
 
+    // A5 (2026-07-30): tracks whether fal.ai/ARK has ALREADY accepted the
+    // submit (set inside recordOnSuccess, BEFORE the recordJob call that can
+    // itself throw). Used below to classify a later throw as onSubmitFailed
+    // (provider never accepted — safe to release) vs onPostSubmitError
+    // (provider DID accept — release would be a double-charge on a running
+    // job) and, just as importantly, to stop the fal->ARK fallback logic from
+    // treating a post-accept bookkeeping failure as a submit failure and
+    // re-submitting to ARK (which would double-submit a job fal.ai already
+    // accepted).
+    let acceptedNativeId: string | undefined;
+
     // FIX (Codex P2 round 20, PR#12): persist native_task_id (fal request_id
     // or ARK task_id) so the webhook handler can bind callbacks to the
     // specific request this process submitted. Without it, ANY ED25519-signed
@@ -281,6 +294,7 @@ export class BytedanceSeedanceProvider implements VideoProvider {
     // /webhooks/bytedance/<jobId> could mutate that job. The handler validates
     // payload.request_id === row.native_task_id before any state change.
     const recordOnSuccess = (nativeTaskId: string): void => {
+      acceptedNativeId = nativeTaskId;
       recordJob({
         dbPath: this.dbPath,
         jobId,
@@ -293,83 +307,115 @@ export class BytedanceSeedanceProvider implements VideoProvider {
       });
     };
 
-    // Explicit ARK-direct path (A0.8): skip fal.ai entirely.
-    if (this.useArkDirect) {
-      return this.submitViaArk({ jobId, req, tier, mode, finalPrompt, extras, recordOnSuccess });
+    // A5: reserve credit BEFORE any network submit, closing C8 for Seedance.
+    // May throw (InsufficientCreditError) — propagates straight out of
+    // generate() and blocks the call; nothing has been sent to fal.ai/ARK yet.
+    if (ledgerHooks) {
+      await ledgerHooks.beforeSubmit(jobId, estUsd);
     }
 
-    // Primary path: fal.ai SDK.
-    const endpoint = falEndpointFor({ tier, mode });
     try {
-      this.ensureFalConfigured();
-      const input = this.buildFalInput({ req, mode, finalPrompt, extras });
-      const submitOpts: Record<string, unknown> = { input };
-      const webhookUrl = this.buildWebhookUrl(jobId);
-      if (webhookUrl) submitOpts.webhookUrl = webhookUrl;
-
-      const submitRes = (await fal.queue.submit(endpoint, submitOpts as never)) as
-        | { request_id?: string; requestId?: string };
-      const nativeId = submitRes.request_id ?? submitRes.requestId;
-      if (typeof nativeId !== 'string' || nativeId.length === 0) {
-        throw new Error('fal.queue.submit returned no request_id');
-      }
-
-      // Submit accepted — safe to record the ledger row + route.
-      recordOnSuccess(nativeId);
-      this.routeByJobId.set(jobId, {
-        path: 'fal',
-        nativeId,
-        endpoint,
-        mode,
-        tier,
-        durationSec: req.durationSec,
-        resolution: req.resolution as '480p' | '720p' | '1080p',
-      });
-      return {
-        jobId,
-        provider: 'bytedance',
-        model: req.modelId,
-        mode: req.mode,
-        createdAt: new Date().toISOString(),
-        providerNativeId: nativeId,
-      };
-    } catch (falErr) {
-      const status = extractHttpStatus(falErr);
-      if (status === 404) {
-        maybeLog404(endpoint, (falErr as Error).message ?? '(no message)');
-      }
-
-      // Only fall back on transient (5xx/408/429) or network errors. 4xx (other
-      // than 408/429) means the request is malformed and ARK will fail identically.
-      const isTransient =
-        typeof status !== 'number' ||
-        (status >= 500 && status < 600) ||
-        status === 408 ||
-        status === 429;
-      if (!isTransient) throw falErr;
-
-      process.stderr.write(
-        `[bytedance-seedance] fal.ai ${status ?? 'network'} error, falling back to BytePlus ARK: ${
-          (falErr as Error).message
-        }\n`,
-      );
-
-      try {
+      // Explicit ARK-direct path (A0.8): skip fal.ai entirely.
+      if (this.useArkDirect) {
         return await this.submitViaArk({ jobId, req, tier, mode, finalPrompt, extras, recordOnSuccess });
-      } catch (arkErr) {
-        if (arkErr instanceof ArkAuthConfigError) {
+      }
+
+      // Primary path: fal.ai SDK.
+      const endpoint = falEndpointFor({ tier, mode });
+      try {
+        this.ensureFalConfigured();
+        const input = this.buildFalInput({ req, mode, finalPrompt, extras });
+        const submitOpts: Record<string, unknown> = { input };
+        const webhookUrl = this.buildWebhookUrl(jobId);
+        if (webhookUrl) submitOpts.webhookUrl = webhookUrl;
+
+        const submitRes = (await fal.queue.submit(endpoint, submitOpts as never)) as
+          | { request_id?: string; requestId?: string };
+        const nativeId = submitRes.request_id ?? submitRes.requestId;
+        if (typeof nativeId !== 'string' || nativeId.length === 0) {
+          throw new Error('fal.queue.submit returned no request_id');
+        }
+
+        // Submit accepted — safe to record the ledger row + route.
+        recordOnSuccess(nativeId);
+        this.routeByJobId.set(jobId, {
+          path: 'fal',
+          nativeId,
+          endpoint,
+          mode,
+          tier,
+          durationSec: req.durationSec,
+          resolution: req.resolution as '480p' | '720p' | '1080p',
+        });
+        return {
+          jobId,
+          provider: 'bytedance',
+          model: req.modelId,
+          mode: req.mode,
+          createdAt: new Date().toISOString(),
+          providerNativeId: nativeId,
+        };
+      } catch (falErr) {
+        // A5: recordOnSuccess already ran (fal.ai DID accept) and something
+        // AFTER that threw (recordJob / routeByJobId.set) — this is a
+        // post-submit bookkeeping failure, not a submit failure. Propagate
+        // unchanged; do NOT fall back to ARK (that would double-submit a job
+        // fal.ai already accepted) and do not reclassify it below.
+        if (acceptedNativeId !== undefined) throw falErr;
+
+        const status = extractHttpStatus(falErr);
+        if (status === 404) {
+          maybeLog404(endpoint, (falErr as Error).message ?? '(no message)');
+        }
+
+        // Only fall back on transient (5xx/408/429) or network errors. 4xx (other
+        // than 408/429) means the request is malformed and ARK will fail identically.
+        const isTransient =
+          typeof status !== 'number' ||
+          (status >= 500 && status < 600) ||
+          status === 408 ||
+          status === 429;
+        if (!isTransient) throw falErr;
+
+        process.stderr.write(
+          `[bytedance-seedance] fal.ai ${status ?? 'network'} error, falling back to BytePlus ARK: ${
+            (falErr as Error).message
+          }\n`,
+        );
+
+        try {
+          return await this.submitViaArk({ jobId, req, tier, mode, finalPrompt, extras, recordOnSuccess });
+        } catch (arkErr) {
+          // A5: same post-accept guard as above, for the ARK fallback path —
+          // if ARK's OWN recordOnSuccess call already ran, do not wrap this in
+          // the combined "both paths failed" message below.
+          if (acceptedNativeId !== undefined) throw arkErr;
+
+          if (arkErr instanceof ArkAuthConfigError) {
+            throw new Error(
+              `Seedance generation failed: fal.ai unavailable AND BYTEPLUS_ARK_API_KEY not set. ` +
+                `Set the fallback key or wait for fal.ai recovery. Original fal.ai error: ${
+                  (falErr as Error).message
+                }`,
+            );
+          }
           throw new Error(
-            `Seedance generation failed: fal.ai unavailable AND BYTEPLUS_ARK_API_KEY not set. ` +
-              `Set the fallback key or wait for fal.ai recovery. Original fal.ai error: ${
-                (falErr as Error).message
-              }`,
+            `Seedance generation failed on both paths. fal.ai: ${(falErr as Error).message}. ` +
+              `ARK fallback: ${(arkErr as Error).message}`,
           );
         }
-        throw new Error(
-          `Seedance generation failed on both paths. fal.ai: ${(falErr as Error).message}. ` +
-            `ARK fallback: ${(arkErr as Error).message}`,
-        );
       }
+    } catch (err) {
+      if (!ledgerHooks) throw err;
+      if (acceptedNativeId === undefined) {
+        // Neither fal.ai nor ARK ever accepted the job — release the reservation.
+        await ledgerHooks.onSubmitFailed(jobId, estUsd);
+      } else {
+        // The provider DID accept (acceptedNativeId set) — do not release; see
+        // VideoLedgerHooks.onPostSubmitError's doc comment in base.ts.
+        ledgerHooks.onPostSubmitError(jobId, estUsd, err);
+      }
+      throw err;
     }
   }
 
@@ -436,10 +482,26 @@ export class BytedanceSeedanceProvider implements VideoProvider {
         const spec = VIDEO_MODELS[row.model];
         if (spec?.pricing.unit === 'per-second') {
           const multiplier = spec.pricing.resolutionMultipliers?.[route.resolution] ?? 1;
+          const actualUsd = spec.pricing.rate * multiplier * route.durationSec;
+          // A4 (2026-07-30, product-owner decision): persist actualCredits too.
+          // Seedance is the ONLY provider whose credit capture is sweep-driven —
+          // it registers no poll or download tool, so completion runs through the
+          // webhook and this method, neither of which has a per-request
+          // creditClient. credit-core's sweep reads this row through
+          // src/http/job-status.ts, which only returns actualCredits when the
+          // column is populated. Leaving it null made the sweep capture whatever
+          // it defaults to (the reserved estimate), so any divergence between
+          // estimate and real cost was never reconciled — and Seedance is the
+          // provider that diverges most, being priced per second with a
+          // resolution multiplier.
+          //
+          // Derived with the same videoActualCredits() helper the Kling download
+          // path uses, so both providers convert USD to credits identically.
           recordActualCost({
             dbPath: this.dbPath,
             jobId,
-            actualUsd: spec.pricing.rate * multiplier * route.durationSec,
+            actualUsd,
+            actualCredits: videoActualCredits(actualUsd),
           });
         }
       }

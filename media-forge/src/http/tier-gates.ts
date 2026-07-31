@@ -40,6 +40,10 @@ const VIDEO_TOOLS = new Set([
   'media_extend_video',
   'media_poll_video_operation',
   'media_download_video',
+  // T9-d: local ffmpeg call, no cost — grouped with video (not utility) because
+  // it only makes sense once a caller already has a generated video, which
+  // requires creator+ in the first place.
+  'media_extract_last_frame',
 ]);
 
 // COST_TOOLS inclui media_video_webhook_status (routing/cost concern; nao e video de geracao)
@@ -63,7 +67,7 @@ const HIGGSFIELD_TOOLS = new Set([
   'media_higgsfield_download',
 ]);
 
-// Kling: 10 tools confirmadas contra schemas.ts
+// Kling: 12 tools confirmadas contra schemas.ts
 const KLING_TOOLS = new Set([
   'media_kling_motion_brush',
   'media_kling_element_create',
@@ -75,6 +79,22 @@ const KLING_TOOLS = new Set([
   'media_kling_video_extend',
   'media_kling_poll',
   'media_kling_download',
+  'media_kling_billing_reconcile',
+  'media_kling_billing_audit',
+]);
+
+// Opt-in providers. Direct-access only — they are deliberately absent from the
+// automatic router (dynamic catalogues), so the tool IS the access path. Gated to
+// the paid tiers alongside the other video providers.
+const OPT_IN_VIDEO_TOOLS = new Set([
+  'media_muapi_models',
+  'media_muapi_generate',
+  // Poll and download belong on the same tier as generate. Gating the submit but
+  // not the retrieval would let a tenant reach outputs of jobs they could not
+  // have started; gating retrieval MORE tightly would strand jobs they did.
+  'media_muapi_poll',
+  'media_muapi_download',
+  'media_wan2gp_generate',
 ]);
 
 const SEEDANCE_TOOLS = new Set([
@@ -99,6 +119,11 @@ export const TIER_GATES: Record<Tier, ReadonlySet<string>> = {
     IMAGE_TOOLS, UTILITY_TOOLS, HELP_TOOLS,
     VIDEO_TOOLS, COST_TOOLS,
     HIGGSFIELD_TOOLS, KLING_TOOLS, SEEDANCE_TOOLS,
+    // Opt-in providers sit with the other video providers rather than in a
+    // higher tier: neither costs media-forge anything to expose (Wan2GP runs on
+    // the caller's own GPU, MuAPI bills the caller's own key), and gating them
+    // above `creator` would only hide a door the caller has to open by hand.
+    OPT_IN_VIDEO_TOOLS,
     GALLERY_TOOLS,
   ),
 

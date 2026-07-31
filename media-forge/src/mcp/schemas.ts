@@ -1,6 +1,16 @@
 import { z } from 'zod';
 import type { ZodTypeAny } from 'zod';
-import { VIDEO_MODELS } from '../core/models.js';
+import { VIDEO_MODELS, PROVIDERS } from '../core/models.js';
+// T13: the narrative tools' input schemas live with their handler, since the
+// handler is the only thing that can act on them. Re-exported into MCP_TOOLS
+// here so tool discovery stays a single list.
+import { NarrativePlanInput, NarrativeAssembleInput } from './handlers/narrative.js';
+// T17 / T6: same reasoning — the input schemas live beside the handler that acts
+// on them, and are re-exported into MCP_TOOLS so discovery stays one list.
+import { CodexImageInput, SoulIdTrainInput } from './handlers/optional-providers.js';
+
+/** No parameters — reconciliation reads both sides and reports. */
+export const SoulIdListInput = z.object({}).strict();
 
 // Image schemas (P3.1)
 export {
@@ -243,10 +253,36 @@ export const VideoRouteInput = z.object({
   // rejecting every 480p routing request before it could consider those models.
   resolution: z.enum(['480p', '720p', '1080p', '2k', '4k']),
   aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']).optional(),
-  preferProvider: z.enum(['google', 'higgsfield', 'kling', 'bytedance']).optional(),
+  // Derived from PROVIDERS rather than restated. The literal list here had
+  // drifted: it still held the original four while PROVIDERS had grown to six,
+  // so naming 'higgsfield-cli' was rejected at the schema before the router
+  // could consider it — the flag looked broken for a reason that had nothing to
+  // do with routing. Deriving it means the two cannot disagree again.
+  //
+  // The comment above already states the intent: this accepts the full Provider
+  // union including names with no wired adapter yet, and the handler returns a
+  // clear error when a preference has no candidate.
+  preferProvider: z.enum(PROVIDERS as unknown as [string, ...string[]]).optional(),
 });
 
 export type VideoRouteInputT = z.infer<typeof VideoRouteInput>;
+
+// ---------------------------------------------------------------------------
+// ExtractLastFrameInput — pull the last frame of a video as a still image.
+// T9-d: closes the continuation gap — media-forge already consumes a last
+// frame (lastFrameImagePath / lastFrameImage / CLI --last) to chain one
+// generated clip into the next, but had nothing to produce one. Local ffmpeg
+// call only: no provider, no cost, so no cost guard / ledger row here.
+// ---------------------------------------------------------------------------
+export const ExtractLastFrameInput = z
+  .object({
+    videoPath: z.string().min(1),
+    outputPath: z.string().min(1).optional(),
+    format: z.enum(['jpg', 'png']).default('jpg'),
+  })
+  .strict();
+
+export type ExtractLastFrameInputT = z.infer<typeof ExtractLastFrameInput>;
 
 // ---------------------------------------------------------------------------
 // HiggsfieldSoulIdInput — Soul ID lifecycle (create/list/find/markUsed)
@@ -623,6 +659,25 @@ export type KlingPollInputT = z.infer<typeof KlingPollInput>;
 export const KlingDownloadInput = z.object({ jobIdOrUrl: z.string().min(1) });
 export type KlingDownloadInputT = z.infer<typeof KlingDownloadInput>;
 
+/**
+ * Window for the two Kling billing surfaces.
+ *
+ * Milliseconds since epoch, matching what Kling's own request bodies take —
+ * converting from an ISO string here would put a timezone assumption between
+ * the caller and the provider on a money query.
+ */
+const KlingBillingWindowInput = z.object({
+  startTimeMs: z.number().int().nonnegative(),
+  endTimeMs: z.number().int().positive(),
+  limit: z.number().int().positive().max(500).optional(),
+});
+
+export const KlingBillingReconcileInput = KlingBillingWindowInput;
+export type KlingBillingReconcileInputT = z.infer<typeof KlingBillingReconcileInput>;
+
+export const KlingBillingAuditInput = KlingBillingWindowInput;
+export type KlingBillingAuditInputT = z.infer<typeof KlingBillingAuditInput>;
+
 // ---------------------------------------------------------------------------
 // Seedance 2.0 (ByteDance) MCP tool schemas — P16 Task 7 (A0.5 surface: 4 tools).
 // A0.1: tiers are Fast + Standard only (NO Pro). Standard exclusively supports 1080p.
@@ -845,14 +900,95 @@ export interface MCPTool {
 }
 
 // ---------------------------------------------------------------------------
-// MCP_TOOLS registry — 55 tools total (PR#11 base 54 + F-I 1 gallery = 55)
-// 6 image + 7 video + 8 pipeline/utility + 1 help + 4 refs + 1 webhook + 2 cost + 1 route
+// MCP_TOOLS registry — 56 tools total (PR#11 base 54 + F-I 1 gallery + T9-d
+// 1 last-frame = 56)
+// 6 image + 8 video (T9-d adds media_extract_last_frame) + 8 pipeline/utility
+// + 1 help + 4 refs + 1 webhook + 2 cost + 1 route
 // + 7 higgsfield (soul_id, dop, cinema_studio, speak, marketing_studio, recast, virality_predictor)
 // + 1 higgsfield_generate (Codex round 7 PR#10)
 // + 2 higgsfield lifecycle (poll, download — Codex round 5 PR#10)
 // + 11 kling (motion_brush, element_create/list/delete, elements, lip_sync, omni_multishot, video_extend, poll, download, +1 from R6)
 // + 4 seedance (text_to_video, image_to_video, multishot, reference_fusion — P16) = 54
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Opt-in providers — MuAPI (aggregator) and Wan2GP (self-hosted).
+//
+// Direct-access tools on purpose, NOT entries in the automatic router.
+//
+// Both have a genuinely DYNAMIC catalogue: MuAPI lists its models over the wire
+// at request time and marks some of them `dynamic_pricing`, and Wan2GP can only
+// run the weights the operator downloaded onto their own machine. handleVideoRoute
+// ranks a static registry synchronously, so neither can be ranked there without
+// making routing async — which is a separate change touching every routing test.
+//
+// Naming one of these explicitly is the whole mechanism, and for opt-in providers
+// that is the correct behaviour rather than a limitation: a local GPU server and a
+// third-party aggregator should be reached because the caller chose them, never
+// because a cost sort silently preferred them.
+// ---------------------------------------------------------------------------
+
+const _optInResolution = z.enum(['720p', '1080p', '2k', '4k']);
+const _optInAspect = z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']);
+
+/** No args: the catalogue IS the query. */
+export const MuapiModelsInput = z.object({});
+export type MuapiModelsInputT = z.infer<typeof MuapiModelsInput>;
+
+export const MuapiGenerateInput = z.object({
+  /**
+   * The MuAPI catalogue name, verbatim.
+   *
+   * Not an enum: the catalogue is fetched at runtime and changes without a
+   * release here. A stale enum would reject models MuAPI currently serves, so
+   * the adapter validates against the live catalogue and names what it found.
+   */
+  modelName: z.string().min(1),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive().max(60),
+  resolution: _optInResolution.default('720p'),
+  aspectRatio: _optInAspect.optional(),
+  firstFrameImagePath: z.string().min(1).optional(),
+});
+export type MuapiGenerateInputT = z.infer<typeof MuapiGenerateInput>;
+
+export const MuapiPollInput = z.object({
+  /**
+   * MuAPI's own `request_id`, as returned by media_muapi_generate.
+   *
+   * NOT the `jobId` from the same response. The two are different strings: the
+   * jobId is media-forge's local ledger key and MuAPI has never heard of it,
+   * while request_id is the only value `/api/v1/predictions/{id}/result`
+   * accepts. Both come back from generate, named for what each one opens.
+   */
+  requestId: z.string().min(1),
+  /**
+   * The local ledger key, when the caller still has it.
+   *
+   * Optional because a poll works without it — but settlement does not: the
+   * cost row is keyed on jobId, so omitting it returns MuAPI's reported charge
+   * without recording it against the daily cap.
+   */
+  jobId: z.string().min(1).optional(),
+});
+export type MuapiPollInputT = z.infer<typeof MuapiPollInput>;
+
+export const MuapiDownloadInput = z.object({
+  /** MuAPI's `request_id` — same key the poll tool takes. */
+  requestId: z.string().min(1),
+});
+export type MuapiDownloadInputT = z.infer<typeof MuapiDownloadInput>;
+
+export const Wan2gpGenerateInput = z.object({
+  /** Whatever the operator's own server exposes — same reasoning as MuAPI. */
+  modelId: z.string().min(1),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive().max(60),
+  resolution: _optInResolution.default('720p'),
+  aspectRatio: _optInAspect.optional(),
+  firstFrameImagePath: z.string().min(1).optional(),
+});
+export type Wan2gpGenerateInputT = z.infer<typeof Wan2gpGenerateInput>;
+
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
   {
@@ -888,7 +1024,7 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     inputSchema: ExtractPaletteInput,
   },
 
-  // ---- Video (7) ----
+  // ---- Video (8) ----
   {
     name: 'media_generate_video_t2v',
     description: 'Text → video via Veo 3.1 Pro',
@@ -927,6 +1063,14 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     name: 'media_download_video',
     description: 'Fetch operation result video (2-day TTL)',
     inputSchema: DownloadVideoInput,
+  },
+  {
+    name: 'media_extract_last_frame',
+    description:
+      'Extract the last frame of a video as a still image (local ffmpeg, no cost) — ' +
+      'feed the result back in as firstFrameImage/lastFrameImage (or CLI --image/--last) ' +
+      'to chain clip 1 into clip 2',
+    inputSchema: ExtractLastFrameInput,
   },
 
   // ---- Pipeline / Utility (8) ----
@@ -1191,6 +1335,18 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
       'Download a Kling job asset by internal jobId or direct URL. When given a jobId, hydrates state from DB, polls to obtain a fresh URL, downloads the asset, and writes it under MEDIA_FORGE_OUTPUTS_DIR. Asset URLs are TTL-bounded; download immediately after the job reports completed.',
     inputSchema: KlingDownloadInput,
   },
+  {
+    name: 'media_kling_billing_reconcile',
+    description:
+      'Settle Kling jobs in a time window against what Kling ACTUALLY charged, replacing the local rate-table estimate with the provider figure and reporting rate drift above 1%. Read-only against the provider; writes actual_usd locally. Costs nothing to run. Requires KLING_API_KEY (API 2.0 accepts API-key auth only).',
+    inputSchema: KlingBillingReconcileInput,
+  },
+  {
+    name: 'media_kling_billing_audit',
+    description:
+      "Audit what Kling charged the ACCOUNT in a window, from the deduction endpoints. Reports the currency actually billed (the /tasks billing feed has none, so the USD assumption is only checkable here) and names charges with no local ledger row — the signature of a submit that succeeded before its ledger write failed, or of the same API key used from another machine. Read-only: never writes and never repairs. Requires KLING_API_KEY.",
+    inputSchema: KlingBillingAuditInput,
+  },
 
   // ---- Seedance 2.0 (ByteDance) — P16 Task 7 (4 tools: t2v/i2v/multishot/reference-fusion) ----
   // A0.1: 2 tiers (Fast/Standard) — NO Pro. Standard exclusively supports 1080p. A0.5: 4 MCP tools.
@@ -1231,6 +1387,71 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description:
       'List completed generations for the authenticated tenant (paginated, newest first). tenantId is read from server-side AuthContext — never from client input.',
     inputSchema: ListMyGenerationsInput,
+  },
+
+  // ---- Narrative planner (2 — T13: the entry point into src/narrative/) ----
+  {
+    name: 'media_narrative_plan',
+    description:
+      'Plan a multi-shot video from a creative brief: extracts the cast, writes beats, groups them into scenes (narrative | motion | montage), storyboards each scene into shots, and returns a validated ProjectState. Runs six Anthropic calls via the SDK and REQUIRES ANTHROPIC_API_KEY — inside a Claude Code session it refuses and points you at media_narrative_assemble instead, because the agents there are dispatched by the orchestrator. These planning calls are NOT metered by the media-forge cost guard, which tracks per-generation provider spend (Veo/Kling/Higgsfield/Seedance) rather than token billing. Planning alone generates no video and costs no provider credit.',
+    inputSchema: NarrativePlanInput,
+  },
+  {
+    name: 'media_narrative_assemble',
+    description:
+      'Join already-collected narrative agent results (cast, screenplay, scenes, storyboards) into a validated ProjectState. Pure and offline: no LLM calls, no network, no cost. This is the path to use inside Claude Code, where the six narrative agents run as subagents you dispatch yourself. Enforces the same cross-document integrity rules as media_narrative_plan — referential integrity across clips/scenes/beats, parent-chain depth, disjoint beat lists — so a plan assembled this way is not a weaker plan.',
+    inputSchema: NarrativeAssembleInput,
+  },
+
+  // ---- Opt-in providers (5 — T17 Codex images, T6 Higgsfield Soul-ID) ----
+
+  {
+    name: 'media_muapi_models',
+    description:
+      "List the MuAPI catalogue with each model's price and endpoint. MuAPI is an aggregator that resells other vendors' models with its own markup, so this catalogue is the ONLY source of MuAPI prices — media-forge keeps no local price table for it, deliberately. Read-only and free. Requires MUAPI_API_KEY.",
+    inputSchema: MuapiModelsInput,
+  },
+  {
+    name: 'media_muapi_generate',
+    description:
+      'Submit a video generation to a MuAPI catalogue model by its exact catalogue name (see media_muapi_models). Opt-in and direct-access: MuAPI is never selected by automatic routing, because its catalogue is fetched at runtime rather than registered locally. Cost comes from MuAPI itself, per request. Requires MUAPI_API_KEY.',
+    inputSchema: MuapiGenerateInput,
+  },
+  {
+    name: 'media_muapi_poll',
+    description:
+      'Check a MuAPI job and settle its cost. Takes the `requestId` from media_muapi_generate (NOT the `jobId` — that one is the local ledger key and MuAPI does not recognise it). Pass `jobId` as well to have the real charge MuAPI reports written to the cost ledger once the job reaches a terminal state; a refunded task settles at 0. Free to call and safe to repeat — settlement happens exactly once.',
+    inputSchema: MuapiPollInput,
+  },
+  {
+    name: 'media_muapi_download',
+    description:
+      'Download a completed MuAPI output into the media-forge outputs directory, by `requestId`. The file extension follows what MuAPI actually served, since the catalogue spans both video and image models. Poll first: an unfinished job has no output to fetch.',
+    inputSchema: MuapiDownloadInput,
+  },
+  {
+    name: 'media_wan2gp_generate',
+    description:
+      'Submit a video generation to a self-hosted Wan2GP server on your own machine. Costs no credits — it runs on your GPU. Opt-in twice over: MEDIA_FORGE_WAN2GP_ENABLED=true must be set AND the server must answer, and it is never selected by automatic routing (a $0 provider would win every cost sort and silently replace paid ones). Run `media-forge setup wan2gp` first.',
+    inputSchema: Wan2gpGenerateInput,
+  },
+  {
+    name: 'media_image_codex',
+    description:
+      'Generate one image through the Codex CLI at quality "high" with gpt-image-2. TWO credential paths, auto-detected: with no OPENAI_API_KEY it uses the built-in image_gen tool riding your local `codex login` OAuth session, which costs nothing beyond your ChatGPT plan; with OPENAI_API_KEY set it uses the bundled CLI against the OpenAI Images API, which is METERED and requires MEDIA_FORGE_CODEX_IMAGE_USD_PER_IMAGE to be configured. The OAuth path is refused under multi-tenant hosting, where one machine-wide session cannot serve separate tenants. No native transparency: gpt-image-2 does not support transparent backgrounds and gpt-image-1.5 is excluded — use Nano Banana Pro or Imagen 4 Ultra when you need real alpha.',
+    inputSchema: CodexImageInput,
+  },
+  {
+    name: 'media_higgsfield_soul_id_train',
+    description:
+      'Train a Higgsfield Soul-ID character reference from 5-20 images, so the same person renders consistently across shots. Requires the Higgsfield CLI (MEDIA_FORGE_HF_CLI_ENABLED=true plus `higgsfield auth login`) because it bills the logged-in workspace. The returned id is recorded in the local cache only after the remote call succeeds.',
+    inputSchema: SoulIdTrainInput,
+  },
+  {
+    name: 'media_higgsfield_soul_id_list',
+    description:
+      'List Soul-IDs, reconciling the local cache against what the Higgsfield account actually holds. Reports differences (inBoth / localOnly / remoteOnly) rather than resolving them: a local id missing remotely may have been deleted in the web app, or the listing may be paginated, and deleting cache rows on that evidence would discard the record of training you paid for. Without the CLI enabled it returns the local cache alone.',
+    inputSchema: SoulIdListInput,
   },
 ] as const) as readonly MCPTool[];
 
