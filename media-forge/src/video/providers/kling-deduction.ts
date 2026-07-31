@@ -400,7 +400,7 @@ export async function auditDeductions(
 export interface OrphanCharge {
   readonly taskId: string;
   readonly usd: number;
-  readonly source: 'balance' | 'package';
+  readonly source: 'balance' | 'package' | 'both';
   readonly modelName?: string;
 }
 
@@ -422,12 +422,27 @@ export function findOrphanCharges(
   audit: Pick<DeductionAudit, 'balance' | 'units'>,
   hasLocalRow: (taskId: string) => boolean,
 ): ReadonlyArray<OrphanCharge> {
-  const out: OrphanCharge[] = [];
+  // Keyed by taskId: one task can be billed on BOTH surfaces (part cash, part
+  // units) — the same reason totalChargeUsd sums an array. Pushing per surface
+  // reported one orphan as two, and the count is what an operator reads first.
+  // The USD is summed so the money stays right either way.
+  const byTask = new Map<string, OrphanCharge>();
+  const add = (charge: OrphanCharge): void => {
+    const seen = byTask.get(charge.taskId);
+    byTask.set(
+      charge.taskId,
+      seen === undefined
+        ? charge
+        : // 'both' rather than picking one: which surface it came from is the
+          // operator's next question, and naming only one would be wrong.
+          { ...seen, usd: seen.usd + charge.usd, source: 'both' },
+    );
+  };
 
   for (const row of audit.balance) {
     if (hasLocalRow(row.taskId)) continue;
     try {
-      out.push({
+      add({
         taskId: row.taskId,
         usd: balanceRowToUsd(row),
         source: 'balance',
@@ -446,7 +461,7 @@ export function findOrphanCharges(
 
   for (const row of audit.units) {
     if (hasLocalRow(row.taskId)) continue;
-    out.push({
+    add({
       taskId: row.taskId,
       usd: packageRowToUsd(row),
       source: 'package',
@@ -454,5 +469,5 @@ export function findOrphanCharges(
     });
   }
 
-  return out;
+  return [...byTask.values()];
 }

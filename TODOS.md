@@ -521,6 +521,30 @@ cache; para afirmar que algo não existe na doc, abrir a doc.
 
 **Esforço:** L (CC ~3h) — superfície inteira do provider.
 
+## (fechado) P1 — Os dois métodos de billing do Kling não tinham caller
+
+**FECHADO em 2026-07-31.** `media_kling_billing_reconcile` e
+`media_kling_billing_audit`, registradas e exercitadas ao vivo (0 créditos).
+
+**O que aconteceu:** `reconcileBillingWindow` (`64c2edb`) e `auditBillingWindow`
+(`8743e48`) foram entregues com teste e **nenhum caller de produção**. Eu
+reportei o primeiro como fechando um P1 — ele não liquidava nada, porque nada o
+chamava.
+
+**Por que não apareceu na medição:** `fallow audit --production` deu
+`dead_code_introduced: 0`, sem arquivo nem export sem uso — e estava certo. São
+**métodos de uma classe que o roteador já alcança**. A ferramenta não tem como
+sinalizar isso, e uma suíte verde sobre um caminho de liquidação inalcançável se
+parece exatamente com um ledger funcionando.
+
+**A regra já estava escrita** em `src/mcp/handlers/optional-providers.ts`: uma
+tool, ou o código não é feature. O que faltava é que a checagem que a sustenta é
+`grep` por caller fora de `tests/`, **não** o número da auditoria. Em código de
+dinheiro é pior, porque "o ledger reconcilia" é o tipo de afirmação que ninguém
+reconfere.
+
+---
+
 ## (fechado) P1 — APIs de dedução e uso do Kling não são usadas
 
 **FECHADO em 2026-07-30.** `src/video/providers/kling-billing.ts` +

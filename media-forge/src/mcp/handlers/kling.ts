@@ -22,6 +22,10 @@ import {
   type KlingVideoExtendInputT,
   KlingPollInput,
   type KlingPollInputT,
+  KlingBillingReconcileInput,
+  type KlingBillingReconcileInputT,
+  KlingBillingAuditInput,
+  type KlingBillingAuditInputT,
   KlingDownloadInput,
   type KlingDownloadInputT,
 } from '../schemas.js';
@@ -615,5 +619,79 @@ export async function handleKlingDownload(
     sizeBytes: asset.metadata.sizeBytes ?? asset.buffer.length,
     contentType: asset.metadata.contentType,
     ...(typeof actualUsd === 'number' ? { actualUsd } : {}),
+  };
+}
+
+
+// ---------------------------------------------------------------------------
+// handleKlingBillingReconcile / handleKlingBillingAudit
+//
+// Both provider methods shipped with tests and NO caller. `fallow audit
+// --production` does not catch that: they are methods on a class the router
+// already reaches, so nothing reports them as unused, and a passing suite reads
+// exactly like a working feature. The rule this repo settled on holds — a tool,
+// or the code is not a feature — and money code is the worst place to break it,
+// because "the ledger reconciles" is precisely the kind of claim nobody
+// re-checks.
+//
+// Both are safe to run: reconcile writes only actual_usd on rows this install
+// already owns, audit writes nothing at all, and neither costs a credit.
+// ---------------------------------------------------------------------------
+
+export async function handleKlingBillingReconcile(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{
+  settled: ReadonlyArray<{ taskId: string; actualUsd: number }>;
+  drift: ReadonlyArray<{ taskId: string; estimateUsd: number; actualUsd: number; ratio: number }>;
+}> {
+  const input: KlingBillingReconcileInputT = KlingBillingReconcileInput.parse(rawInput);
+  const provider = new KlingProvider({
+    dbPath: defaultDbPath(),
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+  });
+  return provider.reconcileBillingWindow({
+    startTimeMs: input.startTimeMs,
+    endTimeMs: input.endTimeMs,
+    ...(input.limit !== undefined ? { limit: input.limit } : {}),
+    ...(opts.fetchImpl !== undefined ? { fetchImpl: opts.fetchImpl } : {}),
+  });
+}
+
+export async function handleKlingBillingAudit(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{
+  currenciesSeen: ReadonlyArray<string>;
+  usdAssumptionHolds: boolean;
+  truncated: boolean;
+  balanceRows: number;
+  unitRows: number;
+  orphans: ReadonlyArray<{ taskId: string; usd: number; source: string; modelName?: string }>;
+}> {
+  const input: KlingBillingAuditInputT = KlingBillingAuditInput.parse(rawInput);
+  const provider = new KlingProvider({
+    dbPath: defaultDbPath(),
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+  });
+  const audit = await provider.auditBillingWindow({
+    startTimeMs: input.startTimeMs,
+    endTimeMs: input.endTimeMs,
+    ...(input.limit !== undefined ? { limit: input.limit } : {}),
+    ...(opts.fetchImpl !== undefined ? { fetchImpl: opts.fetchImpl } : {}),
+  });
+
+  // Counts rather than the rows themselves: a window can hold hundreds of
+  // deductions, and an MCP result that dumps them all buries the two fields that
+  // actually need a decision (usdAssumptionHolds, orphans).
+  return {
+    currenciesSeen: audit.currenciesSeen,
+    usdAssumptionHolds: audit.usdAssumptionHolds,
+    truncated: audit.truncated,
+    balanceRows: audit.balance.length,
+    unitRows: audit.units.length,
+    orphans: audit.orphans,
   };
 }

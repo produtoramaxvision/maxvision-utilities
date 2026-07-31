@@ -67,7 +67,7 @@ const HIGGSFIELD_TOOLS = new Set([
   'media_higgsfield_download',
 ]);
 
-// Kling: 10 tools confirmadas contra schemas.ts
+// Kling: 12 tools confirmadas contra schemas.ts
 const KLING_TOOLS = new Set([
   'media_kling_motion_brush',
   'media_kling_element_create',
@@ -79,6 +79,8 @@ const KLING_TOOLS = new Set([
   'media_kling_video_extend',
   'media_kling_poll',
   'media_kling_download',
+  'media_kling_billing_reconcile',
+  'media_kling_billing_audit',
 ]);
 
 const SEEDANCE_TOOLS = new Set([

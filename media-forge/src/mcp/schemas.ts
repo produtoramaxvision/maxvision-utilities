@@ -659,6 +659,25 @@ export type KlingPollInputT = z.infer<typeof KlingPollInput>;
 export const KlingDownloadInput = z.object({ jobIdOrUrl: z.string().min(1) });
 export type KlingDownloadInputT = z.infer<typeof KlingDownloadInput>;
 
+/**
+ * Window for the two Kling billing surfaces.
+ *
+ * Milliseconds since epoch, matching what Kling's own request bodies take —
+ * converting from an ISO string here would put a timezone assumption between
+ * the caller and the provider on a money query.
+ */
+const KlingBillingWindowInput = z.object({
+  startTimeMs: z.number().int().nonnegative(),
+  endTimeMs: z.number().int().positive(),
+  limit: z.number().int().positive().max(500).optional(),
+});
+
+export const KlingBillingReconcileInput = KlingBillingWindowInput;
+export type KlingBillingReconcileInputT = z.infer<typeof KlingBillingReconcileInput>;
+
+export const KlingBillingAuditInput = KlingBillingWindowInput;
+export type KlingBillingAuditInputT = z.infer<typeof KlingBillingAuditInput>;
+
 // ---------------------------------------------------------------------------
 // Seedance 2.0 (ByteDance) MCP tool schemas — P16 Task 7 (A0.5 surface: 4 tools).
 // A0.1: tiers are Fast + Standard only (NO Pro). Standard exclusively supports 1080p.
@@ -1236,6 +1255,18 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description:
       'Download a Kling job asset by internal jobId or direct URL. When given a jobId, hydrates state from DB, polls to obtain a fresh URL, downloads the asset, and writes it under MEDIA_FORGE_OUTPUTS_DIR. Asset URLs are TTL-bounded; download immediately after the job reports completed.',
     inputSchema: KlingDownloadInput,
+  },
+  {
+    name: 'media_kling_billing_reconcile',
+    description:
+      'Settle Kling jobs in a time window against what Kling ACTUALLY charged, replacing the local rate-table estimate with the provider figure and reporting rate drift above 1%. Read-only against the provider; writes actual_usd locally. Costs nothing to run. Requires KLING_API_KEY (API 2.0 accepts API-key auth only).',
+    inputSchema: KlingBillingReconcileInput,
+  },
+  {
+    name: 'media_kling_billing_audit',
+    description:
+      "Audit what Kling charged the ACCOUNT in a window, from the deduction endpoints. Reports the currency actually billed (the /tasks billing feed has none, so the USD assumption is only checkable here) and names charges with no local ledger row — the signature of a submit that succeeded before its ledger write failed, or of the same API key used from another machine. Read-only: never writes and never repairs. Requires KLING_API_KEY.",
+    inputSchema: KlingBillingAuditInput,
   },
 
   // ---- Seedance 2.0 (ByteDance) — P16 Task 7 (4 tools: t2v/i2v/multishot/reference-fusion) ----

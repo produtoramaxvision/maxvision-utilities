@@ -107,6 +107,8 @@ import {
   handleKlingVideoExtend,
   handleKlingPoll,
   handleKlingDownload,
+  handleKlingBillingReconcile,
+  handleKlingBillingAudit,
 } from './kling.js';
 import {
   handleSeedanceTextToVideo,
@@ -1774,6 +1776,28 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       // sweep releases the stuck reservation (no capture ever fires for a failed job → no
       // double-charge). `releaseVideoFailed` is available for callers that DO have the estimate.
       wrap(t.name, async (input) => asResult(await handleKlingPoll(input, { storage }))),
+    );
+  }
+
+  // The two billing tools. Both provider methods shipped tested and with no
+  // caller at all — a shape `fallow audit --production` cannot flag, because
+  // they are methods on a class the router already reaches. A green suite over
+  // an unreachable settlement path reads exactly like a working ledger.
+  {
+    const t = getTool('media_kling_billing_reconcile');
+    regIfAllowed(
+      t.name,
+      { title: 'Kling Billing Reconcile', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingBillingReconcile(input))),
+    );
+  }
+
+  {
+    const t = getTool('media_kling_billing_audit');
+    regIfAllowed(
+      t.name,
+      { title: 'Kling Billing Audit', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingBillingAudit(input))),
     );
   }
 

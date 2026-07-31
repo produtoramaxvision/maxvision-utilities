@@ -621,4 +621,22 @@ describe('KlingProvider.auditBillingWindow', () => {
     expect(result.orphans.find((o) => o.taskId === 'task-cny-orphan')).toBeUndefined();
     expect(result.orphans.some((o) => o.usd === 0)).toBe(false);
   });
+
+  // One task can be billed on BOTH surfaces — part cash, part units — which is
+  // why totalChargeUsd sums an array in the first place. Reported per surface,
+  // one orphan read as two, and the count is the first thing an operator looks
+  // at when deciding whether money went missing.
+  it('a task billed on BOTH surfaces is ONE orphan, with the amounts summed', () => {
+    const both = {
+      balance: [{ taskId: 'split-task', deductionAmount: 2, currency: 'USD' } as KlingDeductionRow],
+      units: [{ taskId: 'split-task', deductionAmount: 10 } as KlingDeductionRow],
+    };
+    const orphans = findOrphanCharges(both, () => false);
+    expect(orphans).toHaveLength(1);
+    expect(orphans[0]!.taskId).toBe('split-task');
+    expect(orphans[0]!.usd).toBeCloseTo(2 + 10 * 0.14, 6);
+    // Naming only one surface would be wrong — which one it came from is the
+    // operator's next question.
+    expect(orphans[0]!.source).toBe('both');
+  });
 });

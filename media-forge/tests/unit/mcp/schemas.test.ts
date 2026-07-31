@@ -114,8 +114,8 @@ describe('MCP_TOOLS registry', () => {
   // EXPECTED_TOOL_NAMES gains every new name in the same change. Bumping the
   // number alone would leave the sibling test reading "all 61 expected" while
   // actually checking fewer.
-  it('contains exactly 61 tools', () => {
-    expect(MCP_TOOLS.length).toBe(61);
+  it('contains exactly 63 tools', () => {
+    expect(MCP_TOOLS.length).toBe(63);
   });
 
   it('is frozen (Object.isFrozen)', () => {
@@ -160,8 +160,8 @@ describe('MCP_TOOLS registry', () => {
 // listMCPToolNames()
 // ---------------------------------------------------------------------------
 describe('listMCPToolNames()', () => {
-  it('returns an array of length 61', () => {
-    expect(listMCPToolNames().length).toBe(61);
+  it('returns an array of length 63', () => {
+    expect(listMCPToolNames().length).toBe(63);
   });
 
   it('contains all 61 expected tool names', () => {
