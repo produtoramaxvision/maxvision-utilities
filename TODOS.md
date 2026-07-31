@@ -133,8 +133,32 @@ Nenhum dos removidos estava no `src/index.ts`, então não é quebra de API púb
 ## (referência) Créditos grátis por provider — levantado em 2026-07-31
 
 Levantado porque surgiu a lembrança de "66 créditos grátis por dia" em algum
-provider. **Nada no repo registra esse número**, e o levantamento abaixo não o
-encontrou em nenhuma superfície.
+provider.
+
+**A origem foi encontrada, e o número é real — mas de outra coisa.** Eu disse
+isso num trecho anterior desta sessão, citando uma **busca web** (fonte terceira:
+`checkthat.ai/brands/kling-ai/pricing`, não a doc do Kling):
+
+> "The Free plan gives you 66 Kling AI free credits per day — enough to generate
+> roughly 6 standard-mode clips daily. Credits reset every 24 hours and do not
+> roll over."
+
+Três coisas a fixar:
+
+1. **É Kling, não Seedance.**
+2. **É o app de consumo** (`app.klingai.com/.../membership-plan`), não a API de
+   desenvolvedor. São carteiras e unidades **diferentes**: o app conta em
+   "credits" (6–12 por segundo, conforme o texto acima); a API conta em "units"
+   a $0,14, 0,8 unidade/s em 720p. Nada converte uma na outra.
+3. **O media-forge não gasta esses créditos.** Ele autentica na API de
+   desenvolvedor com `KLING_API_KEY`. Os 66/dia podem ser verdade e continuam
+   não financiando nada que o plugin faz.
+
+O número **não foi conferido na fonte primária** — veio de um agregador de preços,
+e a página de assinatura do Kling exige login. Fica registrado como citação de
+terceiro, não como fato verificado.
+
+O levantamento abaixo é da **API**, que é o que decide se uma geração roda.
 
 | Provider | Grátis? | Como foi verificado |
 |---|---|---|
