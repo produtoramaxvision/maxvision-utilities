@@ -182,25 +182,39 @@ export class MuapiProvider {
       );
     }
 
-    // NOT VERIFIED: the docs read for this adapter document the model CATALOGUE's
-    // shape ({ cost, cost_currency, ... }) but not the estimate endpoint's
-    // response body. `cost` is assumed by symmetry with the catalogue and
-    // `cost_usd` is accepted as a defensive second guess — neither was confirmed
-    // against a live call, because that needs a MUAPI_API_KEY this repo does not
-    // have.
+    // VERIFIED against muapi.ai/docs/pricing on 2026-07-31. The estimate response is
     //
-    // The failure mode is safe: an unrecognised shape throws below rather than
-    // producing a number, so a wrong guess surfaces as an error instead of
-    // putting a fabricated estimate through the cost guard and into the ledger.
-    // Confirm against a real response before relying on dynamic pricing.
-    // Tracked in TODOS.md.
-    const body = (await response.json()) as { cost?: number; cost_usd?: number };
-    const cost = body.cost ?? body.cost_usd;
+    //   { model, cost, currency, dynamic_pricing, cost_strategy }
+    //
+    // `cost` is a float in `currency`. An earlier build here also accepted
+    // `cost_usd` as a defensive second guess; that field does not exist and has
+    // been removed — a fallback onto a key the API never sends is not defence,
+    // it is a second way to be wrong that no test would ever exercise.
+    //
+    // Still unexercised against a live endpoint: that needs a MUAPI_API_KEY this
+    // repo does not have. Documented shape is stronger than a guess and weaker
+    // than a response.
+    const body = (await response.json()) as { cost?: number; currency?: string };
+
+    // Checked on the ESTIMATE too, not only on the catalogue entry above. The
+    // two are separate responses and the estimate is the one that decides what
+    // gets billed; assuming it inherits the catalogue's currency is how a
+    // non-USD figure reaches a USD ledger.
+    if (body.currency !== undefined && body.currency !== 'USD') {
+      throw new ApiError(
+        `MuAPI estimated ${modelName} in ${body.currency}; this adapter only handles USD, ` +
+          `and there is no exchange rate here to convert with.`,
+        'API',
+        { provider: 'muapi' },
+      );
+    }
+
+    const cost = body.cost;
     if (typeof cost !== 'number' || !Number.isFinite(cost)) {
       throw new ApiError(
-        `MuAPI cost estimate for ${modelName} returned no usable cost. The estimate ` +
-          `endpoint's response shape was never verified against a live call — see the ` +
-          `note at this call site.`,
+        `MuAPI cost estimate for ${modelName} returned no usable \`cost\`. Refusing rather ` +
+          `than defaulting: a fabricated estimate would pass the cost guard and land in the ` +
+          `ledger looking authoritative.`,
         'API',
         { provider: 'muapi' },
       );

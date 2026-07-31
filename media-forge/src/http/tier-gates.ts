@@ -83,6 +83,15 @@ const KLING_TOOLS = new Set([
   'media_kling_billing_audit',
 ]);
 
+// Opt-in providers. Direct-access only — they are deliberately absent from the
+// automatic router (dynamic catalogues), so the tool IS the access path. Gated to
+// the paid tiers alongside the other video providers.
+const OPT_IN_VIDEO_TOOLS = new Set([
+  'media_muapi_models',
+  'media_muapi_generate',
+  'media_wan2gp_generate',
+]);
+
 const SEEDANCE_TOOLS = new Set([
   'media_seedance_text_to_video',
   'media_seedance_image_to_video',
@@ -105,6 +114,11 @@ export const TIER_GATES: Record<Tier, ReadonlySet<string>> = {
     IMAGE_TOOLS, UTILITY_TOOLS, HELP_TOOLS,
     VIDEO_TOOLS, COST_TOOLS,
     HIGGSFIELD_TOOLS, KLING_TOOLS, SEEDANCE_TOOLS,
+    // Opt-in providers sit with the other video providers rather than in a
+    // higher tier: neither costs media-forge anything to expose (Wan2GP runs on
+    // the caller's own GPU, MuAPI bills the caller's own key), and gating them
+    // above `creator` would only hide a door the caller has to open by hand.
+    OPT_IN_VIDEO_TOOLS,
     GALLERY_TOOLS,
   ),
 

@@ -152,19 +152,19 @@ describe('MCP server tool registration', () => {
   });
 
   // + 2 T13 narrative (media_narrative_plan / media_narrative_assemble).
-  it('registers exactly 63 tools (22 base + 4 refs + 4 routing/cost + 10 higgsfield + 12 kling + 4 seedance + 1 gallery + 1 T9-d last-frame + 2 narrative)', () => {
+  it('registers exactly 66 tools (22 base + 4 refs + 4 routing/cost + 10 higgsfield + 12 kling + 4 seedance + 3 opt-in + 1 gallery + 1 T9-d last-frame + 2 narrative)', () => {
     const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
     const names = listRegisteredToolNames(server);
-    expect(names).toHaveLength(63);
+    expect(names).toHaveLength(66);
   });
 
-  it('registers exactly 59 tools when MEDIA_FORGE_SEEDANCE_ENABLED=false', () => {
+  it('registers exactly 62 tools when MEDIA_FORGE_SEEDANCE_ENABLED=false', () => {
     const prev = process.env['MEDIA_FORGE_SEEDANCE_ENABLED'];
     process.env['MEDIA_FORGE_SEEDANCE_ENABLED'] = 'false';
     try {
       const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
       const names = listRegisteredToolNames(server);
-      expect(names).toHaveLength(59);
+      expect(names).toHaveLength(62);
       expect(names).not.toContain('media_seedance_text_to_video');
       expect(names).not.toContain('media_seedance_image_to_video');
       expect(names).not.toContain('media_seedance_multishot');

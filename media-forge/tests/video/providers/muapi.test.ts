@@ -286,6 +286,37 @@ describe('fetchCostUsd', () => {
     await expect(provider.fetchCostUsd('eur-model', {})).rejects.toThrow(/EUR/);
   });
 
+  // The estimate is a SEPARATE response from the catalogue entry, and it is the
+  // one that decides what gets billed. Assuming it inherits the catalogue's
+  // currency is how a non-USD figure reaches a USD ledger.
+  // Shape verified against muapi.ai/docs/pricing on 2026-07-31:
+  // { model, cost, currency, dynamic_pricing, cost_strategy }.
+  it('an estimate quoted in a non-USD currency throws, naming the currency', async () => {
+    const fetchImpl = routeFetch({
+      'https://api.muapi.ai/api/v1/models': () => jsonResponse({ models: [DYNAMIC_MODEL] }),
+      'https://api.muapi.ai/api/v1/veo3-fast/estimate': () =>
+        jsonResponse({ model: 'veo3-fast', cost: 0.64, currency: 'EUR', dynamic_pricing: true }),
+    });
+    const provider = new MuapiProvider({ fetchImpl });
+    await expect(provider.fetchCostUsd('veo3-fast', {})).rejects.toThrow(/EUR/);
+  });
+
+  it('an estimate in the documented shape returns its `cost`', async () => {
+    const fetchImpl = routeFetch({
+      'https://api.muapi.ai/api/v1/models': () => jsonResponse({ models: [DYNAMIC_MODEL] }),
+      'https://api.muapi.ai/api/v1/veo3-fast/estimate': () =>
+        jsonResponse({
+          model: 'veo3-fast',
+          cost: 0.64,
+          currency: 'USD',
+          dynamic_pricing: true,
+          cost_strategy: 'veo3-fast-t2v',
+        }),
+    });
+    const provider = new MuapiProvider({ fetchImpl });
+    await expect(provider.fetchCostUsd('veo3-fast', {})).resolves.toBe(0.64);
+  });
+
   it('an estimate endpoint returning no usable cost throws', async () => {
     const fetchImpl = routeFetch({
       'https://api.muapi.ai/api/v1/models': () => jsonResponse({ models: [DYNAMIC_MODEL] }),
@@ -293,7 +324,7 @@ describe('fetchCostUsd', () => {
     });
     const provider = new MuapiProvider({ fetchImpl });
 
-    await expect(provider.fetchCostUsd('veo3-fast', {})).rejects.toThrow(/no usable cost/);
+    await expect(provider.fetchCostUsd('veo3-fast', {})).rejects.toThrow(/no usable `cost`/);
   });
 });
 

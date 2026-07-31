@@ -207,7 +207,42 @@ brief + alvo e devolva um `ProjectState`, despachando os agentes pelo caminho
 
 ---
 
-## P2 — MuAPI e Wan2GP: acesso direto, ainda não roteáveis
+## (fechado) P2 — MuAPI e Wan2GP: acesso direto, ainda não roteáveis
+
+**FECHADO em 2026-07-31** — com uma correção de enquadramento.
+
+Os dois adapters já estavam prontos (PR7 `5aeb25a`, PR8 `cf6f19b`). O que faltava
+não era roteamento: era **porta de entrada**. Nenhum dos dois tinha tool MCP, então
+nenhum era alcançável pela superfície que o usuário chama. Mesmo defeito do planner
+narrativo, do adapter de imagem do Codex e dos dois métodos de billing do Kling.
+
+Três tools novas, em `src/mcp/handlers/opt-in-video.ts`:
+
+| Tool | O que faz |
+|---|---|
+| `media_muapi_models` | lista o catálogo com preço e endpoint — **única** fonte de preço do MuAPI |
+| `media_muapi_generate` | submete por nome exato do catálogo |
+| `media_wan2gp_generate` | submete ao servidor local do usuário |
+
+**Acesso direto continua sendo o certo, não uma limitação.** Para provider opt-in,
+seleção explícita é o comportamento desejado: um servidor local a $0 vence
+qualquer ordenação ascendente de custo, e quem ligou o Wan2GP para testar não
+pediu que o pipeline inteiro mudasse para a GPU dele. A guarda
+`isOptInOnlyProvider` existe exatamente por isso, e estas tools são a porta que
+ela deliberadamente deixa aberta.
+
+O roteamento automático continua fora, e o motivo é o mesmo de antes: os dois têm
+catálogo **dinâmico** (MuAPI lista por HTTP em runtime, Wan2GP depende dos pesos
+baixados na máquina). O `handleVideoRoute` ordena um registry estático de forma
+síncrona. Torná-lo assíncrono e ciente de catálogo mexe em todo teste de
+roteamento — PR própria, não enxerto.
+
+**Nenhum dos dois foi exercitado contra endpoint real.** MuAPI precisa de
+`MUAPI_API_KEY`; Wan2GP precisa do servidor local que o usuário optou por não
+instalar. Todo teste injeta `fetch`. Afirmação mais fraca que a do Kling, onde a
+API real respondeu — dita, não deixada para alguém supor de uma suíte verde.
+
+## (histórico) P2 — MuAPI e Wan2GP: acesso direto, ainda não roteáveis
 
 **`higgsfield-cli` FECHADO.** Era o caso com correção limpa e foi feito: ele é um
 segundo **transporte** para a mesma plataforma Higgsfield, então
@@ -283,7 +318,34 @@ modelo $0 for registrado.
 
 ---
 
-## P2 — MuAPI: shape do endpoint de estimativa não verificado ao vivo
+## (fechado) P2 — MuAPI: shape do endpoint de estimativa não verificado
+
+**FECHADO em 2026-07-31**, via `context7-mcp` sobre `muapi.ai/docs/pricing`.
+
+```
+POST https://api.muapi.ai/api/v1/models/{model_name}/estimate-cost
+{ "model": "veo3-fast", "cost": 0.64, "currency": "USD",
+  "dynamic_pricing": true, "cost_strategy": "veo3-fast-t2v" }
+```
+
+**O que estava certo:** o campo `cost`. A suposição por simetria com o catálogo
+acertou.
+
+**O que estava errado, e saiu:** `cost_usd` não existe. Era um "segundo palpite
+defensivo" — e fallback para uma chave que a API nunca manda não é defesa, é uma
+segunda forma de errar que nenhum teste ia exercitar.
+
+**O que faltava, e é a parte que importa:** a resposta traz `currency` e o código
+**não lia**. Só o `cost_currency` do **catálogo** era conferido. São duas respostas
+distintas, e a da estimativa é a que decide o que vai ser cobrado — supor que ela
+herda a moeda do catálogo é como um número não-USD chega num ledger em USD. Mesma
+classe do ramo `cash` do Kling. Agora recusa, nomeando a moeda.
+
+**Continua não exercitado contra endpoint real** — precisa de `MUAPI_API_KEY` que
+este repo não tem. Shape documentado é mais forte que palpite e mais fraco que
+resposta.
+
+## (histórico) P2 — MuAPI: shape do endpoint de estimativa não verificado ao vivo
 
 **O quê:** `src/video/providers/muapi.ts` lê o custo de um modelo com
 `dynamic_pricing: true` chamando o `estimate_endpoint` do próprio MuAPI e aceita

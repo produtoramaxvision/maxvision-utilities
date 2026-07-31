@@ -237,6 +237,20 @@ export class Wan2gpProvider {
 }
 
 /** Gradio takes a positional array; order is the server's component order. */
+/**
+ * Gradio takes a POSITIONAL argument array, not named fields.
+ *
+ * `firstFrameImagePath` is deliberately NOT included, and that is a known gap
+ * rather than an oversight: there is no slot for it here, and the correct index
+ * is defined by whichever Gradio app the operator happens to be running. Writing
+ * a guessed position would silently corrupt a different argument, which is worse
+ * than omitting it.
+ *
+ * The omission is not silent at the surface: handleWan2gpGenerate refuses a
+ * request carrying firstFrameImagePath and says why, so an image-to-video
+ * request fails loudly instead of arriving as text-to-video with the reference
+ * quietly gone. Confirm the payload against a real server before wiring it.
+ */
 export function buildGradioPayload(req: VideoGenerationRequest): unknown[] {
   return [req.prompt, req.durationSec, req.resolution, req.aspectRatio ?? '16:9'];
 }

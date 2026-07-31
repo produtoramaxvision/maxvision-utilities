@@ -111,6 +111,11 @@ import {
   handleKlingBillingAudit,
 } from './kling.js';
 import {
+  handleMuapiModels,
+  handleMuapiGenerate,
+  handleWan2gpGenerate,
+} from './opt-in-video.js';
+import {
   handleSeedanceTextToVideo,
   handleSeedanceImageToVideo,
   handleSeedanceMultishot,
@@ -1783,6 +1788,35 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
   // caller at all — a shape `fallow audit --production` cannot flag, because
   // they are methods on a class the router already reaches. A green suite over
   // an unreachable settlement path reads exactly like a working ledger.
+  // Opt-in providers. Direct-access by design — see the header of
+  // handlers/opt-in-video.ts for why neither belongs in the automatic router.
+  {
+    const t = getTool('media_muapi_models');
+    regIfAllowed(
+      t.name,
+      { title: 'MuAPI Catalogue', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleMuapiModels(input))),
+    );
+  }
+
+  {
+    const t = getTool('media_muapi_generate');
+    regIfAllowed(
+      t.name,
+      { title: 'MuAPI Generate', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleMuapiGenerate(input))),
+    );
+  }
+
+  {
+    const t = getTool('media_wan2gp_generate');
+    regIfAllowed(
+      t.name,
+      { title: 'Wan2GP Generate (self-hosted)', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleWan2gpGenerate(input))),
+    );
+  }
+
   {
     const t = getTool('media_kling_billing_reconcile');
     regIfAllowed(

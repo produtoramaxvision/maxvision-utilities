@@ -910,6 +910,58 @@ export interface MCPTool {
 // + 11 kling (motion_brush, element_create/list/delete, elements, lip_sync, omni_multishot, video_extend, poll, download, +1 from R6)
 // + 4 seedance (text_to_video, image_to_video, multishot, reference_fusion — P16) = 54
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Opt-in providers — MuAPI (aggregator) and Wan2GP (self-hosted).
+//
+// Direct-access tools on purpose, NOT entries in the automatic router.
+//
+// Both have a genuinely DYNAMIC catalogue: MuAPI lists its models over the wire
+// at request time and marks some of them `dynamic_pricing`, and Wan2GP can only
+// run the weights the operator downloaded onto their own machine. handleVideoRoute
+// ranks a static registry synchronously, so neither can be ranked there without
+// making routing async — which is a separate change touching every routing test.
+//
+// Naming one of these explicitly is the whole mechanism, and for opt-in providers
+// that is the correct behaviour rather than a limitation: a local GPU server and a
+// third-party aggregator should be reached because the caller chose them, never
+// because a cost sort silently preferred them.
+// ---------------------------------------------------------------------------
+
+const _optInResolution = z.enum(['720p', '1080p', '2k', '4k']);
+const _optInAspect = z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']);
+
+/** No args: the catalogue IS the query. */
+export const MuapiModelsInput = z.object({});
+export type MuapiModelsInputT = z.infer<typeof MuapiModelsInput>;
+
+export const MuapiGenerateInput = z.object({
+  /**
+   * The MuAPI catalogue name, verbatim.
+   *
+   * Not an enum: the catalogue is fetched at runtime and changes without a
+   * release here. A stale enum would reject models MuAPI currently serves, so
+   * the adapter validates against the live catalogue and names what it found.
+   */
+  modelName: z.string().min(1),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive().max(60),
+  resolution: _optInResolution.default('720p'),
+  aspectRatio: _optInAspect.optional(),
+  firstFrameImagePath: z.string().min(1).optional(),
+});
+export type MuapiGenerateInputT = z.infer<typeof MuapiGenerateInput>;
+
+export const Wan2gpGenerateInput = z.object({
+  /** Whatever the operator's own server exposes — same reasoning as MuAPI. */
+  modelId: z.string().min(1),
+  prompt: z.string().min(1),
+  durationSec: z.number().positive().max(60),
+  resolution: _optInResolution.default('720p'),
+  aspectRatio: _optInAspect.optional(),
+  firstFrameImagePath: z.string().min(1).optional(),
+});
+export type Wan2gpGenerateInputT = z.infer<typeof Wan2gpGenerateInput>;
+
 export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   // ---- Image (6) ----
   {
@@ -1325,6 +1377,25 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   },
 
   // ---- Opt-in providers (3 — T17 Codex images, T6 Higgsfield Soul-ID) ----
+
+  {
+    name: 'media_muapi_models',
+    description:
+      "List the MuAPI catalogue with each model's price and endpoint. MuAPI is an aggregator that resells other vendors' models with its own markup, so this catalogue is the ONLY source of MuAPI prices — media-forge keeps no local price table for it, deliberately. Read-only and free. Requires MUAPI_API_KEY.",
+    inputSchema: MuapiModelsInput,
+  },
+  {
+    name: 'media_muapi_generate',
+    description:
+      'Submit a video generation to a MuAPI catalogue model by its exact catalogue name (see media_muapi_models). Opt-in and direct-access: MuAPI is never selected by automatic routing, because its catalogue is fetched at runtime rather than registered locally. Cost comes from MuAPI itself, per request. Requires MUAPI_API_KEY.',
+    inputSchema: MuapiGenerateInput,
+  },
+  {
+    name: 'media_wan2gp_generate',
+    description:
+      'Submit a video generation to a self-hosted Wan2GP server on your own machine. Costs no credits — it runs on your GPU. Opt-in twice over: MEDIA_FORGE_WAN2GP_ENABLED=true must be set AND the server must answer, and it is never selected by automatic routing (a $0 provider would win every cost sort and silently replace paid ones). Run `media-forge setup wan2gp` first.',
+    inputSchema: Wan2gpGenerateInput,
+  },
   {
     name: 'media_image_codex',
     description:
