@@ -255,4 +255,18 @@ describe('extractShimJsEntry', () => {
     const contents = '"%~dp0\\global\\5\\node_modules\\@openai\\codex\\bin\\codex.js" %*';
     expect(extractShimJsEntry(contents, shimPath)).toBeUndefined();
   });
+
+  // npm's cmd-shim (what `npm install -g` writes) computes `SET dp0=%~dp0` in a
+  // subroutine and then refers to it as `%dp0%` on the exec line — no tilde.
+  // Handling only pnpm's inline `%~dp0` left every npm-installed CLI
+  // unresolvable on Windows while pnpm-installed ones worked: a difference in
+  // how the user installed the tool, which nobody would connect to the failure.
+  it('npm-style shim referencing %dp0% (no tilde) resolves against the shim dir', () => {
+    const dir = makeTmpDir();
+    const jsEntry = path.join(dir, 'pkg', 'bin', 'cli.js');
+    writeFile(jsEntry, '// fake entry point');
+    const shimPath = path.join(dir, '.bin', 'codex.cmd');
+    const contents = '"%dp0%\\..\\pkg\\bin\\cli.js" %*';
+    expect(extractShimJsEntry(contents, shimPath)).toBe(jsEntry);
+  });
 });

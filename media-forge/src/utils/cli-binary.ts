@@ -60,7 +60,12 @@ const WINDOWS_NATIVE_EXTS = ['.exe', '.com'] as const;
 const WINDOWS_SHIM_EXTS = ['', '.cmd', '.CMD', '.ps1'] as const;
 
 function pathEntries(env: NodeJS.ProcessEnv): string[] {
-  const raw = env['PATH'] ?? env['Path'] ?? '';
+  // Case-insensitive lookup rather than two hardcoded spellings. Windows env
+  // vars are case-insensitive and Node normalises `process.env`, but a caller
+  // building an env object by hand — every test in this repo, for one — can
+  // easily write `path` and get a silent search over zero directories.
+  const key = Object.keys(env).find((k) => k.toLowerCase() === 'path');
+  const raw = (key !== undefined ? env[key] : undefined) ?? '';
   return raw.split(path.delimiter).filter((p) => p.length > 0);
 }
 
@@ -81,13 +86,22 @@ function firstExisting(dirs: string[], name: string, exts: ReadonlyArray<string>
 /**
  * Pulls the `.js` entry point out of an npm/pnpm shim.
  *
- * Both shim flavours name it, with the directory written as a variable that has
- * to be expanded against the shim's own location:
+ * Every shim flavour names it, with the directory written as a variable that has
+ * to be expanded against the shim's own location. Three spellings exist and all
+ * three are handled:
  *
- *   sh    exec node  "$basedir/global/5/node_modules/@openai/codex/bin/codex.js" "$@"
- *   cmd   node  "%~dp0\global\5\node_modules\@openai\codex\bin\codex.js" %*
+ *   sh         exec node  "$basedir/…/bin/codex.js" "$@"
+ *   pnpm cmd   node  "%~dp0\…\bin\codex.js" %*
+ *   npm cmd    "%_prog%"  "%dp0%\…\bin\cli.js" %*
  *
- * Returns undefined rather than guessing when the file does not match that
+ * The npm form is the one that is easy to miss: `cmd-shim` computes
+ * `SET dp0=%~dp0` once in a subroutine and then refers to it as `%dp0%`, with no
+ * tilde. Handling only `%~dp0` meant every CLI installed with `npm install -g`
+ * stayed unresolvable on Windows while pnpm-installed ones worked — a difference
+ * in how the user installed the tool, which is not a difference they would ever
+ * connect to the failure.
+ *
+ * Returns undefined rather than guessing when the file does not match a known
  * shape. A wrong path here would spawn the wrong program, which is worse than
  * an error naming the override.
  */
@@ -103,7 +117,8 @@ export function extractShimJsEntry(shimContents: string, shimPath: string): stri
   const raw = matches[matches.length - 1]!;
   const expanded = raw
     .replace(/^\$basedir[\\/]/, '')
-    .replace(/^%~dp0[\\/]?/, '')
+    // %~dp0 (pnpm, inline) and %dp0% (npm's cmd-shim, via SET dp0=%~dp0).
+    .replace(/^%~?dp0%?[\\/]?/, '')
     .replace(/\\/g, path.sep)
     .replace(/\//g, path.sep);
 
