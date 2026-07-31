@@ -113,11 +113,11 @@ Google rewrites the prompt before generating, which can undo a deliberate
 Director Formula ordering. media-forge sets it explicitly — see
 `src/core/prompt-budget.ts` — rather than inheriting an undocumented default.
 
-## Seedance 2.0 (ByteDance) — default route verified 2026-07-31
+## Seedance 2.0 (ByteDance) — both routes verified 2026-07-31
 
 | Field | Value |
 |---|---|
-| Prompt budget | **no published bound** on the fal.ai route. `ARK`-direct still unverified |
+| Prompt budget | **no published bound**, on either route |
 | Reference binding | `@Image1` / `@Video1` / `@Audio1` tokens in prompt order. Every uploaded reference must be @-mentioned or it is silently ignored |
 | Multi-shot | supported |
 
@@ -130,10 +130,15 @@ page here: it is what the endpoint validates against.
 So `promptMaxChars: null` no longer means "nobody checked". It means the surface
 publishes no bound.
 
-**Still open:** the `ARK`-direct route (`ark.ap-southeast.bytepluses.com`). Its
-API reference could not be reached on 2026-07-31, so that surface is not covered
-by the check above. Two platforms serve this model and they are not the same
-publisher — one's schema does not speak for the other.
+The `ARK`-direct route (`ark.ap-southeast.bytepluses.com`) was checked
+separately, not inferred from fal.ai — two publishers serve this model and one's
+schema does not speak for the other. Its video-generation reference bounds image
+size (30 MB), video size (200 MB), audio size (15 MB), request body (64 MB), clip
+duration (`[2,15]s`) and rate limits, and states **no** character or token bound
+on the prompt.
+
+The 64 MB request-body cap is real but sits on the whole request: it constrains
+base64 media, not prose. No realistic prompt approaches it.
 
 Do not copy Kling's 2,500 onto Seedance; they are unrelated platforms that
 media-forge merely routes side by side.

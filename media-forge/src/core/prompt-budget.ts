@@ -74,12 +74,6 @@ const GOOGLE: SurfacePromptProfile = {
 };
 
 /**
- * Not verified. fal.ai (default route) and BytePlus ModelArk (ARK-direct route)
- * have their own docs which have not been read for this field. Do NOT copy
- * Kling's 2500 here; they are unrelated platforms that media-forge happens to
- * route side by side.
- */
-/**
  * Verified on 2026-07-31 against the default route's own machine-readable schema.
  *
  * fal.ai publishes an OpenAPI document per endpoint. For
@@ -93,12 +87,18 @@ const GOOGLE: SurfacePromptProfile = {
  * is stronger evidence than a prose page, since it is what the endpoint validates
  * against.
  *
- * NOT closed for the `ARK`-direct route (BytePlus ModelArk,
- * ark.ap-southeast.bytepluses.com). Its API reference could not be reached, so
- * that surface remains unverified — noted in surface-prompt-profiles.md rather
- * than assumed to match fal.ai. The two are different platforms serving the same
- * model, and this file has already been wrong once by treating one platform's
- * number as another's.
+ * The `ARK`-direct route (BytePlus ModelArk) was checked separately on the same
+ * day, in an authenticated browser session, and agrees: its video-generation
+ * reference bounds image size (30 MB), video size (200 MB), audio size (15 MB),
+ * request body (64 MB), clip duration ([2,15]s) and rate limits — and states no
+ * character or token bound on the prompt at all.
+ *
+ * Checked separately on purpose rather than inferred from fal.ai: two different
+ * publishers serve this model, and this file has already been wrong once by
+ * treating one platform's number as another's.
+ *
+ * The 64 MB request-body cap is a real bound, but on the whole request — it
+ * constrains base64 media, not prose, and no realistic prompt approaches it.
  */
 const BYTEDANCE: SurfacePromptProfile = {
   promptMaxChars: null,
@@ -106,8 +106,9 @@ const BYTEDANCE: SurfacePromptProfile = {
   multiShotPromptMaxChars: null,
   multiShotMaxShots: null,
   source:
-    'fal.ai OpenAPI schema for bytedance/seedance-2.0/text-to-video — prompt is a ' +
-    'string with no maxLength. ARK-direct route still unverified.',
+    'fal.ai OpenAPI schema for bytedance/seedance-2.0/text-to-video (prompt is a ' +
+    'string with no maxLength) + BytePlus ModelArk video-generation reference ' +
+    '(size/duration/rate limits only, no prompt length bound). Both routes checked.',
   verifiedAt: '2026-07-31',
 };
 
