@@ -5,6 +5,13 @@ on:
     paths:
       - 'media-forge/**'
       - '.github/workflows/ci.yml'
+
+  # Manual trigger. validate.yml already had one; ci.yml did not, so there was no
+  # way to re-run this workflow against the current tip without pushing a
+  # media-forge change. That mattered on 2026-08-01: main sat with a failed CI
+  # run while the fix was already merged, and nothing could prove the fix except
+  # waiting for unrelated work to land.
+  workflow_dispatch:
   push:
     branches: [main, homolog]
     paths:
