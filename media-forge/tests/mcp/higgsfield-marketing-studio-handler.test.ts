@@ -86,7 +86,7 @@ describe('media_higgsfield_marketing_studio handler', () => {
     const create = calls.find((c) => c[0] === 'generate' && c[1] === 'create');
     expect(create![2]).toBe('marketing_studio_video');
     expect(create).toEqual(
-      expect.arrayContaining(['--avatar_ids', '672be390-36ab-4d79-bb95-ff562a57c79c']),
+      expect.arrayContaining(['--avatar_ids', '["672be390-36ab-4d79-bb95-ff562a57c79c"]']),
     );
     expect(create).toEqual(
       expect.arrayContaining(['--hook_id', '3d45fb46-254f-4c83-9685-8e3d28945a67']),
@@ -96,7 +96,20 @@ describe('media_higgsfield_marketing_studio handler', () => {
     expect(create).toEqual(expect.arrayContaining(['--aspect-ratio', '9:16']));
   });
 
-  it('repeats the flag once per id, never a joined string', async () => {
+  // Two array shapes exist and they are OPPOSITE. Measured against the binary:
+  //
+  //   --avatar_ids '["a1","a2"]'                 ok
+  //   --avatar_ids a1 --avatar_ids a2            Invalid types: avatar_ids
+  //                                              should be array, got string
+  //   --image-references a1 --image-references a2   ok
+  //   --image-references '["a1"]'                Media "[...]" is neither a UUID
+  //                                              nor an existing file path
+  //
+  // The first version of this test asserted repetition for avatar_ids and
+  // passed, because a fake runner accepts any argv. `fetchCostCredits` against
+  // the real CLI is what caught it — same argv builder, so a malformed flag
+  // surfaces as a rejection rather than a wrong number.
+  it('sends a typed array param as JSON, in one flag', async () => {
     await handleHiggsfieldMarketingStudio({
       prompt: 'two avatars',
       avatarIds: ['a1', 'a2'],
@@ -104,9 +117,20 @@ describe('media_higgsfield_marketing_studio handler', () => {
       resolution: '720p',
     });
     const create = calls.find((c) => c[0] === 'generate' && c[1] === 'create')!;
-    const flagCount = create.filter((a) => a === '--avatar_ids').length;
-    expect(flagCount, 'array params must repeat the flag').toBe(2);
-    expect(create.join(' ')).not.toContain('a1,a2');
+    expect(create.filter((a) => a === '--avatar_ids'), 'one flag, not one per id').toHaveLength(1);
+    expect(create[create.indexOf('--avatar_ids') + 1]).toBe('["a1","a2"]');
+  });
+
+  it('still repeats media flags, which take a UUID or a path each', async () => {
+    await handleHiggsfieldMarketingStudio({
+      prompt: 'two refs',
+      imageReferencePaths: ['./a.png', './b.png'],
+      durationSec: 15,
+      resolution: '720p',
+    });
+    const create = calls.find((c) => c[0] === 'generate' && c[1] === 'create')!;
+    expect(create.filter((a) => a === '--image-references')).toHaveLength(2);
+    expect(create.join(' '), 'a JSON array here reads as a filename').not.toContain('["./a.png"');
   });
 
   // Both rules below are the platform's own, read from `model get`.rules as CEL.

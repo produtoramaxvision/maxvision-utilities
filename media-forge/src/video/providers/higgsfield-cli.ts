@@ -284,6 +284,29 @@ function parseJson<T>(result: CliResult, what: string): T {
 }
 
 /**
+ * Flags whose values are MEDIA — a UUID or a local path the CLI uploads.
+ *
+ * They repeat once per value. Every other array-typed parameter takes a JSON
+ * array in a single flag instead; see the comment in buildCliArgs for the
+ * measurement that separates them.
+ *
+ * The list is the one `higgsfield generate create --help` publishes, with both
+ * the snake_case names `model get` reports and the kebab-case flags the binary
+ * accepts, since a caller may reasonably pass either through cliParams.
+ */
+const MEDIA_FLAG_NAMES: ReadonlySet<string> = new Set([
+  'image-references',
+  'image_references',
+  'video-references',
+  'video_references',
+  'audio-references',
+  'audio_references',
+  'image',
+  'video',
+  'audio',
+]);
+
+/**
  * Turns a generation request into CLI flags.
  *
  * Returned as an array of discrete elements, never joined. See defaultRunner.
@@ -368,7 +391,28 @@ export function buildCliArgs(req: VideoGenerationRequest): string[] {
     }
     const flag = `--${name}`;
     if (Array.isArray(value)) {
-      for (const v of value) args.push(flag, String(v));
+      // Two kinds of array flag, and they take OPPOSITE forms. Measured against
+      // the binary, not inferred from the schema — `model get` types both as
+      // `array` and gives no hint which is which:
+      //
+      //   --avatar_ids '["id"]'                    ok
+      //   --avatar_ids id1 --avatar_ids id2        Invalid types: avatar_ids
+      //                                            should be array, got string
+      //   --image-references id1 --image-references id2   ok
+      //   --image-references '["id"]'              Media "[...]" is neither a
+      //                                            UUID nor an existing file path
+      //
+      // Media flags resolve each value as a UUID or a path to upload, so a JSON
+      // string is a filename to them. Everything else is a typed parameter that
+      // wants the array itself. Getting this backwards fails at the CLI, after
+      // the cost estimate has already been computed from the same argv — which
+      // is exactly how it was found: `fetchCostCredits` rejected the submit shape
+      // while every fake-runner test passed.
+      if (MEDIA_FLAG_NAMES.has(name)) {
+        for (const v of value) args.push(flag, String(v));
+      } else {
+        args.push(flag, JSON.stringify(value));
+      }
     } else {
       args.push(flag, String(value));
     }
