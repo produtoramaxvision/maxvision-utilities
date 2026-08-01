@@ -49,18 +49,44 @@ descreve `POST https://platform.higgsfield.ai/{model_id}` com corpo achatado
 mostra `soul/standard`, `dop/standard`, `bytedance/seedance/...`,
 `kling-video/...`. O caminho do Speak foi deduzido dos vizinhos, não lido.
 
-São duas superfícies, não dois corpos:
+**RETRATAÇÃO (2026-08-01).** A versão anterior desta entrada trazia uma tabela
+"v1 vs v2" apresentando as duas como **superfícies REST distintas**, com base
+diferente e polling diferente. Isso estava errado, e a evidência que desmonta
+está no pacote instalado:
 
-| | v1 (o que usamos) | v2 (o que documenta o Speak) |
+- `dist/config.js:13` define `baseURL = 'https://platform.higgsfield.ai'` — o
+  **mesmo host** para os dois clients.
+- O client v2 faz polling em `/requests/{request_id}/status`, exatamente a URL
+  que `higgsfield.ts:245` já monta.
+- O exemplo do Speak no README é `client.generate('/v1/speak/higgsfield', …)`, e
+  `generate()` é método do client **v1**. O título da seção, "Speak v2", é a
+  versão do **modelo**, não do client.
+
+A diferença real entre as duas famílias é caminho e embrulho do corpo:
+
+| | família `/v1/*` | família modelo-nu |
 |---|---|---|
-| Auth | `hf-api-key` + `hf-secret` | `Authorization: Key KEY:SECRET` |
-| Caminho | `/higgsfield-ai/<produto>/<tier>` | `/v1/<produto>/<vendor>` |
-| Corpo | achatado | objetos tipados (`{type, ...url}`) |
-| Status | `queued\|in_progress\|completed\|failed` | idem + `nsfw` |
-| Webhook | — | query `?hf_webhook=<url>` |
+| Corpo | `{ "params": { … } }` (`dist/client.js:59`) | achatado (`dist/v2/client.js:190`) |
+| Exemplos | `/v1/speak/higgsfield`, `/v1/text2image/soul` | `higgsfield-ai/soul/standard`, `flux-pro/kontext/max/text-to-image` |
 
-Curiosidade que confirma o par: `buildFallbackHeaders()` já emite exatamente o
-esquema do v2. O código tem os dois esquemas de auth e só um dos dois contratos.
+**Os nossos nove mapeamentos são todos modelo-nu com corpo achatado — a família
+documentada em `docs.higgsfield.ai`.** Ou seja: já estamos na superfície
+moderna. O Speak é o único produto cujo contrato documentado mora na família
+`/v1/*`, e o caminho que usamos para ele foi deduzido dos vizinhos.
+
+`@higgsfield/client@0.2.1` é a **última versão publicada** (`npm view` devolve só
+`0.1.2` e `0.2.1`, `latest: 0.2.1`, modificado 2026-05-12) e é dependência fixada
+em `package.json:76`. Nenhum arquivo sob `src/` a importa: ela está no repo como
+fonte de verdade do formato de auth, não como transporte.
+
+**Inconsistência que fica registrada e NÃO foi mexida:** nosso header primário é
+`hf-api-key`/`hf-secret` (forma do client v1), enquanto `docs.higgsfield.ai`
+documenta `Authorization: Key` para a família que de fato usamos —
+`buildFallbackHeaders()` emite essa segunda forma como *fallback*. A ordem parece
+invertida, mas o registro de 2026-05-27 diz que a forma primária foi validada ao
+vivo, com a ressalva ambígua "REST form also/not also accepted", e não há
+credencial nesta máquina para revalidar. Trocar o primário sem poder testar seria
+substituir uma escolha verificada por um palpite.
 
 **Por que não mexi.** Trocar um corpo chutado por outro corpo não validado é o
 padrão que produziu o bug do submit da ARK. E "corrigir o Speak" na verdade é
@@ -72,15 +98,37 @@ diferente. Isso é decisão de escopo, não conserto.
 submete com o modo padrão `URL`. Ou seja: a primeira chamada de um usuário gasta
 crédito contra um formato que ninguém verificou.
 
-**Como fechar, em ordem, sem gastar antes da hora:**
-1. `POST /v1/speak/higgsfield` com corpo deliberadamente incompleto e ler o 4xx —
-   erro de schema nomeia os campos exigidos. **É POST em endpoint pago; exige seu
-   aval.**
-2. Se confirmar: migrar `higgsfield-speak`/`-speak2` para o v2 (auth, corpo,
-   polling), validar WAV na entrada e apagar `MEDIA_FORGE_HF_SPEAK_AUDIO_MODE`,
-   que existe só para escolher entre URL e upload — pergunta que o contrato v2 já
-   respondeu.
-3. Enquanto isso a sonda continua correta e não exercida.
+**BLOQUEIO REAL, medido em 2026-08-01: não há credencial para sondar.** O usuário
+autorizou a sonda; ela não pode rodar. `HF_API_KEY` e `HF_API_SECRET` não existem
+no shell nem em nenhum `.env` (o local tem só `GOOGLE_API_KEY` e
+`KLING_API_KEY`), e o token OAuth da CLI **não** serve para a API HTTP:
+
+```
+GET /requests/<uuid>/status
+  Authorization: Bearer <token da CLI>  -> HTTP 401
+  Authorization: Key <token da CLI>     -> HTTP 401
+  (sem auth)                            -> HTTP 401
+```
+
+401 idêntico ao caso sem autenticação: o token é rejeitado, não é outra coisa. A
+CLI usa OAuth 2.0 PKCE (`higgsfield auth login`), domínio de auth diferente do par
+key/secret da plataforma.
+
+Consequência boa: `inconclusive-auth-or-routing` é exatamente o veredicto que a
+sonda reescrita reportaria aqui. O conserto anterior está funcionando — isso é
+comportamento verificado, não hipótese.
+
+**Como fechar, quando houver credencial:**
+1. Gerar par API key/secret no painel de `platform.higgsfield.ai`, exportar
+   `HF_API_KEY` e `HF_API_SECRET`.
+2. `POST /v1/speak/higgsfield` com `{params:{}}` deliberadamente incompleto e ler
+   o 4xx — erro de schema nomeia os campos exigidos, e o mesmo teste no caminho
+   atual (`/higgsfield-ai/speak/standard`) diz se ele existe.
+3. Se confirmar: trocar caminho e corpo do `higgsfield-speak`/`-speak2` (embrulho
+   `params`, `input_image`/`input_audio` tipados, `quality`, `duration`), validar
+   WAV na entrada e apagar `MEDIA_FORGE_HF_SPEAK_AUDIO_MODE`, que existe só para
+   escolher entre URL e upload — pergunta que o contrato já respondeu. **Não é
+   migração de superfície**: mesma base, mesmo polling, mesma auth.
 
 ---
 
@@ -167,23 +215,50 @@ substituição. Fica registrado como não verificado.
 
 ---
 
-## P2 — `higgsfield generate cost` é um portão grátis contra o registry
+## (fechado) P1 — `kling3_0` rejeitava toda resolução que o roteador mandava
 
-**Descoberto em 2026-07-31.** A CLI estima **sem criar job**:
+**CONSTRUÍDO E FECHADO em 2026-08-01**, e o portão grátis achou o bug no primeiro
+uso.
+
+`higgsfield generate cost <job_type>` estima **sem criar job** — é leitura, custa
+zero, e é a única autoridade sobre o preço real. Virou teste ao vivo por spec
+(`tests/video/providers/higgsfield-cli-cost-live.test.ts`), com o mesmo portão da
+sonda do Speak (`MEDIA_FORGE_RUN_LIVE_TESTS`). Deriva aqui significa que **toda
+estimativa** futura está errada, inclusive a que o cap diário usa antes do submit.
+
+**O que ele encontrou.** `buildCliArgs` emitia `--resolution <res>` para todo job
+type. O `kling3_0` não tem esse parâmetro:
 
 ```
-$ higgsfield generate cost kling3_0_turbo --prompt "probe" --json
-{ "credits": 7.5 }
+$ higgsfield generate cost kling3_0 --prompt p --resolution 1080p
+Error: Unknown params: resolution   Hint: Run: hf model get kling3_0
 ```
 
-7,5 é exatamente a taxa registrada em `src/core/models.ts` para `kling3_0_turbo` a
-720p/5s. Primeira confirmação independente das taxas em crédito — e custa zero.
+`higgsfield model get kling3_0 --json` declara `mode [std,pro,4k]`, não
+`resolution`. Ou seja: **toda** requisição de `kling3_0` que nomeasse resolução
+falhava, na estimativa e na geração. Só o 720p default passava, e só porque a
+flag não era emitida com valor aceito por acaso — não era: falhava também.
 
-Vale como teste ao vivo por spec, com o mesmo portão da sonda do Speak
-(`MEDIA_FORGE_RUN_LIVE_TESTS`). Deriva aqui significa que **toda estimativa**
-futura está errada, inclusive a que o cap diário usa antes do submit.
+Os preços por `--mode` batem exatamente com os multiplicadores já registrados
+(std 10, pro 12,5, 4k 30 créditos em 5s), então **o preço estava certo e só a flag
+estava errada**. Corrigido com `cliResolutionParam` na spec — o job type, não o
+transporte, é quem decide o nome do parâmetro — e `buildCliArgs` recusa uma
+resolução sem valor mapeado em vez de chutar.
 
-**Atenção ao redigir o teste:** os autodocs da CLI (via context7) descrevem
+**Segundo achado:** `seedance_2_0` aceita `4k` (`resolution [480p,720p,1080p,4k]`)
+e o registry oferecia só até 1080p. Medido: 110 créditos/5s, multiplicador
+4,888… sobre a base 720p. Tier que existia e não era oferecido.
+
+**Verificado ao vivo, 0 créditos, pelo provider real** (não por um `exec` à parte
+— assim `buildCliArgs`, a resolução do shim no Windows e o parsing entram na mesma
+asserção):
+
+```
+12 passed — kling3_0_turbo 720p/1080p · kling3_0 720p/1080p/4k
+            seedance_2_0 480p/720p/1080p/4k · seedance_2_0_mini 480p/720p
+```
+
+**Atenção ao editar o teste:** os autodocs da CLI (via context7) descrevem
 `generate cost create <model> … | jq '.cost'` e `higgsfield account credits`. O
 binário instalado (v1.1.20) usa `generate cost <job_type>` devolvendo `.credits`,
 e `account status`. **O binário é a autoridade**; a doc está desatualizada.

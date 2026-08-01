@@ -173,6 +173,27 @@ export interface VideoModelSpec {
     readonly maxVideoRefs?: number;
     readonly maxAudioRefs?: number;
   };
+  /**
+   * How the `higgsfield-cli` transport expresses resolution for this job type.
+   *
+   * `buildCliArgs` emits `--resolution <value>` by default, which is right for
+   * every job type that declares a `resolution` param. `kling3_0` does not: it
+   * declares `mode` with `std | pro | 4k` and rejects the other flag outright —
+   *
+   *     $ higgsfield generate cost kling3_0 --prompt p --resolution 1080p
+   *     Error: Unknown params: resolution
+   *
+   * so every non-default-resolution request through that job type failed, at
+   * cost estimation and at generation. Found by running `higgsfield generate
+   * cost` (a read, 0 credits) against all four CLI specs on 2026-08-01.
+   *
+   * The prices reached through `--mode` match this spec's multipliers exactly
+   * (std 10, pro 12.5, 4k 30 credits for 5s), so only the flag was wrong.
+   */
+  readonly cliResolutionParam?: {
+    readonly flag: string;
+    readonly values: Partial<Record<'480p' | '720p' | '1080p' | '2k' | '4k', string>>;
+  };
 }
 
 export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
@@ -437,24 +458,36 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
       resolutionMultipliers: { '1080p': 1.25, '4k': 3.0 },
     },
     ipRiskLevel: 'low',
+    // This job type has no `resolution` param — see cliResolutionParam on the
+    // VideoModelSpec interface. Values measured 2026-08-01.
+    cliResolutionParam: {
+      flag: '--mode',
+      values: { '720p': 'std', '1080p': 'pro', '4k': '4k' },
+    },
   },
   seedance_2_0: {
     id: 'seedance_2_0',
     provider: 'higgsfield-cli',
     modes: ['t2v', 'i2v'],
     maxDurationSec: 10,
-    resolutions: ['480p', '720p', '1080p'],
+    resolutions: ['480p', '720p', '1080p', '4k'],
     fps: [24],
     audioNative: true,
     pricing: {
       unit: 'credits-per-second',
       rate: 4.5,
       source: 'volatile-by-tier',
-      updatedAt: '2026-07-30',
+      updatedAt: '2026-08-01',
       notes:
         'Measured: 15 credits/5s at 480p (3.0 c/s), 22.5/5s at 720p (4.5 c/s), 45/5s at 1080p ' +
-        '(9.0 c/s). Baseline is 720p, matching the other entries here.',
-      resolutionMultipliers: { '480p': 0.6666666666666666, '1080p': 2.0 },
+        '(9.0 c/s), 110/5s at 4k (22.0 c/s). Baseline is 720p, matching the other entries here. ' +
+        '4k was absent until 2026-08-01: `higgsfield model get seedance_2_0` declares ' +
+        'resolution [480p,720p,1080p,4k], so the tier existed and this registry did not offer it.',
+      resolutionMultipliers: {
+        '480p': 0.6666666666666666,
+        '1080p': 2.0,
+        '4k': 4.888888888888889,
+      },
     },
     // Same underlying model as the direct bytedance route, so it carries the
     // same IP risk — the transport does not change what was trained on.

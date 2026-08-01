@@ -214,7 +214,28 @@ export function buildCliArgs(req: VideoGenerationRequest): string[] {
   const args: string[] = [req.modelId, '--prompt', req.prompt];
 
   if (req.durationSec > 0) args.push('--duration', String(req.durationSec));
-  if (req.resolution) args.push('--resolution', req.resolution);
+
+  // Most job types take `--resolution`. kling3_0 takes `--mode std|pro|4k` and
+  // rejects `--resolution` with `Unknown params: resolution`, so emitting the
+  // default flag failed every request that named a resolution — cost estimate
+  // and generation alike. The per-spec mapping lives on the spec because the
+  // job type, not the transport, is what decides the parameter name.
+  if (req.resolution) {
+    const override = spec.cliResolutionParam;
+    if (override === undefined) {
+      args.push('--resolution', req.resolution);
+    } else {
+      const value = override.values[req.resolution];
+      if (value === undefined) {
+        throw new ValidationError(
+          `${req.modelId} has no ${override.flag} value for resolution ${req.resolution}. ` +
+            `Supported: ${Object.keys(override.values).join(', ')}.`,
+        );
+      }
+      args.push(override.flag, value);
+    }
+  }
+
   if (req.aspectRatio) args.push('--aspect-ratio', req.aspectRatio);
 
   // --start-image / --end-image are the CLI's first/last frame flags. Both

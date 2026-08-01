@@ -28,7 +28,7 @@ import {
   validateHiggsfieldPricingAtBoot,
   _resetValidatedPricingForTests,
 } from '../../../src/core/higgsfield-pricing.js';
-import { PROVIDERS } from '../../../src/core/models.js';
+import { PROVIDERS, VIDEO_MODELS } from '../../../src/core/models.js';
 import { ValidationError } from '../../../src/core/errors.js';
 import type { VideoGenerationRequest, VideoLedgerHooks } from '../../../src/video/providers/base.js';
 
@@ -141,6 +141,40 @@ describe('buildCliArgs — flag mapping', () => {
     expect(args).toEqual(
       expect.arrayContaining(['--duration', '5', '--resolution', '1080p', '--aspect-ratio', '16:9']),
     );
+  });
+
+  // kling3_0 declares `mode: std|pro|4k` and no `resolution` param. Emitting the
+  // default flag made the CLI answer `Error: Unknown params: resolution`, so
+  // every request naming a resolution failed — at cost estimation and at
+  // generation. Measured 2026-08-01 against the installed binary; the prices
+  // reached through --mode match this spec's multipliers exactly (10 / 12.5 / 30
+  // credits for 5s), so only the flag was ever wrong.
+  it('emits --mode instead of --resolution for kling3_0', () => {
+    const args = buildCliArgs(baseReq({ modelId: 'kling3_0', resolution: '1080p' }));
+    expect(args).not.toContain('--resolution');
+    expect(args).toEqual(expect.arrayContaining(['--mode', 'pro']));
+  });
+
+  it('maps every kling3_0 resolution the registry offers to a --mode value', () => {
+    const spec = VIDEO_MODELS['kling3_0']!;
+    for (const resolution of spec.resolutions) {
+      const args = buildCliArgs(baseReq({ modelId: 'kling3_0', resolution }));
+      const idx = args.indexOf('--mode');
+      expect(idx, `no --mode emitted for ${resolution}`).toBeGreaterThanOrEqual(0);
+      expect(args[idx + 1]).toBe(spec.cliResolutionParam!.values[resolution]);
+    }
+  });
+
+  it('refuses a resolution the job type has no value for, instead of guessing', () => {
+    expect(() => buildCliArgs(baseReq({ modelId: 'kling3_0', resolution: '480p' }))).toThrow(
+      ValidationError,
+    );
+  });
+
+  it('keeps --resolution for job types that declare one', () => {
+    const args = buildCliArgs(baseReq({ modelId: 'seedance_2_0', resolution: '1080p' }));
+    expect(args).toEqual(expect.arrayContaining(['--resolution', '1080p']));
+    expect(args).not.toContain('--mode');
   });
 
   it('maps firstFrameImagePath to --start-image and lastFrameImagePath to --end-image', () => {
