@@ -459,6 +459,103 @@ export type HiggsfieldSpeakInputT = z.infer<typeof HiggsfieldSpeakInput>;
 // capability, passes validation, and fails at the network.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Marketing Studio asset catalogue — ONE tool, not nine
+//
+// The CLI exposes nine asset groups (avatars, hooks, settings, ad-formats,
+// products, brand-kits, ad-references, webproducts) behind
+// `higgsfield marketing-studio <group> list`. A tool per group would add nine
+// entries to a registry that already costs startup tokens for every session,
+// to model nine calls that differ only in one path segment.
+//
+// A single tool with a `kind` parameter keeps the registry growth at one, and
+// the enum is exactly the platform's own group list — so a group appearing or
+// disappearing upstream shows up here as a schema change, not as eight tools
+// silently drifting apart.
+//
+// READ-ONLY by design. `create` and `fetch` exist on several of these groups and
+// are deliberately absent: they mutate account state, some of them cost credits
+// (brand-kits fetch runs a site crawl), and a listing tool that can also create
+// is a tool whose blast radius nobody can predict from its name.
+// ---------------------------------------------------------------------------
+
+export const MARKETING_STUDIO_ASSET_KINDS = [
+  'avatars',
+  'hooks',
+  'settings',
+  'ad-formats',
+  'ad-references',
+  'brand-kits',
+  'products',
+  'webproducts',
+] as const;
+
+export const HiggsfieldMarketingAssetsInput = z.object({
+  kind: z.enum(MARKETING_STUDIO_ASSET_KINDS),
+  /** Case-insensitive substring filter on the asset name, applied locally. */
+  query: z.string().min(1).optional(),
+  limit: z.number().int().positive().max(200).default(50),
+});
+export type HiggsfieldMarketingAssetsInputT = z.infer<typeof HiggsfieldMarketingAssetsInput>;
+
+// ---------------------------------------------------------------------------
+// Product Photoshoot / Marketplace Cards — backend prompt enhancement
+//
+// Both take a high-level intent plus a mode/scope and let Higgsfield's backend
+// assemble the structured prompt, then generate. Both also accept
+// `--enhance-only`, which returns the assembled prompts WITHOUT submitting a
+// job — a zero-credit preview, exposed here as `enhanceOnly` and defaulted to
+// TRUE. A tool that spends money on its default setting is a tool that spends
+// money by accident.
+//
+// Mode and scope enums are the platform's, read from the CLI's own validation
+// error (it lists the valid values when given an invalid one — free to obtain,
+// and authoritative in a way a docs page is not).
+// ---------------------------------------------------------------------------
+
+export const PRODUCT_PHOTOSHOOT_MODES = [
+  'social_carousel',
+  'ad_creative_pack',
+  'conceptual_product',
+  'moodboard_pin',
+  'virtual_model_tryout',
+  'restyle',
+  'product_shot',
+  'lifestyle_scene',
+  'closeup_product_with_person',
+  'hero_banner',
+] as const;
+
+export const HiggsfieldProductPhotoshootInput = z.object({
+  prompt: z.string().min(1),
+  mode: z.enum(PRODUCT_PHOTOSHOOT_MODES),
+  imagePaths: z.array(z.string().min(1)).min(1).max(10),
+  count: z.number().int().positive().max(10).default(1),
+  aspectRatio: z.string().min(1).optional(),
+  brandContext: z.string().min(1).optional(),
+  productContext: z.string().min(1).optional(),
+  /** Default TRUE — see the note above on spending by accident. */
+  enhanceOnly: z.boolean().default(true),
+});
+export type HiggsfieldProductPhotoshootInputT = z.infer<typeof HiggsfieldProductPhotoshootInput>;
+
+export const MARKETPLACE_CARD_SCOPES = ['main', 'product-images', 'aplus', 'full-set'] as const;
+
+export const HiggsfieldMarketplaceCardsInput = z.object({
+  prompt: z.string().min(1),
+  scope: z.enum(MARKETPLACE_CARD_SCOPES).default('main'),
+  imagePaths: z.array(z.string().min(1)).min(1).max(10),
+  category: z.string().min(1).optional(),
+  visualStyle: z.string().min(1).optional(),
+  productUrl: z.string().url().optional(),
+  brandContext: z.string().min(1).optional(),
+  productContext: z.string().min(1).optional(),
+  /** Chains from a completed nano_banana_2 main-image job for secondary/A+ assets. */
+  mainJobId: z.string().min(1).optional(),
+  enhanceOnly: z.boolean().default(true),
+});
+export type HiggsfieldMarketplaceCardsInputT = z.infer<typeof HiggsfieldMarketplaceCardsInput>;
+
 // HiggsfieldGenerateInput — generic Higgsfield submit (Soul / Soul2 / aesthetic
 // presets) when no specialized tool (dop / cinema_studio / speak / marketing /
 // recast) applies. Codex P2 round 7 PR#10 closed the gap where the director
@@ -1339,6 +1436,34 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     // make the exported schema a ZodEffects, so validation uses the refined one.
     inputSchema: _HiggsfieldMarketingStudioBase,
     validationSchema: HiggsfieldMarketingStudioInput,
+  },
+
+  // ---- Marketing Studio UGC surface (3 — the CLI transport, 2026-08-01) ----
+  {
+    name: 'media_higgsfield_ms_assets',
+    description:
+      'Marketing Studio catalogue — list avatars, hooks, settings, ad-formats, ad-references, ' +
+      'brand-kits, products or web-products from the signed-in account. Read-only, no credits. ' +
+      'The ids it returns are what media_higgsfield_marketing_studio takes.',
+    inputSchema: HiggsfieldMarketingAssetsInput,
+    validationSchema: HiggsfieldMarketingAssetsInput,
+  },
+  {
+    name: 'media_higgsfield_product_photoshoot',
+    description:
+      'Product Photoshoot — brand-quality product images from a high-level intent plus a mode ' +
+      '(product_shot, lifestyle_scene, ad_creative_pack, hero_banner, …). Higgsfield assembles ' +
+      'the structured prompt. Defaults to enhanceOnly: returns the prompts without generating.',
+    inputSchema: HiggsfieldProductPhotoshootInput,
+    validationSchema: HiggsfieldProductPhotoshootInput,
+  },
+  {
+    name: 'media_higgsfield_marketplace_cards',
+    description:
+      'Marketplace Cards — main images, secondary product images and A+ modules for marketplace ' +
+      'listings. Defaults to enhanceOnly: returns the prompts without generating.',
+    inputSchema: HiggsfieldMarketplaceCardsInput,
+    validationSchema: HiggsfieldMarketplaceCardsInput,
   },
 
   // ---- Higgsfield Generate (Codex P2 round 7 PR#10 — generic Soul/Soul2 t2v|i2v submit) ----

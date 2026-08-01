@@ -168,6 +168,12 @@ function assertNotSpawningRealCliUnderTest(args: ReadonlyArray<string>): void {
   if (!underTest) return;
   if (process.env['MEDIA_FORGE_ALLOW_REAL_CLI_IN_TESTS'] === 'true') return;
 
+  // `--enhance-only` turns product-photoshoot / marketplace-cards `create` into
+  // a read: the backend assembles and returns the prompts and no job is queued.
+  // Recognising it here is what lets a preview be exercised in tests while the
+  // same subcommand without the flag stays refused.
+  if (args.includes('--enhance-only')) return;
+
   const isRead = args.some((a) => CLI_READ_ONLY_VERBS.includes(a));
   if (isRead) return;
 
@@ -456,6 +462,48 @@ export class HiggsfieldCliProvider implements VideoProvider {
         { provider: 'higgsfield-cli' },
       );
     }
+  }
+
+  /**
+   * Runs an arbitrary CLI subcommand that only READS, and returns parsed JSON.
+   *
+   * The Marketing Studio catalogue, `product-photoshoot --enhance-only` and
+   * `marketplace-cards --enhance-only` all sit outside the generate/cost/get
+   * verbs this provider was built around, but they are the same transport and
+   * must share its binary resolution, timeout and error translation rather than
+   * grow a second spawn path.
+   *
+   * Split from `runWriteJson` on purpose. The name is the contract the
+   * test-runner guard enforces: a caller reaching for the read method is stating
+   * that nothing here can bill, and a submit routed through it would quietly
+   * defeat the guard that exists because six real generations once escaped a
+   * test run.
+   */
+  async runReadJson(args: ReadonlyArray<string>): Promise<unknown> {
+    const result = await this.runner(args, COST_TIMEOUT_MS);
+    if (result.exitCode !== 0) {
+      throw new ApiError(
+        `higgsfield ${args.slice(0, 3).join(' ')} failed (exit ${result.exitCode}): ` +
+          result.stderr.slice(0, 400),
+        'API',
+        { provider: 'higgsfield-cli' },
+      );
+    }
+    return parseJson<unknown>(result, 'a JSON response');
+  }
+
+  /** Same as runReadJson for a subcommand that CAN create or bill. */
+  async runWriteJson(args: ReadonlyArray<string>): Promise<unknown> {
+    const result = await this.runner(args, this.timeoutMs);
+    if (result.exitCode !== 0) {
+      throw new ApiError(
+        `higgsfield ${args.slice(0, 3).join(' ')} failed (exit ${result.exitCode}): ` +
+          result.stderr.slice(0, 400),
+        'API',
+        { provider: 'higgsfield-cli' },
+      );
+    }
+    return parseJson<unknown>(result, 'a JSON response');
   }
 
   /**

@@ -92,6 +92,11 @@ import {
   handleVideoWebhookStatus,
   higgsfieldCliRunnerIfEnabled,
 } from './shared.js';
+import {
+  handleHiggsfieldMarketingAssets,
+  handleHiggsfieldProductPhotoshoot,
+  handleHiggsfieldMarketplaceCards,
+} from './higgsfield-ugc.js';
 import { handleVideoCostEstimate, handleVideoCostReport, handleVideoRoute } from './video.js';
 import {
   handleHiggsfieldSoulId,
@@ -1595,6 +1600,34 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
   }
 
 
+
+  // ---- Marketing Studio UGC surface (3 — CLI transport, 2026-08-01) ----
+  {
+    const t = getTool('media_higgsfield_ms_assets');
+    regIfAllowed(
+      t.name,
+      { title: 'Marketing Studio assets', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldMarketingAssets(input) as unknown as Record<string, unknown>)),
+    );
+  }
+
+  {
+    const t = getTool('media_higgsfield_product_photoshoot');
+    regIfAllowed(
+      t.name,
+      { title: 'Product Photoshoot', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldProductPhotoshoot(input) as unknown as Record<string, unknown>)),
+    );
+  }
+
+  {
+    const t = getTool('media_higgsfield_marketplace_cards');
+    regIfAllowed(
+      t.name,
+      { title: 'Marketplace Cards', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldMarketplaceCards(input) as unknown as Record<string, unknown>)),
+    );
+  }
 
   // ---- Higgsfield Generate (Codex P2 round 7 PR#10 — generic Soul/Soul2 submit) ----
   {

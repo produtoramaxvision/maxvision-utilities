@@ -63,6 +63,12 @@ const HIGGSFIELD_TOOLS = new Set([
   'media_higgsfield_generate',
   'media_higgsfield_poll',
   'media_higgsfield_download',
+  // Marketing Studio UGC surface. The catalogue is a read and the two image
+  // tools default to a no-cost preview, so they sit with the other creator
+  // video/image tools rather than a tier above.
+  'media_higgsfield_ms_assets',
+  'media_higgsfield_product_photoshoot',
+  'media_higgsfield_marketplace_cards',
 ]);
 
 // Kling: 12 tools confirmadas contra schemas.ts
