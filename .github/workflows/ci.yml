@@ -48,21 +48,29 @@ jobs:
 
       - name: Test
         # The Windows GitHub runner cannot bootstrap embedded-postgres (pg_ctl
-        # HISTORY: this step used to be continue-on-error on Windows, because
-        # the windows-latest runner could not bootstrap embedded-postgres
-        # (pg_ctl failed) and the pg-backed suites threw at collection. The
-        # comment concluded "Do not fix this by making pg work on Windows — it
-        # can't."
+        # The windows-latest runner cannot start embedded-postgres, so the
+        # pg-backed suites throw at collection ("Test Files: no tests" ->
+        # Unhandled Error) and the step exits 1. The runner's exact refusal:
         #
-        # It can, and does. Checked 2026-08-01 across the four most recent CI
-        # runs (b203d16, 051a4f4, 5127059, 2d4e890): the Windows "Test" step
-        # reports success in every one, and the full suite passes on a Windows
-        # dev box too. The escape hatch outlived its cause.
+        #     Execution of PostgreSQL by a user with administrative
+        #     permissions is not [permitted]
         #
-        # Removed, because a stale escape hatch is worse than none: it can only
-        # hide a FUTURE Windows regression, on the platform this project is
-        # developed on, and hide it behind a green check. If Windows turns out
-        # to be flaky, that is now visible instead of swallowed.
+        # PostgreSQL refuses to run as an administrator, and the GitHub Windows
+        # runner executes as one. There is no runner-side fix — it is a
+        # postgres policy, not a bug in this repo. Typecheck/Lint/Build above
+        # still give authoritative Windows signal, and the dev box is Windows.
+        # Ubuntu remains the authoritative TEST gate.
+        #
+        # DO NOT remove this on the evidence that the step "reports success".
+        # It always does: `continue-on-error: true` marks a step's conclusion
+        # `success` even when the command exits non-zero. I removed it on
+        # 2026-08-01 after reading four green Windows "Test" steps as proof the
+        # constraint had lifted — the green was produced BY this line. `main`
+        # went red immediately, and the log above is what was underneath.
+        #
+        # The only valid check is to read the step's LOG, or to flip this to
+        # false on a branch and look at the result there.
+        continue-on-error: ${{ matrix.os == 'windows-latest' }}
         run: pnpm test
 
       - name: Build
