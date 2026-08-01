@@ -55,10 +55,21 @@ describe('media_higgsfield_speak handler', () => {
     });
 
     expect(result.provider).toBe('higgsfield');
-    expect(captured.url).toContain('/higgsfield-ai/speak/standard');
+    // No tier segment, and the image field is `image_url`. Both were wrong until
+    // 2026-08-01, and both were pinned as correct by this assertion:
+    //   POST /higgsfield-ai/speak/standard -> 404 model_not_found
+    //   POST /higgsfield-ai/speak {}       -> 422 image_url, audio_url, prompt required
+    // Verified against the live API — see higgsfield-endpoints-live.test.ts.
+    expect(captured.url).toContain('/higgsfield-ai/speak');
+    expect(captured.url).not.toContain('/speak/standard');
     const body = JSON.parse(captured.init.body as string) as Record<string, unknown>;
     expect(body['audio_url']).toBe('/tmp/voice.wav');
-    expect(body['first_frame_url']).toBe('/tmp/face.png');
+    expect(body['image_url']).toBe('/tmp/face.png');
+    expect(body['first_frame_url'], 'the platform has no such field').toBeUndefined();
+    // `duration`, not `duration_seconds` — the platform validates the former
+    // (`Input should be 5, 10 or 15`) and silently ignores the latter.
+    expect(body['duration']).toBe(15);
+    expect(body['duration_seconds']).toBeUndefined();
   });
 
   it('routes Speak 2.0 to its endpoint when modelId is higgsfield-speak2', async () => {

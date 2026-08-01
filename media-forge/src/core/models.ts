@@ -303,7 +303,9 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
     id: 'higgsfield-speak',
     provider: 'higgsfield',
     modes: ['lip-sync'],
-    maxDurationSec: 30,
+    // 15, not 30. `POST /higgsfield-ai/speak` with duration 99 answers
+    // `Input should be 5, 10 or 15` — the platform's own enum, read 2026-08-01.
+    maxDurationSec: 15,
     resolutions: ['720p', '1080p'],
     fps: [24],
     audioNative: true,
@@ -312,7 +314,11 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
       rate: 35,
       source: 'volatile-by-tier',
       updatedAt: '2026-05-27',
-      notes: 'Speak lip-sync — photo + audio → talking head.',
+      notes:
+        'Speak lip-sync — photo + audio → talking head. Body: image_url, audio_url, prompt ' +
+        '(required); quality high|mid, duration 5|10|15, enhance_prompt, seed (optional). ' +
+        'The 35-credit rate is NOT verified: `GET /models` does not list speak, so there is no ' +
+        'base_credits to compare against, and the API account has 0 balance.',
     },
     ipRiskLevel: 'medium',
   },

@@ -365,20 +365,28 @@ const _HiggsfieldSpeakBase = z.object({
   resolution: z.enum(['720p', '1080p']),
   aspectRatio: z.enum(['16:9', '9:16', '1:1', '4:3', '3:4']).optional(),
 });
-// FIX (Codex P2, PR#10): per-model duration cap. higgsfield-speak (Speak 1.0)
-// caps at 30s; only higgsfield-speak2 supports up to 60s. Without this refine
-// direct handler calls bypass the route-level filter and would submit oversized
-// jobs that the upstream provider rejects with a confusing error.
+// FIX (Codex P2, PR#10): per-model duration cap, so direct handler calls cannot
+// bypass the route-level filter and submit a job the provider will reject.
+//
+// The bound now comes from the registry instead of a literal 30. The platform
+// answers `Input should be 5, 10 or 15` for `duration` on
+// `/higgsfield-ai/speak` (probed 2026-08-01), so the spec caps at 15 and this
+// refine has to follow it or the two disagree about the same model.
+//
+// `higgsfield-speak2` stays in the enum and keeps the 60s ceiling from
+// _HiggsfieldSpeakBase, but it is NOT reachable: every path tried for it answers
+// 404 model_not_found. See TODOS.md — removing the tool is a scope decision.
 export const HiggsfieldSpeakInput = _HiggsfieldSpeakBase.refine(
   (data) => {
-    if (data.modelId === 'higgsfield-speak' && data.durationSec > 30) return false;
-    return true;
+    const cap = VIDEO_MODELS[data.modelId]?.maxDurationSec;
+    return cap === undefined || data.durationSec <= cap;
   },
-  {
+  (data) => ({
     message:
-      'higgsfield-speak (Speak 1.0) caps at 30s. Use higgsfield-speak2 for durations up to 60s.',
+      `${data.modelId} caps at ${VIDEO_MODELS[data.modelId]?.maxDurationSec ?? '?'}s ` +
+      `(the platform's own enum for this model).`,
     path: ['durationSec'],
-  },
+  }),
 );
 export type HiggsfieldSpeakInputT = z.infer<typeof HiggsfieldSpeakInput>;
 

@@ -8,7 +8,125 @@ Criado em 2026-07-29 pelo `/maxvision:plan-ceo-review` sobre
 
 ---
 
-## P1 — 6 dos 10 endpoints do Higgsfield HTTP não existem
+## (parcial) P1 — Endpoints e nomes de campo do Higgsfield HTTP: 3 corrigidos, 6 mortos
+
+**RETRATAÇÃO, no mesmo dia.** A versão anterior desta entrada declarou o
+`higgsfield-speak` inexistente. **Está errado.** O erro de método: tratei ausência
+em `GET /models` como prova de não existir. `GET /models` **não é o catálogo da
+plataforma** — é a lista de modelos próprios de geração. Respondem e não estão
+lá: `/kling-video/v2.1/pro/image-to-video` (400), `/soul-id` (403
+`not_enough_credits`) e toda a família `/v1/*` (422). A prova válida é o `POST`
+direto: `404 model_not_found` = não existe; `422` = existe.
+
+Refeito o teste com sondagem direta, o Speak apareceu: **`/higgsfield-ai/speak`**,
+sem segmento de tier. Só o `/standard` sobrava.
+
+### Corrigido (provado ao vivo, 0 créditos)
+
+| Defeito | Era | É |
+|---|---|---|
+| Caminho do Speak | `/higgsfield-ai/speak/standard` → 404 | `/higgsfield-ai/speak` → 422 |
+| Campo da imagem | `first_frame_url` | **`image_url`** |
+| Campo da duração | `duration_seconds` | **`duration`** |
+| Cap do Speak | `maxDurationSec: 30` | **15** (`Input should be 5, 10 or 15`) |
+
+**`first_frame_url` era o defeito mais grave e não tinha nada a ver com o Speak.**
+Toda chamada guiada por imagem falhava, em qualquer modelo:
+
+```
+POST /higgsfield-ai/dop/standard  {"prompt":"x","first_frame_url":"…"}
+  -> 422 {"loc":["body","image_url"],"msg":"Field required"}
+```
+
+`docs.higgsfield.ai/guides/video` usa `image_url` em todos os exemplos. Campos
+desconhecidos são **ignorados**, não recusados — então `duration_seconds` era
+descartado em silêncio e toda geração rodava no default do modelo.
+
+O refine de duração em `schemas.ts` lia `30` literal; agora lê
+`VIDEO_MODELS[modelId].maxDurationSec`, senão o schema e o registry discordam
+sobre o mesmo modelo.
+
+### Contratos completos, obtidos por sondagem incremental
+
+```
+POST /higgsfield-ai/speak
+  obrigatórios: image_url, audio_url, prompt
+  opcionais:    quality high|mid · duration 5|10|15 · enhance_prompt bool · seed int
+
+POST /higgsfield-ai/dop/{lite,standard,turbo}[/first-last-frame]
+  obrigatórios: prompt, image_url
+  opcionais:    seed int · motions list · enhance_prompt bool
+
+POST /higgsfield-ai/soul/{standard,reference,character,cinema}, /soul/v2/standard, /popcorn/auto
+  obrigatório:  prompt
+  opcionais:    aspect_ratio 9:16|16:9|4:3|3:4|1:1|2:3|3:2 · resolution 720p|1080p
+                batch_size 1|4 · seed int
+```
+
+### Ainda mortos na API — e o que a CLI tem
+
+A CLI usa OAuth (`higgsfield auth login`), é opcional para o usuário e tem
+catálogo próprio. Enumerado com `higgsfield workflow list --json` e
+`model list --image --json`:
+
+| Nossa ferramenta | API HTTP | CLI (OAuth) |
+|---|---|---|
+| `higgsfield-speak2` | 404 com e sem tier | ausente |
+| `higgsfield-cinema-studio-3.5` | 404 | **workflow `cinematic_studio_video_3_5`** |
+| `higgsfield-marketing-studio` | 404 | **workflow `marketing_studio_video`** (+ `_image`) |
+| `higgsfield-recast` | 404 com e sem tier | ausente (`dubbing`/`voice_change` são outro produto) |
+| `higgsfield-virality-predictor` | 404 | ausente |
+| `higgsfield-soul-pro` | 422 `loc:["path","mode"]` — o segmento é **modo**, `reference\|character\|standard` | — |
+| `higgsfield-soul2` | 404; real é `/higgsfield-ai/soul/v2/standard` | `text2image_soul_v2` |
+
+Não dependem de rede e seguem intactas: `media_higgsfield_soul_id` (só banco
+local) e `media_higgsfield_soul_id_train` / `_list` (transporte CLI).
+
+**Decisão pendente do usuário:** cinema-studio e marketing-studio existem na CLI
+como *workflows*, não como job types — roteá-los exige `generate workflow`, que é
+outro caminho de submit. Apagar as ferramentas ou construir esse caminho é
+escopo, não conserto.
+
+### Preços: medidos, não aplicados
+
+| Slug | `base_credits` | Nossa taxa |
+|---|---|---|
+| `soul/standard` | 1,0 | 25 |
+| `soul/v2/standard` | 0,0 | 70 |
+| `dop/standard` | 9,0 | 40 |
+| `dop/turbo` | 6,5 | 18 |
+
+O campo se chama **base**\_credits e o saldo da conta de API é 0, então não dá
+para saber se é preço final por geração ou base que escala. Trocar 40 por 9 sem
+saber a semântica é trocar um número errado por outro.
+
+### Erro de categoria, registrado e não operado
+
+`soul/standard`, `soul/v2/standard`, `soul/character`, `soul/reference`,
+`soul/cinema` e `popcorn/auto` são `operation_type: text2image`,
+`output_type: image` — e as nossas specs correspondentes vivem em `VIDEO_MODELS`
+com `modes: ['t2v','i2v']` e `maxDurationSec: 8`. Realojar mexe em roteador,
+schemas e caminho de custo.
+
+### Modelos que existem e não oferecemos
+
+`dop/lite` (2,0), os três `dop/*/first-last-frame`, `popcorn/auto` (1,4720),
+`soul/character` (1,0), `soul/cinema` (0,0), `soul/reference` (1,0), `soul-id`
+(40,0). E, fora do `GET /models`, `/kling-video/v2.1/pro/image-to-video`.
+
+### Portão
+
+`tests/video/providers/higgsfield-endpoints-live.test.ts` — 5 asserções, **todas
+verdes ao vivo, 0 créditos**. Sonda cada caminho com `POST {}`, trata `422` com
+`loc[0] === 'path'` como **não servido** (o caso do `soul/pro`), confere que o
+campo exigido pelo DoP continua sendo `image_url`, e que o Speak responde no
+caminho que enviamos com os campos que enviamos.
+
+Texto original abaixo.
+
+---
+
+## (histórico) P1 — 6 dos 10 endpoints do Higgsfield HTTP não existem
 
 **Medido em 2026-08-01** contra a API real, com chave recém-criada no dashboard,
 custo zero (todo `POST {}` falha na validação antes de enfileirar trabalho).

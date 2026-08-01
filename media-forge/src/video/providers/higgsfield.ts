@@ -51,7 +51,10 @@ export const HIGGSFIELD_ENDPOINTS: Readonly<Record<string, string>> = {
   'higgsfield-soul2': '/higgsfield-ai/soul2/standard',
   'higgsfield-dop': '/higgsfield-ai/dop/standard',
   'higgsfield-dop-turbo': '/higgsfield-ai/dop/turbo',
-  'higgsfield-speak': '/higgsfield-ai/speak/standard',
+  // No tier segment. `/higgsfield-ai/speak/standard` answered 404
+  // model_not_found; `/higgsfield-ai/speak` answers 422 naming image_url,
+  // audio_url and prompt. Probed 2026-08-01.
+  'higgsfield-speak': '/higgsfield-ai/speak',
   'higgsfield-speak2': '/higgsfield-ai/speak2/standard',
   'higgsfield-cinema-studio-3.5': '/higgsfield-ai/cinema-studio/3.5',
   'higgsfield-marketing-studio': '/higgsfield-ai/marketing-studio/standard',
@@ -487,14 +490,31 @@ export class HiggsfieldProvider implements VideoProvider {
       prompt = `${extras.dopCameraVerbs.join(' ')} ${prompt}`;
     }
 
+    // Field names verified against the live API on 2026-08-01 by POSTing bodies
+    // with deliberately invalid values and reading the 422 — every probe fails
+    // validation before any work is queued, so the whole audit cost 0 credits.
+    //
+    //   duration_seconds -> duration
+    //     `/higgsfield-ai/speak` answers `Input should be 5, 10 or 15` for
+    //     `duration`, and never mentions `duration_seconds`. Unknown fields are
+    //     ignored rather than rejected, so the old name was silently dropped and
+    //     every request ran at the model default.
     const body: Record<string, unknown> = {
       prompt,
       aspect_ratio: req.aspectRatio ?? '16:9',
       resolution: req.resolution,
-      duration_seconds: req.durationSec,
+      duration: req.durationSec,
     };
 
-    if (req.firstFrameImagePath) body['first_frame_url'] = req.firstFrameImagePath;
+    //   first_frame_url -> image_url
+    //     THE defect that made every image-driven Higgsfield call fail:
+    //       POST /higgsfield-ai/dop/standard
+    //       {"prompt":"x","first_frame_url":"…"}
+    //       -> 422 {"loc":["body","image_url"],"msg":"Field required"}
+    //     Required by dop/{lite,standard,turbo}, their first-last-frame variants
+    //     and speak. `docs.higgsfield.ai/guides/video` uses `image_url` in every
+    //     example; nothing on the platform accepts `first_frame_url`.
+    if (req.firstFrameImagePath) body['image_url'] = req.firstFrameImagePath;
     if (req.lastFrameImagePath) body['last_frame_url'] = req.lastFrameImagePath;
     if (req.referenceImagePaths && req.referenceImagePaths.length > 0) {
       body['reference_urls'] = [...req.referenceImagePaths];
