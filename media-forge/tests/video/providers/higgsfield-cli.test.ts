@@ -565,6 +565,64 @@ describe('HiggsfieldCliProvider.pollStatus() mapping', () => {
     expect(result.state).toBe('failed');
     expect(result.errorMessage).toMatch(/generate get failed/);
   });
+
+  // The payload below is a REAL `higgsfield generate get` response, copied from a
+  // completed job on 2026-08-01. The parser previously read `results[].url`,
+  // which does not exist in it — so every finished job came back with no asset
+  // and `download()` threw "has no downloadable asset (state: completed)".
+  //
+  // It could not surface earlier: it needs a job that actually completed, and
+  // every test until now fed the runner a shape nobody had checked against the
+  // binary. Pinning the real shape here is the point of the test.
+  it('reads the asset from result_url, which is where the CLI puts it', async () => {
+    const runner = queueRunner([
+      ok(
+        JSON.stringify({
+          created_at: '2026-08-01T11:48:15.079608Z',
+          display_name: 'Cinematic Studio Video 3.5',
+          id: '4c5a61cd-efb9-40c6-b5d4-050f37010e94',
+          job_type: 'cinematic_studio_video_3_5',
+          min_result_url: null,
+          params: { duration: 4, resolution: '720p' },
+          result_url: 'https://d8j0ntlcm91z4.cloudfront.net/user_x/hf_20260801.mp4',
+          status: 'completed',
+          thumbnail_url: 'https://cdn.higgsfield.ai/user_x/hf_20260801.jpg',
+        }),
+      ),
+    ]);
+    const provider = new HiggsfieldCliProvider({ runner });
+    const result = await provider.pollStatus('job-1');
+
+    expect(result.state).toBe('completed');
+    expect(result.assetUrls, 'a completed job must yield its asset').toEqual([
+      'https://d8j0ntlcm91z4.cloudfront.net/user_x/hf_20260801.mp4',
+    ]);
+  });
+
+  it('still reads a results[] array, in case a multi-asset job type appears', async () => {
+    const runner = queueRunner([
+      ok(JSON.stringify({ status: 'completed', results: [{ url: 'https://x/a.mp4' }] })),
+    ]);
+    const provider = new HiggsfieldCliProvider({ runner });
+    expect((await provider.pollStatus('job-1')).assetUrls).toEqual(['https://x/a.mp4']);
+  });
+});
+
+// D10 — our job id is not the CLI's, and `generate get` only knows the CLI's.
+describe('HiggsfieldCliProvider job-id translation', () => {
+  it('passes an unmapped id straight through, so a caller holding the CLI id can still poll', async () => {
+    const seen: string[][] = [];
+    const provider = new HiggsfieldCliProvider({
+      runner: async (args) => {
+        seen.push([...args]);
+        return { stdout: JSON.stringify({ status: 'completed' }), stderr: '', exitCode: 0 };
+      },
+    });
+    await provider.pollStatus('cli-native-id');
+    // No dbPath, so nothing to translate with — the id must reach the CLI intact
+    // rather than being dropped or rejected.
+    expect(seen[0]).toEqual(['generate', 'get', 'cli-native-id', '--json']);
+  });
 });
 
 describe('PROVIDERS registry', () => {

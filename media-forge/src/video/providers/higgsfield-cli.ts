@@ -719,16 +719,40 @@ export class HiggsfieldCliProvider implements VideoProvider {
       };
     }
 
+    // The asset lives in `result_url`, not `results[].url`.
+    //
+    // Read off a real completed job on 2026-08-01. The whole payload is:
+    //
+    //   created_at · display_name · id · job_type · min_result_url ·
+    //   params{…} · result_url · status · thumbnail_url
+    //
+    // There is no `results` array and no `error` field. The old parse returned
+    // an empty `assetUrls` for every finished job, which made `download()` throw
+    // "has no downloadable asset (state: completed)" — a contradiction that
+    // could not surface until a job actually completed, and every test used a
+    // fake runner returning a shape nobody had checked against the binary.
+    //
+    // `results[]` is kept as a fallback rather than deleted: it costs one line
+    // and covers the CLI growing a multi-asset job type, which `min_result_url`
+    // suggests is already half-modelled upstream.
     const parsed = parseJson<{
       status?: string;
+      result_url?: string;
+      min_result_url?: string;
+      thumbnail_url?: string;
       results?: Array<{ url?: string }>;
       error?: string;
     }>(result, 'a job status');
 
+    const assetUrls = [
+      parsed.result_url,
+      ...(parsed.results ?? []).map((r) => r.url),
+    ].filter((u): u is string => typeof u === 'string' && u.length > 0);
+
     return {
       jobId,
       state: mapCliStatus(parsed.status),
-      assetUrls: (parsed.results ?? []).map((r) => r.url).filter((u): u is string => !!u),
+      assetUrls,
       ...(parsed.error !== undefined ? { errorMessage: parsed.error } : {}),
     };
   }
