@@ -8,6 +8,196 @@ Criado em 2026-07-29 pelo `/maxvision:plan-ceo-review` sobre
 
 ---
 
+## P1 — O contrato documentado do Speak não é o que o código envia
+
+**Levantado em 2026-07-31**, pesquisando a doc oficial. Não corrigido de propósito
+— ver "por que não mexi" no fim.
+
+O que o código faz hoje (`higgsfield.ts:432`, `:510`):
+
+```
+POST https://platform.higgsfield.ai/higgsfield-ai/speak/standard
+{ prompt, first_frame_url, audio_url, aspect_ratio, resolution }
+```
+
+O que o SDK oficial declara — `@higgsfield/client@0.2.1`, instalado neste repo,
+`dist/v2/types.d.ts:15-28`, **não** é web, é o pacote publicado:
+
+```ts
+export interface SpeakVideoInput {
+    input_image: { type: 'image_url'; image_url: string };
+    input_audio: { type: 'audio_url'; audio_url: string };
+    prompt: string;
+    quality: 'mid' | 'high';
+    duration: 5 | 10 | 15;
+    seed?: number;
+}
+// EndpointInputMap: '/v1/speak/higgsfield' → SpeakVideoInput
+```
+
+**A pergunta do P14 está respondida, e a resposta é URL simples.** `input_audio`
+carrega `audio_url: string` — não há upload assinado no contrato. O README do
+`higgsfield-ai/higgsfield-js` acrescenta a restrição de formato: *"Only WAV
+files"*. Nenhuma das duas coisas está no código nem na sonda.
+
+**O que NÃO ficou provado:** que `/higgsfield-ai/speak/standard` seja inválido. A
+família `/higgsfield-ai/*/standard` é documentada e real — `docs.higgsfield.ai`
+descreve `POST https://platform.higgsfield.ai/{model_id}` com corpo achatado
+(`prompt`, `aspect_ratio`, `resolution`) e resposta
+`{status, request_id, status_url, cancel_url}`, que é exatamente o que
+`higgsfield.ts` consome. O que a doc **não** traz é `speak` nessa família: ela
+mostra `soul/standard`, `dop/standard`, `bytedance/seedance/...`,
+`kling-video/...`. O caminho do Speak foi deduzido dos vizinhos, não lido.
+
+São duas superfícies, não dois corpos:
+
+| | v1 (o que usamos) | v2 (o que documenta o Speak) |
+|---|---|---|
+| Auth | `hf-api-key` + `hf-secret` | `Authorization: Key KEY:SECRET` |
+| Caminho | `/higgsfield-ai/<produto>/<tier>` | `/v1/<produto>/<vendor>` |
+| Corpo | achatado | objetos tipados (`{type, ...url}`) |
+| Status | `queued\|in_progress\|completed\|failed` | idem + `nsfw` |
+| Webhook | — | query `?hf_webhook=<url>` |
+
+Curiosidade que confirma o par: `buildFallbackHeaders()` já emite exatamente o
+esquema do v2. O código tem os dois esquemas de auth e só um dos dois contratos.
+
+**Por que não mexi.** Trocar um corpo chutado por outro corpo não validado é o
+padrão que produziu o bug do submit da ARK. E "corrigir o Speak" na verdade é
+**migrar o Speak para o v2** — auth diferente, polling diferente, enum de status
+diferente. Isso é decisão de escopo, não conserto.
+
+**O agravante:** `higgsfield-speak` é alcançável. `schemas.ts:360` registra
+`z.enum(['higgsfield-speak','higgsfield-speak2'])` e `handleHiggsfieldSpeak`
+submete com o modo padrão `URL`. Ou seja: a primeira chamada de um usuário gasta
+crédito contra um formato que ninguém verificou.
+
+**Como fechar, em ordem, sem gastar antes da hora:**
+1. `POST /v1/speak/higgsfield` com corpo deliberadamente incompleto e ler o 4xx —
+   erro de schema nomeia os campos exigidos. **É POST em endpoint pago; exige seu
+   aval.**
+2. Se confirmar: migrar `higgsfield-speak`/`-speak2` para o v2 (auth, corpo,
+   polling), validar WAV na entrada e apagar `MEDIA_FORGE_HF_SPEAK_AUDIO_MODE`,
+   que existe só para escolher entre URL e upload — pergunta que o contrato v2 já
+   respondeu.
+3. Enquanto isso a sonda continua correta e não exercida.
+
+---
+
+## P1 — `.env.example` e `.mcp.json` não conhecem metade das variáveis que o código lê
+
+**Levantado em 2026-07-31** por varredura: todo `process.env['X']` sob `src/`
+comparado com as chaves do bloco `env` do `.mcp.json`.
+
+Lidas pelo runtime e **ausentes** do `.mcp.json`:
+
+```
+MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT   MEDIA_FORGE_HF_SPEAK_AUDIO_MODE
+MEDIA_FORGE_HF_WEBHOOK_ENABLE           MEDIA_FORGE_OUTPUTS_DIR
+MEDIA_FORGE_HTTP_PORT                   MEDIA_FORGE_INTERNAL_URL
+MEDIA_FORGE_LOG_LEVEL / _FORMAT         MEDIA_FORGE_ARTIFACT_TTL_SECONDS
+MEDIA_FORGE_CONFIG_HOME                 MEDIA_FORGE_MAX_OBJECTS_PER_CATEGORY
+MEDIA_FORGE_SKIP_OCR_WHEN_NO_TEXT_INTENT
+VOYAGE_API_KEY                          PGVECTOR_URL
+CODEX_HOME                              HOME
+```
+
+**A pior delas é a primeira.** `validateHiggsfieldPricingAtBoot()` **exige**
+`MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT` sempre que `HF_API_KEY` estiver setado, e
+falha com `process.exit(2)` (`server.ts:66-69`). O `.mcp.json` encaminha
+`HF_API_KEY` e **não** encaminha a variável de preço. Se o bloco `env` for
+whitelist — que é o que `tests/core/mcp-config-env-contract.test.ts:11-13` afirma,
+a partir de um defeito real observado com `KLING_API_KEY` — então **nenhum
+usuário de Higgsfield consegue subir o servidor**. Não checado ao vivo porque
+`HF_API_KEY` não está setado em lugar nenhum desta máquina.
+
+`.env.example` tinha o mesmo buraco, menor do que a primeira contagem sugeriu —
+`MUAPI_API_KEY`, `OPENAI_API_KEY`, `MEDIA_FORGE_WAN2GP_URL` e os três
+`MEDIA_FORGE_CODEX_IMAGE_*` já estavam lá, comentados, e a primeira varredura os
+perdeu por só olhar linhas não comentadas. Genuinamente ausentes eram
+`HF_API_KEY`, `HF_API_SECRET`, `MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT`,
+`MEDIA_FORGE_HF_SPEAK_AUDIO_MODE`, `MEDIA_FORGE_HF_WEBHOOK_ENABLE`,
+`MEDIA_FORGE_HF_BIN` e `MEDIA_FORGE_CODEX_BIN` — ou seja, o arquivo que existe
+para dizer o que configurar não conhecia **nenhuma** credencial do Higgsfield
+HTTP nem a taxa sem a qual o servidor não sobe.
+
+**`HIGGSFIELD_API_KEY` não é credencial.** Só aparece em `server.ts:62` como
+heurística de "Higgsfield está configurado?" e em `.mcp.json:37`. Nenhum código de
+auth a lê — `higgsfield-headers.ts` lê `HF_API_KEY`/`HF_API_SECRET`. Quem setar só
+esse nome passa pela validação de boot e falha na primeira chamada com
+`Missing required environment variable(s): HF_API_KEY, HF_API_SECRET`. A pior
+forma de defeito de config: sucesso barulhento, falha no uso.
+
+**Correções aplicadas** (mesma data): variáveis acrescentadas ao `.mcp.json` e ao
+`.env.example`; `HIGGSFIELD_API_KEY` reclassificado no teste de contrato como
+heurística de boot, não credencial; e um teste novo varre `src/` atrás de
+`process.env` e falha quando uma variável nova aparece sem estar encaminhada nem
+numa lista explícita de "deliberadamente não encaminhada".
+
+**Não corrigido:** se `env` é whitelist de fato. A doc oficial do Claude Code diz
+apenas *"env: environment variables passed to the server"* — não afirma
+substituição. Fica registrado como não verificado.
+
+---
+
+## P2 — `higgsfield generate cost` é um portão grátis contra o registry
+
+**Descoberto em 2026-07-31.** A CLI estima **sem criar job**:
+
+```
+$ higgsfield generate cost kling3_0_turbo --prompt "probe" --json
+{ "credits": 7.5 }
+```
+
+7,5 é exatamente a taxa registrada em `src/core/models.ts` para `kling3_0_turbo` a
+720p/5s. Primeira confirmação independente das taxas em crédito — e custa zero.
+
+Vale como teste ao vivo por spec, com o mesmo portão da sonda do Speak
+(`MEDIA_FORGE_RUN_LIVE_TESTS`). Deriva aqui significa que **toda estimativa**
+futura está errada, inclusive a que o cap diário usa antes do submit.
+
+**Atenção ao redigir o teste:** os autodocs da CLI (via context7) descrevem
+`generate cost create <model> … | jq '.cost'` e `higgsfield account credits`. O
+binário instalado (v1.1.20) usa `generate cost <job_type>` devolvendo `.credits`,
+e `account status`. **O binário é a autoridade**; a doc está desatualizada.
+
+---
+
+## P2 — Liquidação do `higgsfield-cli`: o limite do que dá para medir
+
+**Medido em 2026-07-31** contra a conta real, sem gastar:
+
+```
+$ higgsfield account status --json
+{ "credits": 610, "email": "…", "subscription_plan_type": "pro" }
+
+$ higgsfield account transactions --size 5 --json
+{ "cursor": null, "items": [ { "action": "grant", "created_at": "2026-07-28T21:57:10Z",
+                              "credits": 600, "display_name": "Subscription Credits" } ] }
+```
+
+O item de transação tem `action`, `created_at`, `credits`, `display_name` — e
+**nenhuma referência a job**. Se essa forma valer também para gasto, não existe
+atribuição por job: dois jobs concorrentes produzem duas linhas indistinguíveis.
+
+**Isso não está provado.** Só existe uma transação nesta conta e ela é `grant`. O
+formato de uma linha de gasto é desconhecido porque **nenhuma geração foi feita**
+(`higgsfield generate list --json` → `[]`). A afirmação honesta é "não refutado",
+não "provado".
+
+**Se um gasto carregar id de job**, a liquidação se separa em duas metades:
+medir em crédito não depende de decisão nenhuma; expressar em USD depende de
+`MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT`. `recordActualCost` só aceita USD hoje.
+
+**Sobre a taxa:** a doc de `higgsfield-pricing.ts` lista Plus 0,039 / Ultra 0,0316
+/ Business 0,0266. A conta reporta plano `"pro"`, que **não** é nenhum desses
+nomes, e a concessão foi de 600 créditos, que não bate com nenhum pool publicado
+(Starter 200 / Plus 1000 / Ultra 3000, segundo fontes de terceiros — a página
+oficial de preços não entregou tabela). A taxa correta é o que **você** paga
+dividido pelos créditos concedidos: 600 na concessão de 2026-07-28.
+
+---
+
 ## (fechado) P1 — MuAPI submetia e nunca devolvia: caminho só de ida
 
 **FECHADO em 2026-07-31.** O MuAPI tinha tools desde a leva anterior e ainda assim
@@ -185,7 +375,29 @@ em v7. Cada bump conferido contra as release notes do próprio projeto.
 
 ---
 
-## OPS5 — Worktrees órfãos no disco (precisa da sua decisão)
+## (fechado) OPS5 — Worktrees órfãos no disco
+
+**REMOVIDOS em 2026-07-31**, depois da prova que faltava. O bloqueio era "sem
+metadados git não dá para provar que não há trabalho não commitado dentro". A
+prova não precisa de metadados: git guarda por hash de conteúdo, então cada
+arquivo foi passado por `git hash-object` e o blob procurado na história com
+`git cat-file -e`.
+
+| Diretório | Arquivos (fora `node_modules`) | Fora da história |
+|---|---|---|
+| `agent-a439055b5f204c475` | 382 | 1 |
+| `lane-f-g` | 439 | 1 |
+
+O mesmo arquivo nos dois: `media-forge/prompts/_index.json`, gerado por
+`scripts/build-prompt-index.ts` e gitignorado. Artefato de build, não trabalho.
+483 MB recuperados. Também removidos 3 registros de worktree do fallow em
+`%TEMP%`, que se recriam sob demanda.
+
+Registro original abaixo.
+
+---
+
+## (histórico) OPS5 — Worktrees órfãos no disco (precisa da sua decisão)
 
 **Estado em 2026-08-01:** `git worktree prune` não remove nada — os dois
 diretórios **não têm `.git`**, deixaram de ser worktrees e viraram árvores de
