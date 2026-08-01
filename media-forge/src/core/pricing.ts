@@ -35,6 +35,7 @@ function effectivePricing(spec: VideoModelSpec): VideoModelSpec['pricing'] {
  * | usd-per-second      | rate * durationSec               |
  * | usd-per-video       | rate (flat)                      |
  * | credits-per-video   | rate * usdPerCredit (required)   |
+ * | credits-per-second  | rate * mult * dur * usdPerCredit |
  */
 export function normalizeCostUSD(spec: VideoModelSpec, req: NormalizeInput): number {
   const pricing = effectivePricing(spec);
@@ -60,6 +61,25 @@ export function normalizeCostUSD(spec: VideoModelSpec, req: NormalizeInput): num
         );
       }
       return pricing.rate * req.usdPerCredit;
+    case 'credits-per-second': {
+      // Throws, exactly like credits-per-video, when no rate is declared. That
+      // throw is the safety property: `normalizeCostUSDSafe` turns it into
+      // POSITIVE_INFINITY, so a credit-priced spec can never win a cost sort
+      // against a dollar-priced one on an exchange rate nobody supplied.
+      // Credits are a prepaid bucket that expires; inventing a conversion would
+      // let the router silently spend a different currency than the caller
+      // budgeted in.
+      if (typeof req.usdPerCredit !== 'number' || req.usdPerCredit <= 0) {
+        throw new Error(
+          `usdPerCredit required for credits-per-second pricing (spec: ${spec.id})`,
+        );
+      }
+      const multiplier =
+        req.resolution !== undefined
+          ? pricing.resolutionMultipliers?.[req.resolution] ?? 1
+          : 1;
+      return pricing.rate * multiplier * req.durationSec * req.usdPerCredit;
+    }
     default: {
       const exhaustive: never = unit;
       throw new Error(`unsupported pricing unit: ${exhaustive as string}`);

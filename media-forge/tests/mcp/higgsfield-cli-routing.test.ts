@@ -73,23 +73,53 @@ describe('higgsfield-cli routing', () => {
     }
   });
 
-  // Fails at the ROUTER now, which is the truthful place. No registry spec is
-  // registered under 'higgsfield-cli' and none of the registry's higgsfield ids
-  // is a CLI job_type, so "no model supporting mode" is accurate. Previously
-  // this resolved to a higgsfield spec and died at the CLI with a job_type error
-  // — after the cost guard had already run.
-  it('preferProvider: "higgsfield-cli" has no routable spec, even with the flag on', async () => {
+  // This test used to assert that the provider had NO routable spec — it pinned
+  // the broken state as if it were the design. The provider was declared with an
+  // empty catalogue, so naming it always failed: the CLI's job_type values and
+  // the `higgsfield` registry ids are disjoint sets, and `higgsfield-soul2` (a
+  // video spec) is not another name for `text2image_soul_v2` (an image job type).
+  //
+  // Registering the CLI's OWN job types under its OWN provider is what fixed it,
+  // and that is not a mapping table: id === job_type, which is exactly what
+  // `buildCliArgs` passes through.
+  it('preferProvider: "higgsfield-cli" now resolves to one of its own job types', async () => {
     process.env[HF_FLAG] = 'true';
 
-    await expect(
-      handleVideoRoute({
-        mode: 't2v',
-        prompt: 'a slow push-in on a quiet street',
-        durationSec: 5,
-        resolution: '1080p',
-        preferProvider: 'higgsfield-cli',
-      }),
-    ).rejects.toThrow(/no model supporting mode/);
+    const result = await handleVideoRoute({
+      mode: 't2v',
+      prompt: 'a slow push-in on a quiet street',
+      durationSec: 5,
+      resolution: '1080p',
+      preferProvider: 'higgsfield-cli',
+    });
+
+    expect(result.provider).toBe('higgsfield-cli');
+    // The id IS the CLI job type. Anything else here would mean the router
+    // handed the adapter a string the CLI has never heard of, which is the
+    // failure this whole entry exists to end.
+    expect(['kling3_0_turbo', 'kling3_0', 'seedance_2_0', 'seedance_2_0_mini']).toContain(
+      result.modelId,
+    );
+  });
+
+  it('a CLI spec is never auto-selected without a declared credit rate', async () => {
+    process.env[HF_FLAG] = 'true';
+    delete process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
+
+    // No preferProvider: this is the open cost sort. Credits are a prepaid
+    // bucket that expires; converting them to dollars on a rate nobody supplied
+    // would let the router spend a different currency than the caller budgeted
+    // in. `credits-per-second` throws without the rate and normalizeCostUSDSafe
+    // turns that into POSITIVE_INFINITY, so the spec is reachable by name and
+    // never wins on price.
+    const result = await handleVideoRoute({
+      mode: 't2v',
+      prompt: 'a slow push-in on a quiet street',
+      durationSec: 5,
+      resolution: '720p',
+    });
+
+    expect(result.provider).not.toBe('higgsfield-cli');
   });
 
   it('the same call fails when the flag is off — proving the flag is load-bearing', async () => {

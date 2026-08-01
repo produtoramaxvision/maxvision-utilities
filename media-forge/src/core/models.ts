@@ -112,7 +112,21 @@ export type VideoMode = (typeof VIDEO_MODES)[number];
 export const IP_RISK_LEVELS = ['low', 'medium', 'high'] as const;
 export type IpRiskLevel = (typeof IP_RISK_LEVELS)[number];
 
-export const PRICING_UNITS = ['usd-per-second', 'usd-per-video', 'credits-per-video', 'per-second'] as const;
+export const PRICING_UNITS = [
+  'usd-per-second',
+  'usd-per-video',
+  'credits-per-video',
+  'per-second',
+  /**
+   * Credits that scale with duration, unlike `credits-per-video` which is flat.
+   *
+   * Added for the Higgsfield CLI catalogue, where every model was measured and
+   * came back exactly linear in duration (see aggregator-routes.ts). Pricing
+   * those as `credits-per-video` would have ignored duration entirely and
+   * reported a 10-second render at the 5-second price.
+   */
+  'credits-per-second',
+] as const;
 export type PricingUnit = (typeof PRICING_UNITS)[number];
 
 export const PRICING_SOURCES = ['fixed-public-rate', 'volatile-by-tier', 'user-override'] as const;
@@ -349,6 +363,125 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
     },
     ipRiskLevel: 'high',
   },
+
+  // -------------------------------------------------------------------------
+  // higgsfield-cli catalogue.
+  //
+  // The `higgsfield-cli` provider existed with ZERO models, so naming it always
+  // failed — the CLI's `job_type` values and the `higgsfield` registry ids are
+  // DISJOINT sets, not two names for the same thing. `higgsfield-soul2` is a
+  // video spec; `text2image_soul_v2` is an image job type. Live proof of the
+  // failure: `exit 4: No model with job_type "higgsfield-soul2"`.
+  //
+  // A mapping table would have been an invention. These entries are the other
+  // answer: register what the transport ACTUALLY serves, under its own provider.
+  // The CLI resells other vendors' models, so the ids below are the CLI's own
+  // job_type strings verbatim — `buildCliArgs` passes `req.modelId` straight
+  // through as the job type, so id === job_type is what makes the path work.
+  //
+  // ## Priced in credits, never converted
+  //
+  // Higgsfield credits are a prepaid monthly bucket that expires. Converting
+  // them to dollars to sort against a metered provider is a modelling error, not
+  // a missing feature — see the header of aggregator-routes.ts. So these use
+  // `credits-per-second`, which THROWS without MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT,
+  // and `normalizeCostUSDSafe` turns that into POSITIVE_INFINITY. Net effect:
+  // reachable by name, never auto-selected on an exchange rate nobody declared.
+  //
+  // Rates are measured, not published: `higgsfield generate cost <job_type>` is
+  // a read that spends nothing, and every model came back exactly linear in
+  // duration, which is why credits-per-SECOND is the honest unit.
+  //
+  // Deliberately absent: `veo3_1` and `wan2_7` (listed by the CLI but never
+  // measured — a rate here would be a guess), and `kling2_6` / `seedance1_5`
+  // (measured, but with no direct registry entry there is nothing to compare
+  // against). Named here rather than dropped silently.
+  // -------------------------------------------------------------------------
+  kling3_0_turbo: {
+    id: 'kling3_0_turbo',
+    provider: 'higgsfield-cli',
+    modes: ['t2v', 'i2v'],
+    maxDurationSec: 10,
+    resolutions: ['720p', '1080p'],
+    fps: [24],
+    audioNative: false,
+    pricing: {
+      unit: 'credits-per-second',
+      rate: 1.5,
+      source: 'volatile-by-tier',
+      updatedAt: '2026-07-30',
+      notes:
+        'Measured via `higgsfield generate cost kling3_0_turbo` (a read, 0 credits spent): ' +
+        '7.5 credits/5s and 15/10s at 720p; 10/5s and 20/10s at 1080p. Baseline is 720p.',
+      resolutionMultipliers: { '1080p': 1.3333333333333333 },
+    },
+    ipRiskLevel: 'low',
+  },
+  kling3_0: {
+    id: 'kling3_0',
+    provider: 'higgsfield-cli',
+    modes: ['t2v', 'i2v'],
+    maxDurationSec: 10,
+    resolutions: ['720p', '1080p', '4k'],
+    fps: [24],
+    audioNative: false,
+    pricing: {
+      unit: 'credits-per-second',
+      rate: 2.0,
+      source: 'volatile-by-tier',
+      updatedAt: '2026-07-30',
+      notes:
+        'Measured: standard 10 credits/5s (2.0 c/s), pro 12.5/5s (2.5 c/s), 4K 30/5s (6.0 c/s). ' +
+        'The CLI exposes one job_type whose price moves with the tier it renders at, so the ' +
+        'tiers are expressed as resolution multipliers off the 720p standard baseline.',
+      resolutionMultipliers: { '1080p': 1.25, '4k': 3.0 },
+    },
+    ipRiskLevel: 'low',
+  },
+  seedance_2_0: {
+    id: 'seedance_2_0',
+    provider: 'higgsfield-cli',
+    modes: ['t2v', 'i2v'],
+    maxDurationSec: 10,
+    resolutions: ['480p', '720p', '1080p'],
+    fps: [24],
+    audioNative: true,
+    pricing: {
+      unit: 'credits-per-second',
+      rate: 4.5,
+      source: 'volatile-by-tier',
+      updatedAt: '2026-07-30',
+      notes:
+        'Measured: 15 credits/5s at 480p (3.0 c/s), 22.5/5s at 720p (4.5 c/s), 45/5s at 1080p ' +
+        '(9.0 c/s). Baseline is 720p, matching the other entries here.',
+      resolutionMultipliers: { '480p': 0.6666666666666666, '1080p': 2.0 },
+    },
+    // Same underlying model as the direct bytedance route, so it carries the
+    // same IP risk — the transport does not change what was trained on.
+    ipRiskLevel: 'high',
+  },
+  seedance_2_0_mini: {
+    id: 'seedance_2_0_mini',
+    provider: 'higgsfield-cli',
+    modes: ['t2v', 'i2v'],
+    // No 1080p: the CLI rejects it for this model ("allowed: 480p, 720p"),
+    // which matches the registry's own resolutions for seedance-2.0-fast.
+    maxDurationSec: 10,
+    resolutions: ['480p', '720p'],
+    fps: [24],
+    audioNative: true,
+    pricing: {
+      unit: 'credits-per-second',
+      rate: 2.5,
+      source: 'volatile-by-tier',
+      updatedAt: '2026-07-30',
+      notes:
+        'Measured: 5 credits/5s at 480p (1.0 c/s), 12.5/5s at 720p (2.5 c/s). Baseline 720p.',
+      resolutionMultipliers: { '480p': 0.4 },
+    },
+    ipRiskLevel: 'high',
+  },
+
   'kling-v3-standard': {
     id: 'kling-v3-standard',
     provider: 'kling',
