@@ -122,6 +122,15 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
     // First, not last: an image model must never reach the cost sort, not merely
     // lose it.
     .filter((spec) => spec.outputType === 'video')
+    // A model the provider does not serve cannot be a route. Six of the ten
+    // mapped Higgsfield endpoints answer `404 model_not_found`, and that fact
+    // used to live only in the live gate's KNOWN_ABSENT table — correct there,
+    // invisible here, so this ranked them anyway.
+    //
+    // It bites hardest right after the line above: with the Soul specs gone,
+    // higgsfield-marketing-studio ($3.125) becomes the cheapest Higgsfield t2v,
+    // so `preferProvider: 'higgsfield'` would route to a 404.
+    .filter((spec) => spec.unavailable === undefined)
     .filter((spec) => spec.modes.includes(input.mode as never))
     // Constrain to providers with a wired adapter. Models registered for
     // future providers (Kling P15, Seedance P16) must not be selected until

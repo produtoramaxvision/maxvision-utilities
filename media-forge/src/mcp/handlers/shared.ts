@@ -1,7 +1,10 @@
 import { join } from 'node:path';
 import type { Provider } from '../../core/models.js';
 import { isSeedanceEnabled } from '../../core/feature-flags.js';
-import { isHiggsfieldCliEnabled } from '../../video/providers/higgsfield-cli.js';
+import {
+  isHiggsfieldCliEnabled,
+  HiggsfieldCliProvider,
+} from '../../video/providers/higgsfield-cli.js';
 import type { WebhookRouter } from '../../video/providers/webhook-router.js';
 import { HiggsfieldProvider } from '../../video/providers/higgsfield.js';
 
@@ -143,4 +146,32 @@ export function higgsfieldProvider(): HiggsfieldProvider {
  *  current dbPath / env. Tests with their own tmp dbPath MUST call this in beforeEach. */
 export function _resetHiggsfieldProviderForTests(): void {
   _hfProvider = undefined;
+}
+
+// ---------------------------------------------------------------------------
+// higgsfieldCliProvider — the CLI transport, which nothing in src/ constructed.
+//
+// `HiggsfieldCliProvider` is fully implemented (preflight, fetchCostCredits,
+// generate, pollStatus, download, ledger hooks) and covered by a live gate, but
+// a repo-wide search for `new HiggsfieldCliProvider` found only its own class
+// declaration. Meanwhile MEDIA_FORGE_HF_CLI_ENABLED=true adds 'higgsfield-cli'
+// to getAdaptedProviders() above, which makes kling3_0 / kling3_0_turbo /
+// seedance_2_0 / seedance_2_0_mini pass isSpecRoutable — so the flag promised
+// routes that nothing could execute.
+//
+// This closes the construction half. The submit TOOLS that call it land with the
+// Marketing Studio / UGC work; until then the flag stays default-off and the
+// only consumer is that work.
+// ---------------------------------------------------------------------------
+let _hfCliProvider: HiggsfieldCliProvider | undefined;
+
+export function higgsfieldCliProvider(): HiggsfieldCliProvider {
+  if (_hfCliProvider) return _hfCliProvider;
+  _hfCliProvider = new HiggsfieldCliProvider();
+  return _hfCliProvider;
+}
+
+/** Test utility — mirrors _resetHiggsfieldProviderForTests for the CLI transport. */
+export function _resetHiggsfieldCliProviderForTests(): void {
+  _hfCliProvider = undefined;
 }

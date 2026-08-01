@@ -426,6 +426,21 @@ export class HiggsfieldCliProvider implements VideoProvider {
     };
   }
 
+  /**
+   * KNOWN GAP — `jobId` here must be the CLI's OWN job id, not ours.
+   *
+   * `generate()` mints a local id (`hfcli-<ts>-<rand>`) for the ledger and
+   * returns the CLI's id separately as `providerNativeId`. `higgsfield generate
+   * get` only knows the latter, so passing the local id back into this method
+   * asks the CLI about a job it has never heard of.
+   *
+   * HiggsfieldProvider solves this with `recordRequestMapping` (local id ->
+   * request_id, persisted); this transport has no equivalent, so the mapping has
+   * to be held by the caller. Written down rather than papered over: there is no
+   * MCP tool wired to this provider yet, so no caller is getting it wrong today,
+   * and inventing a mapping table here without the tool that needs it would be
+   * guessing at its shape.
+   */
   async pollStatus(jobId: string): Promise<JobStatus> {
     const result = await this.runner(['generate', 'get', jobId, '--json'], COST_TIMEOUT_MS);
 

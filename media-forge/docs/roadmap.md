@@ -2,7 +2,13 @@
 
 ---
 
-## v0.1.1 — Current Release
+<!-- The section below documents what shipped in v0.1.1 and is kept as written.
+     It used to be headed "Current Release" while package.json was already at
+     0.2.14 — the content was accurate, the claim about it was not. Renumbering
+     the heading would have rewritten history instead of correcting the label.
+     Current shipped version: see package.json / .claude-plugin/plugin.json. -->
+
+## v0.1.1 — Release history
 
 **Scope:** Production-ready plugin for top-tier image and video generation via Claude Code, MCP, and CLI. Google-only image plus multi-provider video (Veo, Higgsfield, Kling 3.0, Seedance 2.0).
 

@@ -38,28 +38,30 @@ const SHOULD_RUN =
 const describeIfLive = SHOULD_RUN ? describe : describe.skip;
 
 /**
- * Endpoints this repo maps that the platform does not serve, with the answer it
- * gave on 2026-08-01. Removing an entry is a claim that the model now exists —
- * the assertion below checks it by POSTing, not by reading the catalogue.
+ * Endpoints this repo maps that the platform does not serve — READ FROM THE
+ * REGISTRY, not from a table kept here.
  *
- * `higgsfield-speak` was in this list for exactly one commit and did not belong:
- * `/higgsfield-ai/speak/standard` 404s but `/higgsfield-ai/speak` answers. It
- * was written off because it was missing from `GET /models`, and that inference
- * was wrong — see the comment on probeExists.
+ * This list used to be a local constant, which made the gate correct and the
+ * ROUTER blind: handleVideoRoute ranked all ten mapped endpoints because nothing
+ * in src/ knew that six of them 404. Two copies of a fact drift; one of them was
+ * the one the runtime actually used.
  *
- * Each entry was probed with and without the tier segment.
+ * `spec.unavailable` in src/core/models.ts is now the single source, carrying the
+ * platform's own answer and the date it was asked. This file's job is unchanged
+ * and is what keeps that source honest: it re-POSTs every mapped endpoint and
+ * fails if anything marked unavailable is now served (delete the marker and wire
+ * the tool) or if anything unmarked has stopped being served.
+ *
+ * `higgsfield-speak` was written off here for exactly one commit and did not
+ * belong: `/higgsfield-ai/speak/standard` 404s but `/higgsfield-ai/speak`
+ * answers. It was assumed absent because it was missing from `GET /models`, and
+ * that inference was wrong — see the comment on probeExists.
  */
-const KNOWN_ABSENT: Readonly<Record<string, string>> = {
-  // "pro" is not a tier. The path segment is a mode, and the platform said so:
-  // Input should be 'reference', 'character' or 'standard'
-  'higgsfield-soul-pro': 'invalid mode segment — soul takes reference|character|standard',
-  // Real slug is higgsfield-ai/soul/v2/standard. Also an IMAGE model.
-  'higgsfield-soul2': '404 — real path is /higgsfield-ai/soul/v2/standard, and it is text2image',
-  'higgsfield-speak2': '404 with and without the tier segment; no speak2 anywhere',
-  'higgsfield-cinema-studio-3.5': '404; CLI has it as workflow cinematic_studio_video_3_5',
-  'higgsfield-marketing-studio': '404; CLI has it as workflow marketing_studio_video',
-  'higgsfield-recast': '404 with and without the tier segment',
-};
+const KNOWN_ABSENT: ReadonlySet<string> = new Set(
+  Object.values(VIDEO_MODELS)
+    .filter((spec) => spec.unavailable !== undefined)
+    .map((spec) => spec.id),
+);
 
 /**
  * Does the platform serve this path?
@@ -127,7 +129,7 @@ describeIfLive('Higgsfield endpoint map vs the platform catalogue', () => {
 
     for (const [modelId, endpoint] of Object.entries(HIGGSFIELD_ENDPOINTS)) {
       const served = await probeExists(endpoint, headers);
-      const expectedAbsent = modelId in KNOWN_ABSENT;
+      const expectedAbsent = KNOWN_ABSENT.has(modelId);
       if (!served && !expectedAbsent) unexpectedlyAbsent.push(`${modelId} -> ${endpoint}`);
       if (served && expectedAbsent) unexpectedlyPresent.push(`${modelId} -> ${endpoint}`);
     }

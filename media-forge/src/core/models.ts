@@ -185,6 +185,30 @@ export interface VideoModelSpec {
   };
   readonly ipRiskLevel: IpRiskLevel;
   /**
+   * Present when the provider does not actually serve this model.
+   *
+   * The truth used to live in a KNOWN_ABSENT table inside
+   * tests/video/providers/higgsfield-endpoints-live.test.ts. That made the live
+   * gate correct and the ROUTER blind: six of the ten mapped Higgsfield
+   * endpoints answer `404 model_not_found`, yet handleVideoRoute happily ranked
+   * them and could return one as the cheapest route. A test file is the wrong
+   * home for a fact the runtime has to act on, and two copies of it drift.
+   *
+   * Concrete case this closes: higgsfield-marketing-studio is a live t2v
+   * candidate at $3.125. Once the Soul specs left the pool via outputType, it
+   * became the cheapest Higgsfield t2v — so `preferProvider: 'higgsfield'` would
+   * have started routing to a 404.
+   *
+   * `verifiedAt` is the date the probe ran, not the date someone believed it.
+   * The live gate re-asks the platform every run and fails if any entry here is
+   * now served (remove it and wire the tool) or if anything NOT listed here has
+   * stopped being served.
+   */
+  readonly unavailable?: {
+    readonly reason: string;
+    readonly verifiedAt: string;
+  };
+  /**
    * Optional per-model capability caps. When present, downstream schemas + handlers MUST
    * read from here rather than hardcoding constants. Currently used by:
    *   - kling-v3-omni: maxShots / maxDurationSec / per-shot bounds (Task 9 Zod schema)
@@ -275,6 +299,11 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
       updatedAt: '2026-05-27',
       notes: 'Higgsfield Soul pro tier — higher quality, slower.',
     },
+    unavailable: {
+      reason:
+        'not a tier — /higgsfield-ai/soul/{mode} takes reference|character|standard, so "pro" is an invalid path segment (422 loc:["path","mode"])',
+      verifiedAt: '2026-08-01',
+    },
     ipRiskLevel: 'low',
   },
   'higgsfield-soul2': {
@@ -292,6 +321,11 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
       source: 'volatile-by-tier',
       updatedAt: '2026-05-27',
       notes: 'Higgsfield Soul 2.0 — improved coherence, character consistency via multi-ref.',
+    },
+    unavailable: {
+      reason:
+        '404 model_not_found at /higgsfield-ai/soul2/standard; the real slug is /higgsfield-ai/soul/v2/standard, and it is text2image',
+      verifiedAt: '2026-08-01',
     },
     ipRiskLevel: 'low',
   },
@@ -371,6 +405,11 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
       updatedAt: '2026-05-27',
       notes: 'Speak 2.0 — longer clips, better emotion mapping.',
     },
+    unavailable: {
+      reason:
+        '404 model_not_found with and without the tier segment; no speak2 exists on any Higgsfield surface',
+      verifiedAt: '2026-08-01',
+    },
     ipRiskLevel: 'medium',
   },
   'higgsfield-cinema-studio-3.5': {
@@ -388,6 +427,11 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
       source: 'volatile-by-tier',
       updatedAt: '2026-05-27',
       notes: 'Cinema Studio 3.5 — 1,296 virtual lenses, focal length / aperture / sensor / grading.',
+    },
+    unavailable: {
+      reason:
+        '404 model_not_found on the Cloud API; the product lives on the CLI surface as job type cinematic_studio_video_3_5',
+      verifiedAt: '2026-08-01',
     },
     ipRiskLevel: 'low',
   },
@@ -407,6 +451,11 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
       updatedAt: '2026-05-27',
       notes: '9 UGC templates (unboxing, TV spot, hyper-motion, product review, ...) from product URL.',
     },
+    unavailable: {
+      reason:
+        '404 model_not_found on the Cloud API; the product lives on the CLI surface as job type marketing_studio_video',
+      verifiedAt: '2026-08-01',
+    },
     ipRiskLevel: 'medium',
   },
   'higgsfield-recast': {
@@ -424,6 +473,11 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
       source: 'volatile-by-tier',
       updatedAt: '2026-05-27',
       notes: 'Recast Studio — swap character in existing video (Instadump / Character Swap).',
+    },
+    unavailable: {
+      reason:
+        '404 model_not_found with and without the tier segment; absent from the CLI too (dubbing/voice_change are a different product)',
+      verifiedAt: '2026-08-01',
     },
     ipRiskLevel: 'high',
   },

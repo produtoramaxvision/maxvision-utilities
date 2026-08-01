@@ -76,23 +76,28 @@ describe('video routing never selects an image-output model', () => {
   });
 
   // The live path. Without preferProvider the cost sort hides the defect behind
-  // Kling; naming the provider narrows the pool to Higgsfield and the image model
-  // becomes the cheapest thing left.
-  it('does not route a t2v request to Soul when Higgsfield is the preferred provider', async () => {
-    const result = await handleVideoRoute({
-      mode: 't2v',
-      prompt: 'slow push in on a rain-slicked street',
-      durationSec: 8,
-      resolution: '1080p',
-      preferProvider: 'higgsfield',
-    });
-    expect(
-      IMAGE_OUTPUT_MODEL_IDS as readonly string[],
-      `routed a video request to ${result.modelId}, which returns an image`,
-    ).not.toContain(result.modelId);
+  // Kling; naming the provider narrows the pool to Higgsfield, and Soul used to
+  // be the cheapest thing left — this is the call that returned an image endpoint
+  // for a video request before the filter landed.
+  //
+  // It now REFUSES, and that is the honest answer rather than a weaker one: strip
+  // the image models and the 404s and the Higgsfield Cloud API has no working t2v
+  // at all. What remains is dop / dop-turbo (i2v, with-refs) and speak (lip-sync).
+  it('refuses t2v on Higgsfield rather than answering with an image model', async () => {
+    await expect(
+      handleVideoRoute({
+        mode: 't2v',
+        prompt: 'slow push in on a rain-slicked street',
+        durationSec: 8,
+        resolution: '1080p',
+        preferProvider: 'higgsfield',
+      }),
+    ).rejects.toThrow(/preferProvider higgsfield has no model supporting mode t2v/);
   });
 
-  it('does not route an i2v request to Soul when Higgsfield is the preferred provider', async () => {
+  // i2v still has real Higgsfield models, so this one returns — and must not
+  // return Soul, which also declares i2v.
+  it('routes i2v on Higgsfield to a video model, never to Soul', async () => {
     const result = await handleVideoRoute({
       mode: 'i2v',
       prompt: 'the subject turns toward camera',
@@ -104,6 +109,7 @@ describe('video routing never selects an image-output model', () => {
       IMAGE_OUTPUT_MODEL_IDS as readonly string[],
       `routed a video request to ${result.modelId}, which returns an image`,
     ).not.toContain(result.modelId);
+    expect(result.provider).toBe('higgsfield');
   });
 
   // The default path, across the grid where Soul is actually eligible.
