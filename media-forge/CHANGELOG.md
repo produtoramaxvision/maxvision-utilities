@@ -4,6 +4,53 @@ All notable changes to `media-forge` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.12] - 2026-08-01
+
+Closes the last of the open work items, and finds one nobody had filed.
+
+### Fixed
+
+- **The BytePlus ModelArk submit body was wrong on four points at once**, so the
+  ARK-direct route (Seedance 2.0's fallback) can never have completed a submit.
+  The adapter's own comment admitted the shape was a guess. Verified against
+  ModelArk docs 1366799 / 2291680 / 2315856 / 2298881: `content` is an array of
+  typed items rather than an object, the prompt goes in `content[].text`,
+  references go in `content[].image_url.url` with a `role`, `duration`/`seed` are
+  top-level, and `model` needs the vendor's id (`dreamina-seedance-2-0-260128`)
+  rather than a media-forge registry name. Three tests had pinned the broken
+  shape — one of them named "model name passes through unchanged", the defect
+  asserted as a feature.
+- **`higgsfield-cli` reaches a model.** The provider was declared with zero
+  registry entries, so naming it always failed. Its `job_type` values and the
+  `higgsfield` registry ids are disjoint sets, so a mapping table would have been
+  an invention; instead the CLI's own job types are registered under its own
+  provider, with `id === job_type` — which is exactly what the adapter passes
+  through. Priced in credits via a new `credits-per-second` unit (the measured
+  rates are linear in duration, which `credits-per-video` would have flattened),
+  and unable to win a cost sort without `MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT`.
+
+### Added
+
+- **T12 Reference Authority Resolver**, unblocked and scoped to a real wire.
+  ModelArk doc 1520757 documents `first_frame` / `last_frame` / multimodal
+  reference as mutually exclusive scenarios — T12's invariant, published by the
+  vendor. The Seedance ARK path had been merging first frame, last frame and
+  loose references into one list tagged `reference_image`, which silently demoted
+  a hard frame constraint to a style hint. Deliberately narrower than T12's
+  original seven-dimension vocabulary: nothing else on any wire here carries a
+  role, and emitting owners nobody reads is what the C5 deferral rejected.
+
+### Notes
+
+- Three TODO entries closed and one new one filed (the ARK body). Two of them
+  were record errors rather than work: the Seedance ARK prompt budget was already
+  closed in `prompt-budget.ts` while `TODOS.md` still said otherwise, and T12's
+  own unblock condition had been met without anyone re-checking it.
+- None of this is exercised against a paid generation: ARK needs a
+  `BYTEPLUS_ARK_API_KEY` this repo does not have, and `higgsfield-cli` needs a
+  machine-level `higgsfield auth login`. Guesses were replaced with documented
+  shapes — stronger evidence, not a response from an API.
+
 ## [0.2.11] - 2026-07-31
 
 ### Added

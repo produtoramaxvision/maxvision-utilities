@@ -129,7 +129,42 @@ reavaliar quando o upstream fechar, ou desenhar a orquestração do zero.
 
 ---
 
-## P2 — T12: Reference Authority Resolver (adiado no eng review)
+## (fechado) P2 — T12: Reference Authority Resolver
+
+**DESTRAVADO E FECHADO em 2026-08-01.** O gatilho que este item declarou —
+"quando algum provider aceitar papel por referência no payload" — foi atendido.
+
+Verificado via `context7-mcp` sobre a doc do BytePlus ModelArk:
+
+| Doc | O que diz |
+|---|---|
+| 1520757 | `role` define o propósito da imagem; "image to video - first frame", "first and last frames" e "multimodal reference" são **mutuamente exclusivos**. First frame = um item com `role: 'first_frame'`; first+last = dois itens, `first_frame` + `last_frame` |
+| 2291680 | papéis `reference_image` / `reference_video` / `reference_audio`; entradas 0-9 imagens, 0-3 vídeo, 0-3 áudio |
+
+Isso é a invariante do T12 publicada pelo próprio vendor.
+
+**O defeito real que ele fecha:** o `submitViaArk` fundia `firstFrameImagePath`,
+`lastFrameImagePath` e `extras.referenceImageUrls` numa lista só, e tudo saía com
+`role: 'reference_image'`. Quem pedia "abre neste frame" via o frame rebaixado a
+dica de estilo, e quem mandava frame **e** referências pedia dois cenários que a
+doc diz serem exclusivos. Nenhum dos dois falha alto — o modelo devolve vídeo
+plausível que ignora a restrição, e isso se lê como qualidade de modelo.
+
+`src/video/reference-authority.ts` atribui exatamente um papel por asset e recusa
+conjunto ambíguo, reportando todos os conflitos de uma vez.
+
+**Escopo deliberadamente menor que o T12 original.** O vocabulário de sete
+dimensões (identity, camera, timing, style…) não é aceito por wire nenhum; emitir
+donos para elas recriaria a contabilidade não consumida que o C5 recusou. Modela
+só o que a ARK lê, e cresce quando outro provider publicar mais.
+
+**Continua verdade em `base.ts`:** `multiReferenceImages` ainda é
+`ReadonlyArray<string>` sem papel, e o Veo mapeia tudo para `referenceType: ASSET`
+uniforme. O resolver é ARK-only por isso, não por preguiça.
+
+---
+
+## (histórico) P2 — T12: Reference Authority Resolver (adiado no eng review)
 
 **O quê:** resolver que atribui exatamente um asset dono por dimensão controlada
 (identity, first-frame, product, motion, camera, audio, style) e rejeita ambiguidade.
@@ -208,7 +243,73 @@ Nenhum dos removidos estava no `src/index.ts`, então não é quebra de API púb
 
 ---
 
-## P1 — O transporte `higgsfield-cli` não alcança nenhum modelo do registry
+## (fechado) P1 — O corpo do submit da ARK era um chute, e estava errado em quatro pontos
+
+**ACHADO E FECHADO em 2026-08-01**, durante a auditoria do orçamento de prompt.
+Nunca foi registrado antes — a rota ARK-direta (fallback do Seedance 2.0) **não
+podia jamais ter completado um submit**.
+
+O próprio comentário do adapter admitia o chute: *"If official docs reveal a
+different top-level key structure, update the body object AND the test"*.
+
+Verificado via `context7-mcp` contra as docs 1366799 (este exato endpoint),
+2291680, 2315856 e 2298881:
+
+| Era | É |
+|---|---|
+| `content: { … }` objeto | `content: [ … ]` **array** de itens tipados |
+| `content.prompt` | `content[0] = {type:'text', text}` |
+| `content.image_urls: [url]` | `content[] = {type:'image_url', image_url:{url}, role}` |
+| `content.duration` / `.seed` | `duration` / `seed` **no topo** |
+| `model: 'seedance-2.0-fast'` | `model: 'dreamina-seedance-2-0-fast-260128'` |
+
+Quatro erros independentes num corpo só. Qualquer um derruba a requisição — e o
+arquivo ainda carregava um `maybeLog404` "defensive first-404 logger": alguém
+esperava problema e entregou um log em vez de uma verificação.
+
+**O do model id era o mais silencioso:** repassava o nome do nosso registry, e a
+ARK responderia sobre um modelo inexistente — que se lê como "Seedance
+indisponível", não como "este adapter mandou string errada". Os ids de vendor vêm
+da doc 2298881. Id não mapeado agora é recusado **antes** do fetch.
+
+**Três testes fixavam o bug**, inclusive um chamado *"Seedance 2.0 model name
+passes through unchanged"* — o defeito afirmado como recurso.
+
+**Continua não exercitado ao vivo** — não há `BYTEPLUS_ARK_API_KEY` aqui. Um
+chute foi trocado por forma documentada: evidência mais forte, não resposta da
+API. A metade do poll já estava correta e não foi tocada.
+
+---
+
+## (fechado) P1 — O transporte `higgsfield-cli` não alcança nenhum modelo do registry
+
+**FECHADO em 2026-08-01.** A correção não foi tabela de mapeamento — foi
+**registrar o que o transporte de fato serve, sob o provider dele**.
+
+O `higgsfield-cli` estava declarado como provider com **zero** modelos, então
+nomeá-lo sempre falhava. Quatro specs novos em `src/core/models.ts` com
+**id === job_type da CLI** (`kling3_0_turbo`, `kling3_0`, `seedance_2_0`,
+`seedance_2_0_mini`), que é exatamente o que o `buildCliArgs` repassa.
+
+Preço em **crédito**, nunca convertido: unidade nova `credits-per-second` (as
+medições são lineares em duração; `credits-per-video` é flat e reportaria 10s ao
+preço de 5s). Sem `MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT` ela lança, o
+`normalizeCostUSDSafe` vira `Infinity`, e o spec fica **alcançável por nome e
+nunca escolhido automaticamente**. Teste fixa isso.
+
+Fora, e nomeados em vez de sumidos: `veo3_1` e `wan2_7` (a CLI lista, ninguém
+mediu — taxa aqui seria chute) e `kling2_6` / `seedance1_5` (medidos, sem entrada
+direta no registry para comparar).
+
+O teste `"has no routable spec, even with the flag on"` fixava o estado quebrado
+como se fosse o design. Reescrito.
+
+**Não exercitado contra geração paga** — exige `higgsfield auth login` e esta
+branch não gasta. Catálogo e taxas foram lidos ao vivo; o submit não.
+
+---
+
+## (histórico) P1 — O transporte `higgsfield-cli` não alcança nenhum modelo do registry
 
 **Achado em 2026-07-31, só por execução real.** O T5 estava marcado "feito"; o
 caminho de `generate` nunca funcionou. Três defeitos empilhados:
@@ -1051,7 +1152,23 @@ Kling explicitamente, vale o perfil direto. Falta o roteador saber.
 **Esforço:** M (CC ~45min) para a consciência; a ordenação cross-unidade depende de
 decisão do usuário.
 
-## (parcial) P2 — Orçamento de prompt do Seedance não verificado
+## (fechado) P2 — Orçamento de prompt do Seedance não verificado
+
+**FECHADO POR INTEIRO.** A metade ARK já estava fechada **no código** desde
+2026-07-31 (`prompt-budget.ts`: "BytePlus ModelArk video-generation reference
+(size/duration/rate limits only, no prompt length bound). Both routes checked.").
+Só este registro seguia dizendo "não abriu".
+
+Terceira confirmação independente em 2026-08-01 via `context7-mcp`: as docs
+1366799, 1587797 e 2223965 descrevem `content.text` e **nenhuma publica limite de
+caracteres**. Mesmo achado da fal.ai.
+
+`promptMaxChars: null` significa "a superfície não publica limite", não "ninguém
+checou".
+
+---
+
+## (histórico/parcial) P2 — Orçamento de prompt do Seedance não verificado
 
 **ROTA DEFAULT FECHADA em 2026-07-31.** A fal.ai publica um OpenAPI por endpoint.
 Para `bytedance/seedance-2.0/text-to-video` — o slug que o adapter realmente

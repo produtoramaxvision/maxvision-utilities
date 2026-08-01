@@ -10,6 +10,8 @@
  * Download: GET <video_url> (returned in poll response)
  */
 
+import { resolveReferenceAuthority } from '../reference-authority.js';
+
 const ARK_BASE =
   'https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks';
 
@@ -61,6 +63,17 @@ export interface SubmitArkOptions {
   /** Resolution enum per A0.6 (480p supported on fast tier; 1080p Standard-only). */
   readonly resolution: '480p' | '720p' | '1080p';
   readonly aspectRatio?: '21:9' | '16:9' | '4:3' | '1:1' | '3:4' | '9:16';
+  /**
+   * The frame the clip must OPEN on. Kept separate from `imageUrls` because ARK
+   * gives it a different role (`first_frame`) and documents the frame scenarios
+   * as mutually exclusive with multimodal references — merging them, which is
+   * what this adapter used to do, silently demotes a hard frame constraint to a
+   * loose style hint.
+   */
+  readonly firstFrameUrl?: string;
+  /** The frame the clip must CLOSE on. Requires a first frame. */
+  readonly lastFrameUrl?: string;
+  /** Loose multimodal references. Cannot be combined with the frames above. */
   readonly imageUrls?: ReadonlyArray<string>;
   readonly videoUrls?: ReadonlyArray<string>;
   readonly audioUrls?: ReadonlyArray<string>;
@@ -138,12 +151,68 @@ function buildAuthHeader(injectedKey?: string): { Authorization: string } {
 // -------------------------------------------------------------------------
 
 /**
+ * media-forge registry id -> the model id ARK actually accepts.
+ *
+ * The adapter used to pass `req.modelId` straight through, which meant ARK was
+ * asked for `seedance-2.0-standard` — a name only this repo uses. Verified via
+ * context7 against ModelArk doc 2298881 ("Model Capabilities"), which names
+ * `dreamina-seedance-2-0-260128` as standard Dreamina Seedance 2.0 and
+ * `dreamina-seedance-2-0-fast-260128` as the faster variant. Both appear as
+ * `model` values in the task-listing responses of docs 1521675 and 2291680.
+ *
+ * An unmapped id is refused rather than forwarded: sending a registry name ARK
+ * has never heard of produces an error from the vendor about a model, which
+ * reads as "the model is unavailable" instead of "this adapter sent the wrong
+ * string".
+ */
+const ARK_MODEL_IDS: Readonly<Record<string, string>> = Object.freeze({
+  'seedance-2.0-standard': 'dreamina-seedance-2-0-260128',
+  'seedance-2.0-fast': 'dreamina-seedance-2-0-fast-260128',
+});
+
+export function arkModelIdFor(registryId: string): string {
+  const arkId = ARK_MODEL_IDS[registryId];
+  if (arkId === undefined) {
+    throw new ArkAuthConfigError(
+      `no BytePlus ModelArk model id is known for "${registryId}". ARK accepts the vendor's ` +
+        `own ids (e.g. dreamina-seedance-2-0-260128), not media-forge registry names. ` +
+        `Add the mapping in byteplus-ark.ts rather than forwarding a name ARK cannot resolve.`,
+    );
+  }
+  return arkId;
+}
+
+/**
  * Submits a Seedance video generation task to BytePlus ModelArk.
  *
- * Body shape: `{ model, content: { type, prompt, duration, resolution, ... } }`
- * — mirrors the BytePlus ModelArk REST contract. If official docs reveal a
- * different top-level key structure, update the body object AND the test that
- * pins `Object.keys(body).sort()` === ['content', 'model'].
+ * ## The body this used to send was a guess, and it was wrong
+ *
+ * The previous shape was `{ model, content: { type, prompt, duration, ... } }`
+ * with `image_urls` / `video_urls` / `audio_urls` arrays nested inside
+ * `content`. Its own comment admitted the guess: "If official docs reveal a
+ * different top-level key structure, update the body object". They do.
+ *
+ * Verified via context7 against ModelArk docs 1366799 (this exact endpoint),
+ * 2291680 and 2315856. Four things were wrong at once, so the ARK-direct route
+ * cannot ever have completed a submit:
+ *
+ *   content       is an ARRAY of typed items, not an object
+ *   the prompt    goes in `content[].text`, not `content.prompt`
+ *   references    go in `content[].image_url.url` with a `role`, not in
+ *                 `content.image_urls[]`
+ *   duration/seed are TOP-LEVEL, not nested inside content
+ *
+ * The `role` field is the vendor's own vocabulary — `reference_image`,
+ * `reference_video`, `reference_audio` — and doc 1520757 states the scenarios
+ * (first-frame, first-and-last-frame, multimodal reference) are mutually
+ * exclusive.
+ *
+ * The poll half was already correct: `{ id, status, content.video_url }` matches
+ * the documented GET response, which is why only the submit is rewritten here.
+ *
+ * STILL NOT EXERCISED LIVE. This repo has no BYTEPLUS_ARK_API_KEY, so what
+ * changed is a guess replaced by a documented shape — stronger evidence, not a
+ * response from the API.
  */
 export async function submitArkTask(opts: SubmitArkOptions): Promise<SubmitArkResult> {
   const authHeader = buildAuthHeader(opts.apiKey);
@@ -153,19 +222,42 @@ export async function submitArkTask(opts: SubmitArkOptions): Promise<SubmitArkRe
     ...(opts.endUserId ? { 'X-End-User-Id': opts.endUserId } : {}),
   };
 
-  const content: Record<string, unknown> = {
-    type: 'video',
-    prompt: opts.prompt,
+  // The prompt is always first. ARK reads the array in order, and reference
+  // items are described relative to the text that precedes them.
+  const content: Array<Record<string, unknown>> = [{ type: 'text', text: opts.prompt }];
+
+  // T12: exactly one role per asset, and the three ARK scenarios never mixed.
+  // Throws on an ambiguous set rather than picking — the resolver's whole reason
+  // to exist is that authority must never be inferred from media type or order.
+  const { assignments } = resolveReferenceAuthority({
+    firstFrameUrl: opts.firstFrameUrl,
+    lastFrameUrl: opts.lastFrameUrl,
+    referenceImageUrls: opts.imageUrls,
+    referenceVideoUrls: opts.videoUrls,
+    referenceAudioUrls: opts.audioUrls,
+  });
+
+  for (const { url, role } of assignments) {
+    if (role === 'reference_video') {
+      content.push({ type: 'video_url', video_url: { url }, role });
+    } else if (role === 'reference_audio') {
+      content.push({ type: 'audio_url', audio_url: { url }, role });
+    } else {
+      // first_frame, last_frame and reference_image are all image_url items;
+      // only the role separates them, which is precisely the distinction that
+      // was being lost.
+      content.push({ type: 'image_url', image_url: { url }, role });
+    }
+  }
+
+  const body: Record<string, unknown> = {
+    model: arkModelIdFor(opts.model),
+    content,
     duration: opts.durationSec,
     resolution: opts.resolution,
-    aspect_ratio: opts.aspectRatio ?? '16:9',
+    ratio: opts.aspectRatio ?? '16:9',
   };
-  if (opts.imageUrls && opts.imageUrls.length > 0) content['image_urls'] = [...opts.imageUrls];
-  if (opts.videoUrls && opts.videoUrls.length > 0) content['video_urls'] = [...opts.videoUrls];
-  if (opts.audioUrls && opts.audioUrls.length > 0) content['audio_urls'] = [...opts.audioUrls];
-  if (typeof opts.seed === 'number') content['seed'] = opts.seed;
-
-  const body = { model: opts.model, content };
+  if (typeof opts.seed === 'number') body['seed'] = opts.seed;
 
   const doFetch = opts.fetchImpl ?? fetch;
   const res = await doFetch(ARK_BASE, {

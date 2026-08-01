@@ -674,16 +674,20 @@ export class BytedanceSeedanceProvider implements VideoProvider {
           | '3:4'
           | '9:16'
           | undefined,
-        // FIX (Codex P1, PR#12): preserve frame images on ARK fallback.
-        // handleSeedanceImageToVideo stores start/end frames in
-        // req.firstFrameImagePath/req.lastFrameImagePath, NOT in
-        // extras.referenceImageUrls. Without this merge, i2v jobs
-        // silently become text-only when ARK path is taken.
-        imageUrls: [
-          ...(req.firstFrameImagePath ? [req.firstFrameImagePath] : []),
-          ...(req.lastFrameImagePath ? [req.lastFrameImagePath] : []),
-          ...(extras?.referenceImageUrls ?? []),
-        ].filter((url): url is string => Boolean(url)),
+        // The frames are passed SEPARATELY, not merged into imageUrls.
+        //
+        // The earlier fix here was right that frames must not be dropped on the
+        // ARK path, and wrong about how to keep them: merging all three into one
+        // list meant every entry went out as `role: 'reference_image'`, so a
+        // caller asking to open on a specific frame got that frame demoted to a
+        // loose style hint, and supplying frames AND references requested two
+        // scenarios ModelArk documents as mutually exclusive. Neither failed
+        // loudly — the model returned a plausible video that ignored the
+        // constraint. `resolveReferenceAuthority` (T12) now assigns exactly one
+        // role per asset and refuses an ambiguous set.
+        ...(req.firstFrameImagePath ? { firstFrameUrl: req.firstFrameImagePath } : {}),
+        ...(req.lastFrameImagePath ? { lastFrameUrl: req.lastFrameImagePath } : {}),
+        imageUrls: extras?.referenceImageUrls,
         videoUrls: extras?.referenceVideoUrls,
         audioUrls: extras?.referenceAudioUrls,
         seed: extras?.seed,

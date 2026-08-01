@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   submitArkTask,
   pollArkTask,
@@ -75,7 +75,7 @@ describe('submitArkTask', () => {
     expect(headers['Content-Type']).toBe('application/json');
   });
 
-  it('body shape: top-level keys are [content, model]; content has required fields', async () => {
+  it('body shape: content is an ARRAY of typed items, duration/resolution are top-level', async () => {
     let capturedBody: Record<string, unknown> | null = null;
     const fetchMock: typeof fetch = async (_url, init = {}) => {
       capturedBody = JSON.parse(init.body as string) as Record<string, unknown>;
@@ -97,19 +97,67 @@ describe('submitArkTask', () => {
     });
 
     expect(capturedBody).not.toBeNull();
-    // CRITICAL: top-level keys. If ARK docs reveal different nesting, this test
-    // fails LOUDLY — fix adapter first, then update this assertion.
-    expect(Object.keys(capturedBody!).sort()).toEqual(['content', 'model']);
-    const content = capturedBody!['content'] as Record<string, unknown>;
-    expect(content).toMatchObject({
-      type: 'video',
-      prompt: 'shape-check',
-      duration: 5,
-      resolution: '1080p',
-    });
+    // This assertion used to read `['content', 'model']` with the prompt and
+    // duration nested inside a content OBJECT. That shape was a guess — the
+    // adapter said so — and ModelArk docs 1366799 / 2291680 contradict it on
+    // four points at once, which means the ARK-direct route can never have
+    // completed a submit. The comment here promised to fail loudly and be
+    // updated after the adapter; this is that update.
+    expect(Object.keys(capturedBody!).sort()).toEqual([
+      'content',
+      'duration',
+      'model',
+      'ratio',
+      'resolution',
+    ]);
+
+    const content = capturedBody!['content'] as Array<Record<string, unknown>>;
+    expect(Array.isArray(content)).toBe(true);
+    // The prompt is a typed text item, and it comes first: ARK reads the array
+    // in order and reference items are described relative to preceding text.
+    expect(content[0]).toEqual({ type: 'text', text: 'shape-check' });
+    expect(capturedBody!['duration']).toBe(5);
+    expect(capturedBody!['resolution']).toBe('1080p');
   });
 
-  it('Seedance 2.0 model name passes through unchanged', async () => {
+  it('references carry the vendor role vocabulary, one item each', async () => {
+    let body: Record<string, unknown> | null = null;
+    const fetchMock: typeof fetch = async (_url, init = {}) => {
+      body = JSON.parse(init.body as string) as Record<string, unknown>;
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({ id: 'roles-1', status: 'queued' }),
+        text: async () => '',
+      } as unknown as Response;
+    };
+
+    await submitArkTask({
+      model: 'seedance-2.0-standard',
+      prompt: 'with refs',
+      durationSec: 5,
+      resolution: '720p',
+      imageUrls: ['https://cdn/a.png', 'https://cdn/b.png'],
+      videoUrls: ['https://cdn/c.mp4'],
+      audioUrls: ['https://cdn/d.mp3'],
+      fetchImpl: fetchMock,
+    });
+
+    const content = body!['content'] as Array<Record<string, unknown>>;
+    // Previously these went into content.image_urls[] — a flat array with no
+    // role, which ARK does not read. `role` is the vendor's own vocabulary and
+    // doc 1520757 states the reference scenarios are mutually exclusive.
+    expect(content).toEqual([
+      { type: 'text', text: 'with refs' },
+      { type: 'image_url', image_url: { url: 'https://cdn/a.png' }, role: 'reference_image' },
+      { type: 'image_url', image_url: { url: 'https://cdn/b.png' }, role: 'reference_image' },
+      { type: 'video_url', video_url: { url: 'https://cdn/c.mp4' }, role: 'reference_video' },
+      { type: 'audio_url', audio_url: { url: 'https://cdn/d.mp3' }, role: 'reference_audio' },
+    ]);
+  });
+
+  it('the registry id is translated to the vendor model id, not forwarded', async () => {
     let sentBody: Record<string, unknown> | null = null;
     const fetchMock: typeof fetch = async (_url, init = {}) => {
       sentBody = JSON.parse(init.body as string) as Record<string, unknown>;
@@ -130,7 +178,28 @@ describe('submitArkTask', () => {
       fetchImpl: fetchMock,
     });
 
-    expect(sentBody!['model']).toBe('seedance-2.0-fast');
+    // This test used to assert the name "passes through unchanged", pinning the
+    // bug as a feature: `seedance-2.0-fast` is a name only this repo uses, and
+    // ARK would answer about a model that does not exist. The vendor id comes
+    // from ModelArk doc 2298881.
+    expect(sentBody!['model']).toBe('dreamina-seedance-2-0-fast-260128');
+  });
+
+  it('an unmapped registry id is refused rather than sent', async () => {
+    const fetchMock = vi.fn();
+    await expect(
+      submitArkTask({
+        model: 'seedance-9.9-imaginary',
+        prompt: 'p',
+        durationSec: 5,
+        resolution: '720p',
+        fetchImpl: fetchMock as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/no BytePlus ModelArk model id is known/);
+    // Refused BEFORE the request: forwarding an unknown name produces a vendor
+    // error about the model, which reads as "unavailable" rather than "this
+    // adapter sent the wrong string".
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('resolution and duration enums appear in content block', async () => {
@@ -154,9 +223,9 @@ describe('submitArkTask', () => {
       fetchImpl: fetchMock,
     });
 
-    const content = sentBody!['content'] as Record<string, unknown>;
-    expect(content['resolution']).toBe('1080p');
-    expect(content['duration']).toBe(10);
+    // Top-level, per the docs — they were nested inside `content` before.
+    expect(sentBody!['resolution']).toBe('1080p');
+    expect(sentBody!['duration']).toBe(10);
   });
 
   it('includes Authorization header matching /^Bearer /', async () => {
@@ -296,7 +365,9 @@ describe('submitArkTask', () => {
 
   it('maps 404 (model not found) to ArkHttpError with status 404', async () => {
     const err = await submitArkTask({
-      model: 'seedance-2.0-nonexistent',
+      // A MAPPED id: this case is about ARK answering 404, not about the
+      // model-id guard, which now refuses an unknown name before any fetch.
+      model: 'seedance-2.0-standard',
       prompt: 'x',
       durationSec: 5,
       resolution: '720p',

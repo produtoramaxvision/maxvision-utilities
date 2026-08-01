@@ -1,6 +1,6 @@
 {
   "name": "media-forge-hosted",
-  "version": "0.2.11",
+  "version": "0.2.12",
   "description": "media-forge hosted edition - image and video generation via MaxVision cloud. Google Imagen 4 / Veo 3.1 / Nano Banana Pro + Higgsfield / Kling 3.0 / Seedance 2.0. Connect with your Bearer key, zero local deps.",
   "author": {
     "name": "Produtora MaxVision",
