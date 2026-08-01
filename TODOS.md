@@ -127,17 +127,36 @@ próprio cabeçalho descreve. Exige credencial HF ao vivo para valer.
 
 ---
 
-## (fechado) OPS8 — escotilha de Windows CI sobreviveu à causa
+## (RETRATADO) OPS8 — a escotilha do Windows CI **não** perdeu a causa; eu li a evidência errado
 
-**FECHADO em 2026-08-01.** O passo `Test` era `continue-on-error` no Windows,
-com a justificativa de que o runner não bootstrapa `embedded-postgres` e que
-"não tem fix runner-side". Verificado nas quatro runs mais recentes
-(`b203d16`, `051a4f4`, `5127059`, `2d4e890`): o passo reporta **success** em
-todas, e a suíte passa numa máquina Windows também.
+**RETRATAÇÃO no mesmo dia, 2026-08-01.** Removi o `continue-on-error` do passo
+`Test` no Windows alegando que a causa tinha passado, citando quatro runs em que
+o passo reportava **success** (`b203d16`, `051a4f4`, `5127059`, `2d4e890`).
 
-Escotilha removida. Uma que perdeu a causa só consegue esconder regressão
-**futura**, na plataforma em que este projeto é desenvolvido, atrás de um check
-verde.
+**Aquela evidência não provava nada, e era produzida pela própria linha que eu
+queria remover.** `continue-on-error: true` marca a conclusão do passo como
+`success` mesmo quando o comando sai com código diferente de zero. Assim que
+removi, o `main` ficou vermelho na run seguinte e o log de baixo apareceu:
+
+```text
+Execution of PostgreSQL by a user with administrative permissions is not [permitted]
+```
+
+O runner `windows-latest` executa como administrador e o PostgreSQL **recusa**
+iniciar sob conta administrativa. É política do postgres, não defeito deste repo:
+a justificativa original estava **correta** e a minha estava errada.
+
+Escotilha restaurada, agora com o motivo real e com o aviso inline de que "o
+passo reporta success" nunca é evidência válida aqui. As verificações válidas são
+ler o **log** do passo, ou virar a flag para `false` numa branch e olhar lá.
+
+**Registrado em vez de apagado:** eu estava justamente auditando esta classe de
+defeito — afirmação que a evidência não sustenta — e cometi uma.
+
+**Efeito colateral que virou correção:** o commit que removeu a escotilha tocou
+só o `ci.yml`, e o filtro de push do CI não listava o próprio `ci.yml`. Nenhuma
+run disparou nele, e a falha só apareceu um commit depois, numa mudança sem
+relação. O filtro agora cobre o `ci.yml` — o gatilho de `pull_request` já cobria.
 
 ---
 
