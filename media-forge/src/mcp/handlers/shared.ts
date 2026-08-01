@@ -169,13 +169,28 @@ let _hfCliProvider: HiggsfieldCliProvider | undefined;
 
 export function higgsfieldCliProvider(): HiggsfieldCliProvider {
   if (_hfCliProvider) return _hfCliProvider;
-  _hfCliProvider = new HiggsfieldCliProvider();
+  // dbPath is what makes poll and download reachable: it is where the local
+  // job id is paired with the one `higgsfield generate get` understands.
+  _hfCliProvider = new HiggsfieldCliProvider({ dbPath: defaultDbPath() });
   return _hfCliProvider;
 }
 
 /** Test utility — mirrors _resetHiggsfieldProviderForTests for the CLI transport. */
 export function _resetHiggsfieldCliProviderForTests(): void {
   _hfCliProvider = undefined;
+}
+
+/**
+ * Test utility — installs a provider built with a fake CLI runner.
+ *
+ * The HTTP provider can be tested by stubbing global.fetch, but this transport
+ * spawns a binary, so the seam has to be the runner and the runner is a
+ * constructor argument. Without a setter a test can only reach the singleton by
+ * mutating the instance it already returned, which is both fragile and a lie
+ * about how the object is built.
+ */
+export function _setHiggsfieldCliProviderForTests(p: HiggsfieldCliProvider): void {
+  _hfCliProvider = p;
 }
 
 /**

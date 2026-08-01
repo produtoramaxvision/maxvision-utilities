@@ -72,25 +72,13 @@ describe('media_higgsfield_speak handler', () => {
     expect(body['duration_seconds']).toBeUndefined();
   });
 
-  it('routes Speak 2.0 to its endpoint when modelId is higgsfield-speak2', async () => {
-    let capturedUrl = '';
-    global.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      capturedUrl = String(input);
-      return new Response(JSON.stringify({ request_id: 'r', status_url: 'u', cancel_url: 'c' }), {
-        status: 200,
-      });
-    }) as unknown as typeof fetch;
+  // REMOVED — 'routes Speak 2.0 to its endpoint when modelId is higgsfield-speak2'.
+  //
+  // There is no Speak 2.0 endpoint. /higgsfield-ai/speak2/standard answers 404
+  // with and without the tier segment, and speak2 is not a job type or workflow
+  // on the CLI either. The test passed because it asserted against a mocked
+  // fetch, which will confirm any URL you build.
 
-    await handleHiggsfieldSpeak({
-      modelId: 'higgsfield-speak2',
-      portraitImagePath: '/tmp/face.png',
-      audioPath: '/tmp/v.wav',
-      prompt: 'x',
-      durationSec: 30,
-      resolution: '1080p',
-    });
-    expect(capturedUrl).toContain('/higgsfield-ai/speak2/standard');
-  });
 
   it('rejects when audioPath is missing', async () => {
     await expect(

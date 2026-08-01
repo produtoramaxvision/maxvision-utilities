@@ -45,20 +45,20 @@ describe('HiggsfieldProvider', () => {
     expect(provider.name).toBe('higgsfield');
   });
 
-  it('lists all 10 Higgsfield models from VIDEO_MODELS', () => {
+  // Ten became five on 2026-08-01. Five of the original ten answered 404 on the
+  // Cloud API: soul-pro (the segment is a MODE, not a tier), speak2, recast,
+  // cinema-studio-3.5 and marketing-studio. The last two are products that DO
+  // exist — they moved to the CLI transport as cinematic_studio_video_3_5 and
+  // marketing_studio_video, and this provider no longer owns them.
+  it('lists only the Higgsfield models this transport actually serves', () => {
     const ids = provider.models.map((m) => m.id).sort();
     expect(ids).toEqual(
       [
-        'higgsfield-cinema-studio-3.5',
         'higgsfield-dop',
         'higgsfield-dop-turbo',
-        'higgsfield-marketing-studio',
-        'higgsfield-recast',
-        'higgsfield-soul-pro',
         'higgsfield-soul-standard',
         'higgsfield-soul2',
         'higgsfield-speak',
-        'higgsfield-speak2',
       ].sort(),
     );
   });
@@ -75,23 +75,6 @@ describe('HiggsfieldProvider', () => {
     expect(usd).toBeCloseTo(0.975, 3);
   });
 
-  it('estimateCostUSD scales by model — Cinema Studio costs more than Soul standard', () => {
-    const soul = provider.estimateCostUSD({
-      modelId: 'higgsfield-soul-standard',
-      mode: 't2v',
-      prompt: 'x',
-      durationSec: 8,
-      resolution: '720p',
-    });
-    const cinema = provider.estimateCostUSD({
-      modelId: 'higgsfield-cinema-studio-3.5',
-      mode: 't2v',
-      prompt: 'x',
-      durationSec: 8,
-      resolution: '720p',
-    });
-    expect(cinema).toBeGreaterThan(soul);
-  });
 
   it('estimateCostUSD throws on unknown model', () => {
     expect(() =>
@@ -244,90 +227,8 @@ describe('HiggsfieldProvider', () => {
     expect(body['audio_url'] ?? body['audio_path']).toBe('/tmp/voice.wav');
   });
 
-  it('generate routes Marketing Studio with template + product URL', async () => {
-    let captured!: RequestInit;
-    global.fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      captured = init ?? {};
-      return new Response(JSON.stringify({ request_id: 'r', status_url: 'u', cancel_url: 'c' }), {
-        status: 200,
-      });
-    }) as unknown as typeof fetch;
 
-    await provider.generate({
-      modelId: 'higgsfield-marketing-studio',
-      mode: 't2v',
-      prompt: 'product reveal',
-      durationSec: 15,
-      resolution: '1080p',
-      extras: {
-        providerKind: 'higgsfield',
-        marketingStudioTemplate: 'unboxing',
-        marketingStudioProductUrl: 'https://shop.example/p/42',
-      },
-    });
 
-    const body = JSON.parse(captured.body as string) as Record<string, unknown>;
-    expect(body['template']).toBe('unboxing');
-    expect(body['product_url']).toBe('https://shop.example/p/42');
-  });
-
-  it('generate routes Cinema Studio with full lens dictionary', async () => {
-    let captured!: RequestInit;
-    global.fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      captured = init ?? {};
-      return new Response(JSON.stringify({ request_id: 'r', status_url: 'u', cancel_url: 'c' }), {
-        status: 200,
-      });
-    }) as unknown as typeof fetch;
-
-    await provider.generate({
-      modelId: 'higgsfield-cinema-studio-3.5',
-      mode: 'i2v',
-      prompt: 'noir alley',
-      durationSec: 8,
-      resolution: '1080p',
-      firstFrameImagePath: '/tmp/alley.png',
-      extras: {
-        providerKind: 'higgsfield',
-        cinemaStudioParams: {
-          focalLengthMm: 35,
-          apertureFStop: 1.8,
-          sensorSize: 'super35',
-          colorGrading: 'noir',
-          lensId: 'arri-master-prime-35mm',
-        },
-      },
-    });
-
-    const body = JSON.parse(captured.body as string) as Record<string, unknown>;
-    expect(body['focal_length_mm']).toBe(35);
-    expect(body['aperture_fstop']).toBe(1.8);
-    expect(body['sensor_size']).toBe('super35');
-    expect(body['color_grading']).toBe('noir');
-    expect(body['lens_id']).toBe('arri-master-prime-35mm');
-  });
-
-  it('generate routes Recast with target character path', async () => {
-    let captured!: RequestInit;
-    global.fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      captured = init ?? {};
-      return new Response(JSON.stringify({ request_id: 'r', status_url: 'u', cancel_url: 'c' }), {
-        status: 200,
-      });
-    }) as unknown as typeof fetch;
-
-    await provider.generate({
-      modelId: 'higgsfield-recast',
-      mode: 'targeted-edit',
-      prompt: 'swap the protagonist',
-      durationSec: 10,
-      resolution: '720p',
-      extras: { providerKind: 'higgsfield', recastTargetCharacterPath: '/tmp/newchar.png' },
-    });
-
-    const body = JSON.parse(captured.body as string) as Record<string, unknown>;
-    expect(body['target_character_url'] ?? body['target_character']).toBe('/tmp/newchar.png');
-  });
 
   it('generate retries once with fallback headers on 401 and sets MEDIA_FORGE_HF_AUTH_FALLBACK_USED', async () => {
     // Deviation Rule 2: D-5 auth resilience is critical functionality but the

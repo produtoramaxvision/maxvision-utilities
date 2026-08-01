@@ -35,31 +35,171 @@ const BASE_URL = 'https://platform.higgsfield.ai';
 
 /**
  * modelId -> platform path. Exported so a live test can check each one against
- * the platform's own catalogue (`GET /models`) instead of trusting this file.
+ * the platform itself instead of trusting this file.
  *
- * It is not trustworthy on its own. Probed against the real API on 2026-08-01
- * with a freshly minted key, six of these ten answered `404 model_not_found`
- * and `soul/pro` answered `422` complaining the path segment must be
- * `reference | character | standard` — "pro" is not a tier here, the segment is
- * a MODE. See tests/video/providers/higgsfield-endpoints-live.test.ts, which
- * pins today's truth so the day one of them appears (or one of the four working
- * ones disappears) the gate turns red.
+ * It used to hold ten entries and SIX of them answered `404 model_not_found`.
+ * Those are gone rather than annotated — a map of endpoints is not the place to
+ * record which endpoints do not exist:
+ *
+ *   soul/pro                  "pro" is not a tier. The segment is a MODE and the
+ *                             platform said so: reference | character | standard
+ *   speak2/standard           404 with and without the tier segment; speak2
+ *                             exists on no Higgsfield surface
+ *   recast/standard           404; absent from the CLI too
+ *   cinema-studio/3.5         404 on the Cloud API — the product is real and now
+ *   marketing-studio/standard 404 on the Cloud API — reached over the CLI
+ *                             transport as cinematic_studio_video_3_5 and
+ *                             marketing_studio_video
+ *   soul2/standard            404 — corrected in place to soul/v2/standard,
+ *                             which answers
+ *
+ * See tests/video/providers/higgsfield-endpoints-live.test.ts, which re-POSTs
+ * every entry here and turns red if one stops being served.
  */
 export const HIGGSFIELD_ENDPOINTS: Readonly<Record<string, string>> = {
   'higgsfield-soul-standard': '/higgsfield-ai/soul/standard',
-  'higgsfield-soul-pro': '/higgsfield-ai/soul/pro',
-  'higgsfield-soul2': '/higgsfield-ai/soul2/standard',
+  // Real slug — /higgsfield-ai/soul2/standard answered 404. Probed 2026-08-01.
+  'higgsfield-soul2': '/higgsfield-ai/soul/v2/standard',
   'higgsfield-dop': '/higgsfield-ai/dop/standard',
   'higgsfield-dop-turbo': '/higgsfield-ai/dop/turbo',
   // No tier segment. `/higgsfield-ai/speak/standard` answered 404
   // model_not_found; `/higgsfield-ai/speak` answers 422 naming image_url,
   // audio_url and prompt. Probed 2026-08-01.
   'higgsfield-speak': '/higgsfield-ai/speak',
-  'higgsfield-speak2': '/higgsfield-ai/speak2/standard',
-  'higgsfield-cinema-studio-3.5': '/higgsfield-ai/cinema-studio/3.5',
-  'higgsfield-marketing-studio': '/higgsfield-ai/marketing-studio/standard',
-  'higgsfield-recast': '/higgsfield-ai/recast/standard',
 };
+
+/**
+ * The body fields each endpoint ACTUALLY validates, measured 2026-08-01.
+ *
+ * ## Why this has to exist
+ *
+ * This API ignores unknown fields instead of rejecting them. A body carrying a
+ * field the endpoint does not have is accepted, discarded, and the generation
+ * runs at the model default — no error anywhere. That is not a hypothetical: it
+ * is how `duration_seconds` survived months in this file, and the audit that
+ * found it stopped one field short.
+ *
+ * Sending "just in case" is therefore never harmless here. Only fields on this
+ * list are sent; everything else is dropped with a one-time warning, so a
+ * mismatch is visible instead of silent.
+ *
+ * ## How it was measured, and how to re-measure
+ *
+ * POST the endpoint with every candidate name carrying a deliberately WRONG TYPE
+ * and read the 422: a field the schema knows answers with a type error naming
+ * it, and a field it does not know is absent from the response. The body never
+ * validates, so nothing is queued and the whole sweep costs 0 credits:
+ *
+ *   POST /higgsfield-ai/dop/standard
+ *   {"prompt":1,"image_url":2,"last_frame_url":3,"end_image_url":4,"fps":"x"}
+ *   -> detail names prompt, image_url, end_image_url — and NOT last_frame_url or fps
+ *
+ * ## What that sweep corrected
+ *
+ *   last_frame_url  -> end_image_url      every first-last-frame call had been
+ *                                          running as a plain first-frame
+ *                                          animation; the end frame was dropped
+ *   soul_id         -> custom_reference_id a trained Soul-ID (40 credits) was
+ *                                          never applied to any generation
+ *   aspect_ratio / resolution / duration   NOT accepted by dop/*; the registry's
+ *                                          resolution list and the router's
+ *                                          resolution filter are fiction there
+ *   fps, reference_urls, multi_reference_urls, template, product_url,
+ *   target_character_url, proxy_model, virality_predictor, and the five
+ *   cinema-studio lens fields — none exist on any endpoint that answers
+ *
+ * `end_image_url` is accepted by the PLAIN dop endpoints too, not only the
+ * `/first-last-frame` variants.
+ *
+ * Endpoints absent from this map are the ones that 404 (see `spec.unavailable`);
+ * there is no schema to record for a model the platform does not serve.
+ */
+export const HIGGSFIELD_ACCEPTED_BODY_FIELDS: Readonly<Record<string, ReadonlySet<string>>> = {
+  'higgsfield-soul-standard': new Set([
+    'prompt',
+    'aspect_ratio',
+    'resolution',
+    'batch_size',
+    'seed',
+    'custom_reference_id',
+    'style_id',
+  ]),
+  // soul/v2/standard validates the same set as soul/standard.
+  'higgsfield-soul2': new Set([
+    'prompt',
+    'aspect_ratio',
+    'resolution',
+    'batch_size',
+    'seed',
+    'custom_reference_id',
+    'style_id',
+  ]),
+  'higgsfield-dop': new Set([
+    'prompt',
+    'image_url',
+    'end_image_url',
+    'motions',
+    'enhance_prompt',
+    'seed',
+  ]),
+  'higgsfield-dop-turbo': new Set([
+    'prompt',
+    'image_url',
+    'end_image_url',
+    'motions',
+    'enhance_prompt',
+    'seed',
+  ]),
+  'higgsfield-speak': new Set([
+    'prompt',
+    'image_url',
+    'audio_url',
+    'quality',
+    'duration',
+    'enhance_prompt',
+    'seed',
+  ]),
+};
+
+/** One-time warning latch per `${modelId}.${field}` — see dropUnacceptedFields. */
+const _warnedDroppedFields = new Set<string>();
+
+/**
+ * Keeps only the fields the endpoint validates, and says what it dropped.
+ *
+ * Silence is the failure mode being fixed, so a drop is never quiet. It is a
+ * warning rather than a throw because callers legitimately pass `durationSec`
+ * and `resolution` for every provider — those are part of the shared
+ * VideoGenerationRequest shape, and DoP simply has nowhere to put them.
+ *
+ * A model with no entry is one the platform does not serve; its body is passed
+ * through untouched rather than emptied, so the 404 stays the error the caller
+ * sees instead of a confusing empty-body 422.
+ */
+function dropUnacceptedFields(
+  modelId: string,
+  body: Record<string, unknown>,
+): Record<string, unknown> {
+  const accepted = HIGGSFIELD_ACCEPTED_BODY_FIELDS[modelId];
+  if (accepted === undefined) return body;
+
+  const kept: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(body)) {
+    if (accepted.has(key)) {
+      kept[key] = value;
+      continue;
+    }
+    const latch = `${modelId}.${key}`;
+    if (!_warnedDroppedFields.has(latch)) {
+      _warnedDroppedFields.add(latch);
+      process.stderr.write(
+        `[higgsfield] ${modelId} does not accept "${key}" — dropping it. ` +
+          `The platform would have ignored it silently and generated at the default.\n`,
+      );
+    }
+  }
+  return kept;
+}
 
 // One-shot warning latch for the broken HF_WEBHOOK_ENABLE path (Codex P2 PR#13).
 let _warnedHfWebhookBroken = false;
@@ -515,24 +655,26 @@ export class HiggsfieldProvider implements VideoProvider {
       prompt = `${extras.dopCameraVerbs.join(' ')} ${prompt}`;
     }
 
-    // Field names verified against the live API on 2026-08-01 by POSTing bodies
-    // with deliberately invalid values and reading the 422 — every probe fails
-    // validation before any work is queued, so the whole audit cost 0 credits.
+    // Every name below was read off the live API on 2026-08-01 by POSTing the
+    // candidate with a WRONG TYPE and seeing whether the 422 named it. See
+    // HIGGSFIELD_ACCEPTED_BODY_FIELDS for the method and for what the sweep
+    // corrected. The bodies never validate, so the audit cost 0 credits.
     //
-    //   duration_seconds -> duration
-    //     `/higgsfield-ai/speak` answers `Input should be 5, 10 or 15` for
-    //     `duration`, and never mentions `duration_seconds`. Unknown fields are
-    //     ignored rather than rejected, so the old name was silently dropped and
-    //     every request ran at the model default.
+    // Assembled generously, then filtered: dropUnacceptedFields is what stops a
+    // field going to an endpoint that would ignore it in silence.
     const body: Record<string, unknown> = {
       prompt,
       aspect_ratio: req.aspectRatio ?? '16:9',
       resolution: req.resolution,
     };
 
-    //   duration is sent ONLY to endpoints that produce a video — see
-    //   `producesVideo` above for why, and why the decision lives outside this
-    //   function.
+    //   duration_seconds -> duration
+    //     `/higgsfield-ai/speak` answers `Input should be 5, 10 or 15` for
+    //     `duration` and never mentions `duration_seconds`.
+    //
+    //   dop/* accept NO duration at all — nor aspect_ratio, nor resolution. Their
+    //   flat `credits-per-video` price is consistent with that: there is no length
+    //   to charge for. The filter removes all three.
     if (producesVideo(req.modelId)) body['duration'] = req.durationSec;
 
     //   first_frame_url -> image_url
@@ -540,41 +682,37 @@ export class HiggsfieldProvider implements VideoProvider {
     //       POST /higgsfield-ai/dop/standard
     //       {"prompt":"x","first_frame_url":"…"}
     //       -> 422 {"loc":["body","image_url"],"msg":"Field required"}
-    //     Required by dop/{lite,standard,turbo}, their first-last-frame variants
-    //     and speak. `docs.higgsfield.ai/guides/video` uses `image_url` in every
-    //     example; nothing on the platform accepts `first_frame_url`.
     if (req.firstFrameImagePath) body['image_url'] = req.firstFrameImagePath;
-    if (req.lastFrameImagePath) body['last_frame_url'] = req.lastFrameImagePath;
-    if (req.referenceImagePaths && req.referenceImagePaths.length > 0) {
-      body['reference_urls'] = [...req.referenceImagePaths];
-    }
-    if (typeof req.fps === 'number') body['fps'] = req.fps;
 
-    if (!extras) return body;
+    //   last_frame_url -> end_image_url
+    //     `last_frame_url` is not a field on ANY Higgsfield endpoint. It was sent
+    //     and discarded, so every first-last-frame request generated from the
+    //     first frame alone and the end frame the caller chose did nothing.
+    //     Accepted by the plain dop endpoints too, not only /first-last-frame.
+    if (req.lastFrameImagePath) body['end_image_url'] = req.lastFrameImagePath;
 
-    if (extras.soulId) body['soul_id'] = extras.soulId;
-    if (extras.cinemaStudioParams) {
-      const cs = extras.cinemaStudioParams;
-      if (typeof cs.focalLengthMm === 'number') body['focal_length_mm'] = cs.focalLengthMm;
-      if (typeof cs.apertureFStop === 'number') body['aperture_fstop'] = cs.apertureFStop;
-      if (cs.sensorSize) body['sensor_size'] = cs.sensorSize;
-      if (cs.colorGrading) body['color_grading'] = cs.colorGrading;
-      if (cs.lensId) body['lens_id'] = cs.lensId;
-    }
+    if (!extras) return dropUnacceptedFields(req.modelId, body);
+
+    //   soul_id -> custom_reference_id
+    //     The Soul family validates `custom_reference_id` (and `style_id`).
+    //     `soul_id` is not a field, so a Soul-ID the user trained — 40 credits —
+    //     was never applied to the generation it was trained for.
+    if (extras.soulId) body['custom_reference_id'] = extras.soulId;
+
     // Speak audio path (PRELIMINAR_URL decision — passes through as audio_url).
     if (extras.speakAudioPath) body['audio_url'] = extras.speakAudioPath;
-    if (extras.marketingStudioTemplate) body['template'] = extras.marketingStudioTemplate;
-    if (extras.marketingStudioProductUrl) body['product_url'] = extras.marketingStudioProductUrl;
-    if (extras.multiReferenceImages && extras.multiReferenceImages.length > 0) {
-      body['multi_reference_urls'] = [...extras.multiReferenceImages];
-    }
-    if (extras.recastTargetCharacterPath) {
-      body['target_character_url'] = extras.recastTargetCharacterPath;
-    }
-    if (extras.viralityPredictor) body['virality_predictor'] = true;
     if (extras.aggregatorProxyModel) body['proxy_model'] = extras.aggregatorProxyModel;
 
-    return body;
+    // DELIBERATELY NOT SENT — probed on every endpoint that answers, named by
+    // none of them: fps, reference_urls, multi_reference_urls, template,
+    // product_url, target_character_url, virality_predictor, and the five
+    // cinema-studio lens fields (focal_length_mm, aperture_fstop, sensor_size,
+    // color_grading, lens_id). The endpoints they were written for
+    // (cinema-studio/3.5, marketing-studio, recast) answer 404, so those fields
+    // were never validated by anything. Building them here would only restore
+    // the silent-discard behaviour this filter exists to end.
+
+    return dropUnacceptedFields(req.modelId, body);
   }
 
   private mapPlatformStatus(s: string): JobState {

@@ -283,29 +283,6 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
     },
     ipRiskLevel: 'low',
   },
-  'higgsfield-soul-pro': {
-    id: 'higgsfield-soul-pro',
-    provider: 'higgsfield',
-    outputType: 'image',
-    modes: ['t2v', 'i2v'],
-    maxDurationSec: 8,
-    resolutions: ['720p', '1080p'],
-    fps: [24],
-    audioNative: false,
-    pricing: {
-      unit: 'credits-per-video',
-      rate: 60,
-      source: 'volatile-by-tier',
-      updatedAt: '2026-05-27',
-      notes: 'Higgsfield Soul pro tier — higher quality, slower.',
-    },
-    unavailable: {
-      reason:
-        'not a tier — /higgsfield-ai/soul/{mode} takes reference|character|standard, so "pro" is an invalid path segment (422 loc:["path","mode"])',
-      verifiedAt: '2026-08-01',
-    },
-    ipRiskLevel: 'low',
-  },
   'higgsfield-soul2': {
     id: 'higgsfield-soul2',
     provider: 'higgsfield',
@@ -320,12 +297,10 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
       rate: 70,
       source: 'volatile-by-tier',
       updatedAt: '2026-05-27',
-      notes: 'Higgsfield Soul 2.0 — improved coherence, character consistency via multi-ref.',
-    },
-    unavailable: {
-      reason:
-        '404 model_not_found at /higgsfield-ai/soul2/standard; the real slug is /higgsfield-ai/soul/v2/standard, and it is text2image',
-      verifiedAt: '2026-08-01',
+      notes:
+        'Higgsfield Soul 2.0 — improved coherence, character consistency via custom_reference_id. ' +
+        'UNVERIFIED rate: GET /models reports base_credits 0.0 for this slug, which cannot be a ' +
+        'final price. The API credit balance is 0, so no billed generation has ever confirmed it.',
     },
     ipRiskLevel: 'low',
   },
@@ -388,98 +363,6 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
         'base_credits to compare against, and the API account has 0 balance.',
     },
     ipRiskLevel: 'medium',
-  },
-  'higgsfield-speak2': {
-    id: 'higgsfield-speak2',
-    provider: 'higgsfield',
-    outputType: 'video',
-    modes: ['lip-sync'],
-    maxDurationSec: 60,
-    resolutions: ['720p', '1080p'],
-    fps: [24],
-    audioNative: true,
-    pricing: {
-      unit: 'credits-per-video',
-      rate: 55,
-      source: 'volatile-by-tier',
-      updatedAt: '2026-05-27',
-      notes: 'Speak 2.0 — longer clips, better emotion mapping.',
-    },
-    unavailable: {
-      reason:
-        '404 model_not_found with and without the tier segment; no speak2 exists on any Higgsfield surface',
-      verifiedAt: '2026-08-01',
-    },
-    ipRiskLevel: 'medium',
-  },
-  'higgsfield-cinema-studio-3.5': {
-    id: 'higgsfield-cinema-studio-3.5',
-    provider: 'higgsfield',
-    outputType: 'video',
-    modes: ['i2v', 't2v', 'with-refs'],
-    maxDurationSec: 8,
-    resolutions: ['720p', '1080p'],
-    fps: [24],
-    audioNative: false,
-    pricing: {
-      unit: 'credits-per-video',
-      rate: 90,
-      source: 'volatile-by-tier',
-      updatedAt: '2026-05-27',
-      notes: 'Cinema Studio 3.5 — 1,296 virtual lenses, focal length / aperture / sensor / grading.',
-    },
-    unavailable: {
-      reason:
-        '404 model_not_found on the Cloud API; the product lives on the CLI surface as job type cinematic_studio_video_3_5',
-      verifiedAt: '2026-08-01',
-    },
-    ipRiskLevel: 'low',
-  },
-  'higgsfield-marketing-studio': {
-    id: 'higgsfield-marketing-studio',
-    provider: 'higgsfield',
-    outputType: 'video',
-    modes: ['t2v'],
-    maxDurationSec: 15,
-    resolutions: ['720p', '1080p'],
-    fps: [24],
-    audioNative: true,
-    pricing: {
-      unit: 'credits-per-video',
-      rate: 50,
-      source: 'volatile-by-tier',
-      updatedAt: '2026-05-27',
-      notes: '9 UGC templates (unboxing, TV spot, hyper-motion, product review, ...) from product URL.',
-    },
-    unavailable: {
-      reason:
-        '404 model_not_found on the Cloud API; the product lives on the CLI surface as job type marketing_studio_video',
-      verifiedAt: '2026-08-01',
-    },
-    ipRiskLevel: 'medium',
-  },
-  'higgsfield-recast': {
-    id: 'higgsfield-recast',
-    provider: 'higgsfield',
-    outputType: 'video',
-    modes: ['targeted-edit'],
-    maxDurationSec: 30,
-    resolutions: ['720p', '1080p'],
-    fps: [24],
-    audioNative: false,
-    pricing: {
-      unit: 'credits-per-video',
-      rate: 80,
-      source: 'volatile-by-tier',
-      updatedAt: '2026-05-27',
-      notes: 'Recast Studio — swap character in existing video (Instadump / Character Swap).',
-    },
-    unavailable: {
-      reason:
-        '404 model_not_found with and without the tier segment; absent from the CLI too (dubbing/voice_change are a different product)',
-      verifiedAt: '2026-08-01',
-    },
-    ipRiskLevel: 'high',
   },
 
   // -------------------------------------------------------------------------
@@ -614,6 +497,76 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
       resolutionMultipliers: { '480p': 0.4 },
     },
     ipRiskLevel: 'high',
+  },
+
+  // ---- Marketing Studio / Cinematic Studio: same products, working transport --
+  //
+  // These two shipped as `higgsfield` HTTP specs pointing at
+  // /higgsfield-ai/marketing-studio/standard and /higgsfield-ai/cinema-studio/3.5.
+  // Both answer 404 model_not_found: the Cloud API does not resell them.
+  //
+  // The PRODUCTS are real and central — Marketing Studio is Higgsfield's UGC ad
+  // suite — they simply live on the CLI surface, where they resolve as ordinary
+  // job types. So the fix is a change of transport, not a deletion: the MCP tool
+  // names are unchanged and callers do not break.
+  //
+  // Prices measured live via `higgsfield generate cost <job_type>` (a read, 0
+  // credits). Both are exactly linear at 5 credits/second on the 720p baseline:
+  //
+  //           480p    720p   1080p
+  //     5s    17.5      25      50
+  //    10s      35      50     100
+  //    15s    52.5      75     150
+  //
+  // maxDurationSec 15 is CONSERVATIVE AND NOT MEASURED. `generate cost` accepts
+  // 20, 30, 60, even 600 and just multiplies — it is a pricing function, not a
+  // validator — and `model get` publishes no bound (`duration` is a plain integer
+  // with no enum and no min/max). 15 is the schema DEFAULT. Capping there fails
+  // closed: the router may refuse a long request that would have worked, but can
+  // never submit one that will not. The real ceiling only surfaces from a billed
+  // `generate create`.
+  cinematic_studio_video_3_5: {
+    id: 'cinematic_studio_video_3_5',
+    provider: 'higgsfield-cli',
+    outputType: 'video',
+    modes: ['t2v', 'i2v'],
+    maxDurationSec: 15,
+    resolutions: ['480p', '720p', '1080p'],
+    fps: [24],
+    audioNative: true,
+    pricing: {
+      unit: 'credits-per-second',
+      rate: 5.0,
+      source: 'volatile-by-tier',
+      updatedAt: '2026-08-01',
+      notes:
+        'Measured via `higgsfield generate cost cinematic_studio_video_3_5`: 75 credits at 15s/720p ' +
+        '(5.0 c/s), 52.5 at 480p, 150 at 1080p. Baseline 720p.',
+      resolutionMultipliers: { '480p': 0.7, '1080p': 2.0 },
+    },
+    ipRiskLevel: 'low',
+  },
+
+  marketing_studio_video: {
+    id: 'marketing_studio_video',
+    provider: 'higgsfield-cli',
+    outputType: 'video',
+    modes: ['t2v', 'i2v'],
+    maxDurationSec: 15,
+    resolutions: ['480p', '720p', '1080p'],
+    fps: [24],
+    audioNative: true,
+    pricing: {
+      unit: 'credits-per-second',
+      rate: 5.0,
+      source: 'volatile-by-tier',
+      updatedAt: '2026-08-01',
+      notes:
+        'Measured via `higgsfield generate cost marketing_studio_video`: 75 credits at 15s/720p ' +
+        '(5.0 c/s), 52.5 at 480p, 150 at 1080p. Baseline 720p. Defaults to mode=ugc, 9:16.',
+      resolutionMultipliers: { '480p': 0.7, '1080p': 2.0 },
+    },
+    ipRiskLevel: 'low',
   },
 
   'kling-v3-standard': {

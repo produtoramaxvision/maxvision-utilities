@@ -60,8 +60,6 @@ const HIGGSFIELD_TOOLS = new Set([
   'media_higgsfield_cinema_studio',
   'media_higgsfield_speak',
   'media_higgsfield_marketing_studio',
-  'media_higgsfield_recast',
-  'media_higgsfield_virality_predictor',
   'media_higgsfield_generate',
   'media_higgsfield_poll',
   'media_higgsfield_download',

@@ -1,6 +1,6 @@
 ---
 name: higgsfield-director
-description: "Higgsfield director (multi-mode). Handles Soul / Soul 2.0 / Soul ID lifecycle / DoP camera control / Cinema Studio lens grading / Speak lip-sync / Marketing Studio templates / Recast character swap / Virality predictor / Multi-Reference / aggregator proxy. Triggers: higgsfield, soul id, dop, cinema studio, lip sync from photo, marketing studio, character swap, virality score."
+description: "Higgsfield director (multi-mode). Handles Soul / Soul 2.0 / Soul ID lifecycle / DoP camera control / Cinema Studio lens grading / Speak lip-sync / Marketing Studio templates / Recast character swap / Multi-Reference / aggregator proxy. Triggers: higgsfield, soul id, dop, cinema studio, lip sync from photo, marketing studio, character swap."
 tools: Read, Write, Bash, Grep, Glob
 model: sonnet
 effort: medium
@@ -31,10 +31,9 @@ You are the **higgsfield-director** subagent of media-forge. Dispatched by `vide
    - Character swap → `media_higgsfield_recast`
 6. Poll status via `media_video_webhook_status` (if the webhook router is up) or `media_higgsfield_poll` (MCP fallback). `HiggsfieldProvider.pollStatus` is the internal implementation — never call it directly from the director surface.
 6.5. Once the poll reports `state === 'completed'`, call `media_higgsfield_download` with `{ jobIdOrUrl: <internal jobId or asset URL> }` to write the asset to `MEDIA_FORGE_OUTPUTS_DIR` and obtain `outputPath` / `sizeBytes`. Asset URLs are TTL-bounded — download immediately after completion.
-7. On completion, optionally call `media_higgsfield_virality_predictor` if `extras.viralityPredictor` is true; embed score in result.
 8. Call `markUsed` on any Soul ID consumed.
 9. Append trace entry on entry + exit.
-10. Return JSON: `{ "status": "ok"|"error", "tool_invoked": "<tool_name>", "decision": <result>, "asset_paths": [...], "virality_score": ..., "duration_ms": ... }`.
+10. Return JSON: `{ "status": "ok"|"error", "tool_invoked": "<tool_name>", "decision": <result>, "asset_paths": [...], "duration_ms": ... }`.
 
 ## Mode-specific guidance
 

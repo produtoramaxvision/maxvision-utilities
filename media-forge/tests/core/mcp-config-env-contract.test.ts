@@ -181,6 +181,16 @@ describe('.mcp.json env contract', () => {
       // to stop retrying. Forwarding it would let an outside value pre-declare a
       // fallback that never happened.
       MEDIA_FORGE_HF_AUTH_FALLBACK_USED: 'internal in-process flag, written by the runtime',
+      // Test-runner detection for the guard that stops `pnpm test` spawning the
+      // real Higgsfield CLI. Set by vitest / the harness, never by an operator.
+      VITEST: 'set by the test runner',
+      NODE_ENV: 'set by the toolchain',
+      // The escape hatch for that guard. DELIBERATELY not forwarded and
+      // deliberately absent from .env.example: forwarding it would let an
+      // outside value re-enable real, billable CLI submits from inside a test
+      // run — which is exactly how 350 credits were spent on 2026-08-01.
+      MEDIA_FORGE_ALLOW_REAL_CLI_IN_TESTS:
+        'test-only escape hatch; forwarding it would re-arm billable submits under test',
     };
 
     const files: string[] = [];

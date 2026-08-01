@@ -46,12 +46,14 @@ afterAll(() => {
   else process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] = previousRate;
 });
 
-/** Specs the platform serves as text2image, whatever VIDEO_MODELS claims. */
-const IMAGE_OUTPUT_MODEL_IDS = [
-  'higgsfield-soul-standard',
-  'higgsfield-soul-pro',
-  'higgsfield-soul2',
-] as const;
+/**
+ * Specs the platform serves as text2image, whatever VIDEO_MODELS claims.
+ *
+ * `higgsfield-soul-pro` was a third entry until it was removed outright: "pro"
+ * is not a tier, /higgsfield-ai/soul/{mode} takes reference | character |
+ * standard, so the path segment was never valid.
+ */
+const IMAGE_OUTPUT_MODEL_IDS = ['higgsfield-soul-standard', 'higgsfield-soul2'] as const;
 
 describe('video routing never selects an image-output model', () => {
   it('marks every image-output spec as such in the registry', () => {
@@ -118,39 +120,51 @@ describe('video routing never selects an image-output model', () => {
   // — outputType already removes the Soul specs, and targeted-edit has no other
   // provider once Seedance is off. This walks every mode an unserved spec claims
   // and asserts it never comes back, so removing the filter turns THIS red.
-  it('never returns a spec marked unavailable, in any mode it claims', async () => {
-    const unserved = Object.values(VIDEO_MODELS).filter((s) => s.unavailable !== undefined);
-    expect(unserved.length, 'no unavailable specs to check — has the marker been lost?')
-      .toBeGreaterThan(0);
+  // The registry currently holds NO unavailable spec — every model the platform
+  // does not serve was removed rather than annotated. The marker and its filter
+  // stay because the next drift is a matter of when, not if: an endpoint that
+  // stops answering is discovered by the live gate, and marking it must take it
+  // out of routing immediately rather than after someone remembers to.
+  //
+  // So the scenario is injected instead of borrowed. Injecting is also what makes
+  // the assertion bite: a borrowed example would have belonged to 'higgsfield',
+  // and in the open cost sort Kling undercuts every Higgsfield spec, so a default
+  // route never surfaces one even with the filter deleted.
+  it('never returns a spec marked unavailable', async () => {
+    const registry = VIDEO_MODELS as Record<string, (typeof VIDEO_MODELS)[string]>;
+    const donor = registry['kling-v3-standard']!;
+    const DEAD_ID = '__test-unserved-and-cheapest__';
 
-    const unservedIds = unserved.map((s) => s.id);
-    const modes = [...new Set(unserved.flatMap((s) => s.modes))];
+    registry[DEAD_ID] = {
+      ...donor,
+      id: DEAD_ID,
+      // Cheapest thing in the pool by an order of magnitude, so it wins the cost
+      // sort outright and only the filter can keep it out.
+      pricing: { ...donor.pricing, rate: 0.0001 },
+      unavailable: { reason: 'injected by a test', verifiedAt: '2026-08-01' },
+    };
 
-    for (const mode of modes) {
-      for (const resolution of ['720p', '1080p'] as const) {
-        // preferProvider is REQUIRED for this to test anything. Every unserved
-        // spec here belongs to 'higgsfield', and in the open cost sort Kling
-        // undercuts all of them — so a default route never surfaces one even
-        // with the filter deleted. Narrowing the pool to the provider that owns
-        // them is what makes the assertion bite. (Verified by deleting the
-        // filter and watching this go red.)
-        //
-        // Some modes have no provider at all once these are excluded; a refusal
-        // is a pass. What must never happen is a dead model coming back.
-        const result = await handleVideoRoute({
-          mode,
-          prompt: 'unavailable-spec routing check',
-          durationSec: 5,
-          resolution,
-          preferProvider: 'higgsfield',
-        }).catch(() => undefined);
-        if (result === undefined) continue;
-        expect(
-          unservedIds,
-          `mode='${mode}' ${resolution} routed to ${result.modelId}, whose endpoint the provider does not serve`,
-        ).not.toContain(result.modelId);
-      }
+    try {
+      const result = await handleVideoRoute({
+        mode: 't2v',
+        prompt: 'unavailable-spec routing check',
+        durationSec: 5,
+        resolution: '720p',
+      });
+      expect(
+        result.modelId,
+        'the router returned a model the provider does not serve — every call to it 404s',
+      ).not.toBe(DEAD_ID);
+    } finally {
+      delete registry[DEAD_ID];
     }
+  });
+
+  it('holds no unserved spec today — they are removed, not annotated', () => {
+    const marked = Object.values(VIDEO_MODELS)
+      .filter((s) => s.unavailable !== undefined)
+      .map((s) => s.id);
+    expect(marked, 'remove the spec or repoint it to a transport that serves it').toEqual([]);
   });
 
   // The default path, across the grid where Soul is actually eligible.

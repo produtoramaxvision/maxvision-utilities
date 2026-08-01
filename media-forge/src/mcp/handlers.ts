@@ -15,8 +15,6 @@ export {
   handleHiggsfieldCinemaStudio,
   handleHiggsfieldSpeak,
   handleHiggsfieldMarketingStudio,
-  handleHiggsfieldRecast,
-  handleHiggsfieldViralityPredictor,
   handleHiggsfieldSoulId,
 } from './handlers/higgsfield.js';
 export type { HiggsfieldHandlerExecOpts } from './handlers/higgsfield.js';

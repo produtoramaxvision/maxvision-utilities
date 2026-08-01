@@ -158,7 +158,6 @@ The MCP server exposes 72 tools (68 with `MEDIA_FORGE_SEEDANCE_ENABLED=false`), 
 | `media_higgsfield_speak` | Speak / Speak 2.0 lip-sync from photo. |
 | `media_higgsfield_marketing_studio` | Marketing Studio templates. |
 | `media_higgsfield_recast` | Recast character swap. |
-| `media_higgsfield_virality_predictor` | Virality score prediction. |
 | `media_higgsfield_poll` | Poll a Higgsfield request by id. |
 | `media_higgsfield_download` | Download a completed Higgsfield asset. |
 

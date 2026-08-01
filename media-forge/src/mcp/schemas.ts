@@ -338,17 +338,55 @@ export type HiggsfieldDopInputT = z.infer<typeof HiggsfieldDopInput>;
 // HiggsfieldCinemaStudioInput — Cinema Studio 3.5 with full lens dictionary (P14 Task 10)
 // ---------------------------------------------------------------------------
 
+// Rewritten 2026-08-01 against `higgsfield model get cinematic_studio_video_3_5`.
+//
+// The old shape modelled a "full lens dictionary" — focalLengthMm, apertureFStop,
+// sensorSize, lensId — for /higgsfield-ai/cinema-studio/3.5, which answers 404.
+// None of those five fields exists on any Higgsfield endpoint; probed with wrong
+// types, no 422 ever names them. What the product actually exposes is a set of
+// named CREATIVE presets, and they are richer than the invented numbers were.
 export const HiggsfieldCinemaStudioInput = z.object({
   prompt: z.string().min(1),
-  firstFrameImagePath: z.string().min(1),
-  durationSec: z.number().positive().max(8),
-  resolution: z.enum(['720p', '1080p']),
-  aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']).optional(),
-  focalLengthMm: z.number().positive().max(800).optional(),
-  apertureFStop: z.number().positive().max(32).optional(),
-  sensorSize: z.enum(['full-frame', 'super35', 'apsc', 'm43', 'imax']).optional(),
-  colorGrading: z.string().min(1).optional(),
-  lensId: z.string().min(1).optional(),
+  durationSec: z.number().positive().max(15).default(15),
+  resolution: z.enum(['480p', '720p', '1080p']).default('720p'),
+  aspectRatio: z
+    .enum(['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'])
+    .default('auto'),
+  cameraStyle: z
+    .enum([
+      'classic_static',
+      'silent_machine',
+      'one_take',
+      'epic_scale',
+      'intimate_observer',
+      'impossible_camera',
+      'documentary_snap',
+      'raw_chaos',
+      'dreamy_flow',
+    ])
+    .optional(),
+  colorGrading: z
+    .enum([
+      'naturalistic_clean',
+      'bleached_warm',
+      'hyper_neon',
+      'teal_orange_epic',
+      'sodium_decay',
+      'cold_steel',
+      'bleach_bypass',
+      'classic_bw',
+    ])
+    .optional(),
+  lightScheme: z
+    .enum(['soft_cross', 'contre_jour', 'overhead_fall', 'window', 'practicals', 'silhouette'])
+    .optional(),
+  genre: z.enum(['auto', 'action', 'horror', 'comedy', 'noir', 'drama', 'epic']).default('auto'),
+  stylePrompt: z.string().min(1).optional(),
+  generateAudio: z.boolean().default(false),
+  multiShots: z.boolean().default(false),
+  startImagePath: z.string().min(1).optional(),
+  endImagePath: z.string().min(1).optional(),
+  imageReferencePaths: z.array(z.string().min(1)).optional(),
 });
 export type HiggsfieldCinemaStudioInputT = z.infer<typeof HiggsfieldCinemaStudioInput>;
 
@@ -357,7 +395,9 @@ export type HiggsfieldCinemaStudioInputT = z.infer<typeof HiggsfieldCinemaStudio
 // ---------------------------------------------------------------------------
 
 const _HiggsfieldSpeakBase = z.object({
-  modelId: z.enum(['higgsfield-speak', 'higgsfield-speak2']),
+  // speak2 removed 2026-08-01: 404 with and without the tier segment, and it is
+  // not a job type or workflow on the CLI either. It only ever existed here.
+  modelId: z.enum(['higgsfield-speak']).default('higgsfield-speak'),
   portraitImagePath: z.string().min(1),
   audioPath: z.string().min(1),
   prompt: z.string().min(1),
@@ -373,9 +413,9 @@ const _HiggsfieldSpeakBase = z.object({
 // `/higgsfield-ai/speak` (probed 2026-08-01), so the spec caps at 15 and this
 // refine has to follow it or the two disagree about the same model.
 //
-// `higgsfield-speak2` stays in the enum and keeps the 60s ceiling from
-// _HiggsfieldSpeakBase, but it is NOT reachable: every path tried for it answers
-// 404 model_not_found. See TODOS.md — removing the tool is a scope decision.
+// `higgsfield-speak2` was removed from the enum on 2026-08-01. It answered 404
+// on every path tried, and it is not a job type or a workflow on the CLI either,
+// so there was no surface left to reach it on and nothing to repoint it to.
 export const HiggsfieldSpeakInput = _HiggsfieldSpeakBase.refine(
   (data) => {
     const cap = VIDEO_MODELS[data.modelId]?.maxDurationSec;
@@ -390,26 +430,34 @@ export const HiggsfieldSpeakInput = _HiggsfieldSpeakBase.refine(
 );
 export type HiggsfieldSpeakInputT = z.infer<typeof HiggsfieldSpeakInput>;
 
-// HiggsfieldRecastInput — Recast Studio: swap character in existing video (P14 Task 13)
+// REMOVED 2026-08-01 — HiggsfieldRecastInput / media_higgsfield_recast.
+//
+// /higgsfield-ai/recast/standard answers 404 model_not_found with and without
+// the tier segment, and Recast is on no other Higgsfield surface: the CLI has
+// no such job type or workflow (`dubbing` and `voice_change` are a different
+// product — they replace audio, not the character). Unlike Cinema Studio and
+// Marketing Studio, there was nowhere to repoint it to.
 // ---------------------------------------------------------------------------
 
-export const HiggsfieldRecastInput = z.object({
-  sourceVideoPath: z.string().min(1),
-  targetCharacterImagePath: z.string().min(1),
-  prompt: z.string().min(1),
-  durationSec: z.number().positive().max(30),
-  resolution: z.enum(['720p', '1080p']),
-});
-export type HiggsfieldRecastInputT = z.infer<typeof HiggsfieldRecastInput>;
-
-// HiggsfieldViralityPredictorInput — Virality Predictor: score an asset (P14 Task 14)
+// REMOVED 2026-08-01 — HiggsfieldViralityPredictorInput / media_higgsfield_virality_predictor.
+//
+// The endpoint does not exist. Probed live on three URL shapes, all three
+// answered `404 {"detail":"model_not_found"}`:
+//
+//   /higgsfield-ai/virality-predictor
+//   /higgsfield-ai/virality-predictor/standard
+//   /virality-predictor
+//
+// It is absent from the CLI surface too (`higgsfield --help` lists no such
+// command) and had no VIDEO_MODELS entry, so it bypassed the cost guard and the
+// ledger entirely with a raw fetch to a hardcoded URL. `virality_predictor` as a
+// body flag on other generations is equally fictitious: sent with a wrong type to
+// dop/standard, the 422 does not name it, which means the schema has never heard
+// of it and it was being discarded in silence.
+//
+// A tool that cannot succeed is worse than an absent one — it advertises a
+// capability, passes validation, and fails at the network.
 // ---------------------------------------------------------------------------
-
-export const HiggsfieldViralityPredictorInput = z.object({
-  assetUrl: z.string().url(),
-  platform: z.enum(['tiktok', 'instagram', 'youtube-shorts', 'general']).default('general'),
-});
-export type HiggsfieldViralityPredictorInputT = z.infer<typeof HiggsfieldViralityPredictorInput>;
 
 // HiggsfieldGenerateInput — generic Higgsfield submit (Soul / Soul2 / aesthetic
 // presets) when no specialized tool (dop / cinema_studio / speak / marketing /
@@ -421,11 +469,9 @@ export type HiggsfieldViralityPredictorInputT = z.infer<typeof HiggsfieldViralit
 // requires a plain ZodObject; the refined cross-field check lives on the
 // exported `HiggsfieldGenerateInput` for runtime validation).
 const _HiggsfieldGenerateBase = z.object({
-  modelId: z.enum([
-    'higgsfield-soul-standard',
-    'higgsfield-soul-pro',
-    'higgsfield-soul2',
-  ]),
+  // soul-pro removed 2026-08-01: "pro" is not a tier. /higgsfield-ai/soul/{mode}
+  // takes reference | character | standard, so the segment was never valid.
+  modelId: z.enum(['higgsfield-soul-standard', 'higgsfield-soul2']),
   mode: z.enum(['t2v', 'i2v']).default('t2v'),
   prompt: z.string().min(1),
   durationSec: z.number().positive().default(5),
@@ -492,17 +538,62 @@ export const KlingMotionBrushInput = z.object({
 });
 export type KlingMotionBrushInputT = z.infer<typeof KlingMotionBrushInput>;
 
-export const HiggsfieldMarketingStudioInput = z.object({
-  template: z.enum([
-    'ugc', 'unboxing', 'tv-spot', 'hyper-motion', 'product-review',
-    'asmr', 'lifestyle', 'testimonial', 'reel',
-  ]),
-  productUrl: z.string().url(),
-  prompt: z.string().min(1),
-  durationSec: z.number().positive().max(15),
-  resolution: z.enum(['720p', '1080p']),
-  aspectRatio: z.enum(['16:9', '9:16', '1:1']).optional(),
+// Rewritten 2026-08-01 against `higgsfield model get marketing_studio_video`.
+//
+// The old shape was invented for the Cloud API endpoint
+// /higgsfield-ai/marketing-studio/standard, which answers 404 — so none of it was
+// ever validated by anything. `template` with nine hand-written values and
+// `productUrl` are not parameters of this product; the real ones are ids you
+// resolve from the account (avatars, hooks, settings, products) plus a mode.
+//
+// Enums and defaults below are the platform's own, read from the CLI schema.
+const _HiggsfieldMarketingStudioBase = z.object({
+    prompt: z.string().min(1),
+    /** Free-form on the platform (no enum published); 'ugc' is its default. */
+    mode: z.string().min(1).default('ugc'),
+    specificMode: z.enum(['default', 'web_product', 'from_storyboard']).default('default'),
+    durationSec: z.number().positive().max(15).default(15),
+    resolution: z.enum(['480p', '720p', '1080p']).default('720p'),
+    aspectRatio: z
+      .enum(['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'])
+      .default('9:16'),
+    /** Ids from `media_higgsfield_ms_assets` — avatars / hooks / settings / products. */
+    avatarIds: z.array(z.string().min(1)).optional(),
+    productIds: z.array(z.string().min(1)).optional(),
+    webProductIds: z.array(z.string().min(1)).optional(),
+    webProductType: z.enum(['desktop', 'mobile']).optional(),
+    hookId: z.string().min(1).optional(),
+    settingId: z.string().min(1).optional(),
+    storyboardId: z.string().min(1).optional(),
+    adReferenceId: z.string().min(1).optional(),
+    generateAudio: z.boolean().default(false),
+    startImagePath: z.string().min(1).optional(),
+    endImagePath: z.string().min(1).optional(),
+  imageReferencePaths: z.array(z.string().min(1)).optional(),
 });
+// Both rules are the platform's, verbatim from `model get`.rules (CEL). Checked
+// here so the CLI is not paid to reject what we could have caught locally.
+//
+// Split base/refined per DEBT-008: tools/list requires a plain ZodObject as
+// `inputSchema`, and a cross-field check makes it a ZodEffects.
+export const HiggsfieldMarketingStudioInput = _HiggsfieldMarketingStudioBase.superRefine(
+  (v, ctx) => {
+    if (v.adReferenceId !== undefined && (v.hookId !== undefined || v.settingId !== undefined)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['adReferenceId'],
+        message: 'ad_reference_id cannot be combined with hook_id or setting_id',
+      });
+    }
+    if ((v.productIds?.length ?? 0) > 0 && (v.webProductIds?.length ?? 0) > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['webProductIds'],
+        message: 'product_ids and web_product_ids cannot both be set',
+      });
+    }
+  },
+);
 export type HiggsfieldMarketingStudioInputT = z.infer<typeof HiggsfieldMarketingStudioInput>;
 
 // ---------------------------------------------------------------------------
@@ -919,7 +1010,9 @@ export interface MCPTool {
 // 1 last-frame = 56)
 // 6 image + 8 video (T9-d adds media_extract_last_frame) + 8 pipeline/utility
 // + 1 help + 4 refs + 1 webhook + 2 cost + 1 route
-// + 7 higgsfield (soul_id, dop, cinema_studio, speak, marketing_studio, recast, virality_predictor)
+// + higgsfield (soul_id, dop, cinema_studio, speak, marketing_studio, generate,
+//   poll, download, + soul_id_train/list). virality_predictor was removed —
+//   its endpoint 404s on every URL shape.
 // + 1 higgsfield_generate (Codex round 7 PR#10)
 // + 2 higgsfield lifecycle (poll, download — Codex round 5 PR#10)
 // + 11 kling (motion_brush, element_create/list/delete, elements, lip_sync, omni_multishot, video_extend, poll, download, +1 from R6)
@@ -1242,24 +1335,10 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   {
     name: 'media_higgsfield_marketing_studio',
     description: 'Higgsfield Marketing Studio — 9 UGC templates from product URL (unboxing/TV spot/reel/etc).',
-    inputSchema: HiggsfieldMarketingStudioInput,
+    // DEBT-008: tools/list needs a plain ZodObject; the cross-field CEL rules
+    // make the exported schema a ZodEffects, so validation uses the refined one.
+    inputSchema: _HiggsfieldMarketingStudioBase,
     validationSchema: HiggsfieldMarketingStudioInput,
-  },
-
-  // ---- Higgsfield Recast (1 — P14 Task 13 character swap in existing video) ----
-  {
-    name: 'media_higgsfield_recast',
-    description: 'Higgsfield Recast Studio — swap character in existing video (Instadump / Character Swap).',
-    inputSchema: HiggsfieldRecastInput,
-    validationSchema: HiggsfieldRecastInput,
-  },
-
-  // ---- Higgsfield Virality Predictor (1 — P14 Task 14 score asset viral/audience/hook) ----
-  {
-    name: 'media_higgsfield_virality_predictor',
-    description: 'Higgsfield Virality Predictor — score an asset (viral / audience-fit / hook-strength).',
-    inputSchema: HiggsfieldViralityPredictorInput,
-    validationSchema: HiggsfieldViralityPredictorInput,
   },
 
   // ---- Higgsfield Generate (Codex P2 round 7 PR#10 — generic Soul/Soul2 t2v|i2v submit) ----

@@ -47,6 +47,11 @@ import { USD_PER_CREDIT } from '../../core/higgsfield-pricing.js';
 import { logger } from '../../core/logger.js';
 import { ApiError, ValidationError } from '../../core/errors.js';
 import { resolveCliBinary } from '../../utils/cli-binary.js';
+import {
+  recordRequestMapping,
+  findRequestIdByJobId,
+} from '../../core/provider-request-map.js';
+import { recordJob } from '../../core/cost-tracker.js';
 import type {
   DownloadedAsset,
   JobHandle,
@@ -100,6 +105,18 @@ export interface HiggsfieldCliOptions {
   /** Test seam. Defaults to the real spawn-based runner. */
   readonly runner?: CliRunner;
   readonly timeoutMs?: number;
+  /**
+   * Where to persist the local-jobId -> CLI-jobId mapping.
+   *
+   * Required for pollStatus and download to work at all: `generate()` mints a
+   * local id for the ledger and the CLI answers with its own, and
+   * `higgsfield generate get` only knows the latter. Without somewhere to record
+   * the pair, a caller holding our id can never ask about the job.
+   *
+   * Optional so the cost-only paths (`fetchCostCredits`, `estimateCostUSD`) and
+   * the live rate gate keep working with no database at all.
+   */
+  readonly dbPath?: string;
 }
 
 export interface CliResult {
@@ -109,6 +126,61 @@ export interface CliResult {
 }
 
 export type CliRunner = (args: ReadonlyArray<string>, timeoutMs: number) => Promise<CliResult>;
+
+/**
+ * Refuses to spawn the real binary from inside a test run.
+ *
+ * ## Why this exists — it was paid for
+ *
+ * On 2026-08-01, repointing the Cinema Studio and Marketing Studio handlers onto
+ * this transport made them call `higgsfieldCliProvider()`, whose runner spawns
+ * the real `higgsfield` binary against the developer's logged-in OAuth session.
+ * Two suites (higgsfield-billing-submit, video-ledger-no-double-reserve) invoked
+ * those handlers with no runner stub, because until that moment those handlers
+ * went over HTTP and a `global.fetch` stub was enough.
+ *
+ * The result was six REAL generations submitted by `pnpm test` and
+ * **350 subscription credits spent**:
+ *
+ *   3× Marketing Studio Video       -120, -120, -50
+ *   3× Cinematic Studio 3.5 Video    -20,  -20, -20
+ *
+ * Nothing failed. The CLI accepted every submit and the suite went green around
+ * them, because a test that forgets to stub a transport does not look different
+ * from one that does.
+ *
+ * ## What it does
+ *
+ * Under vitest, only reads are allowed through: `auth token`, `generate cost`,
+ * `generate get|list`, `model`, `workflow`, `account`. Anything that can create
+ * or bill — `generate create`, `generate workflow`, `soul-id create`, `upload` —
+ * throws with the name of the test seam to use instead.
+ *
+ * The live gates are unaffected: they only ever run reads. A test that genuinely
+ * needs a billed submit must say so with MEDIA_FORGE_ALLOW_REAL_CLI_IN_TESTS=true,
+ * which is deliberately absent from .env.example.
+ */
+const CLI_READ_ONLY_VERBS: ReadonlyArray<string> = ['cost', 'get', 'list', 'status', 'token'];
+
+function assertNotSpawningRealCliUnderTest(args: ReadonlyArray<string>): void {
+  const underTest =
+    process.env['VITEST'] !== undefined || process.env['NODE_ENV'] === 'test';
+  if (!underTest) return;
+  if (process.env['MEDIA_FORGE_ALLOW_REAL_CLI_IN_TESTS'] === 'true') return;
+
+  const isRead = args.some((a) => CLI_READ_ONLY_VERBS.includes(a));
+  if (isRead) return;
+
+  throw new ApiError(
+    `refusing to spawn the real higgsfield CLI from a test: \`higgsfield ${args.join(' ')}\` ` +
+      `can create a job and bill the logged-in account. ` +
+      `Pass a fake runner — new HiggsfieldCliProvider({ runner }) — or install one with ` +
+      `_setHiggsfieldCliProviderForTests(). This guard exists because a test suite once ` +
+      `submitted six real generations and spent 350 credits.`,
+    'API',
+    { provider: 'higgsfield-cli' },
+  );
+}
 
 /**
  * Runs the CLI with an ARGUMENT ARRAY and no shell.
@@ -125,6 +197,7 @@ export type CliRunner = (args: ReadonlyArray<string>, timeoutMs: number) => Prom
  */
 export const defaultRunner: CliRunner = (args, timeoutMs) =>
   new Promise<CliResult>((resolve, reject) => {
+    assertNotSpawningRealCliUnderTest(args);
     // Same Windows resolution as the Codex adapter, and for the same reason: the
     // Higgsfield CLI installs as a .CMD/sh shim here, which Node refuses to spawn
     // without a shell. shell:false and the argv array are preserved.
@@ -252,7 +325,66 @@ export function buildCliArgs(req: VideoGenerationRequest): string[] {
     args.push('--image-references', ref);
   }
 
+  // Job-type-specific parameters, using the platform's own names.
+  //
+  // Marketing Studio and Cinematic Studio carry a dozen each (avatar_ids,
+  // hook_id, camera_style, light_scheme …) that no shared VideoGenerationRequest
+  // field could hold. They go through verbatim rather than through a typed field
+  // per job type: the previous typed set (focal_length_mm, template,
+  // product_url …) was invented for endpoints that answer 404 and drifted out of
+  // existence without anything noticing. `higgsfield model get <job_type>` is
+  // the source, and the MCP schema layer validates against the enums it reports.
+  //
+  // Reserved flags are refused rather than silently overwritten — a caller
+  // passing `duration` through here would produce two `--duration` flags and let
+  // the CLI decide which wins, defeating the cost estimate that was computed
+  // from the other one.
+  const RESERVED = new Set([
+    'prompt',
+    'duration',
+    'resolution',
+    'aspect-ratio',
+    'aspect_ratio',
+    'start-image',
+    'start_image',
+    'end-image',
+    'end_image',
+    'image-references',
+    'image_references',
+  ]);
+  const extras = req.extras?.providerKind === 'higgsfield' ? req.extras : undefined;
+  for (const [name, value] of Object.entries(extras?.cliParams ?? {})) {
+    if (RESERVED.has(name)) {
+      throw new ValidationError(
+        `cliParams may not carry "${name}" — it is already derived from the request ` +
+          `(prompt, durationSec, resolution, aspectRatio, frames, references).`,
+      );
+    }
+    const flag = `--${name}`;
+    if (Array.isArray(value)) {
+      for (const v of value) args.push(flag, String(v));
+    } else {
+      args.push(flag, String(value));
+    }
+  }
+
   return args;
+}
+
+/**
+ * Stable fingerprint of the parameters a job was submitted with.
+ *
+ * Hashes the ARGV rather than the request object: argv is what the platform
+ * actually received, so two requests that differ only in a field this transport
+ * drops hash the same — which is the truth the cost report should show.
+ */
+function hashCliParams(req: VideoGenerationRequest): string {
+  const json = JSON.stringify(buildCliArgs(req));
+  let h = 0;
+  for (let i = 0; i < json.length; i++) {
+    h = ((h << 5) - h + json.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h).toString(16);
 }
 
 export class HiggsfieldCliProvider implements VideoProvider {
@@ -263,6 +395,7 @@ export class HiggsfieldCliProvider implements VideoProvider {
 
   private readonly runner: CliRunner;
   private readonly timeoutMs: number;
+  private readonly dbPath: string | undefined;
 
   /**
    * Cached credit estimates keyed by the exact argv used to obtain them.
@@ -279,6 +412,22 @@ export class HiggsfieldCliProvider implements VideoProvider {
   constructor(opts: HiggsfieldCliOptions = {}) {
     this.runner = opts.runner ?? defaultRunner;
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.dbPath = opts.dbPath;
+  }
+
+  /**
+   * Translates our job id into the one the CLI knows, or passes it through.
+   *
+   * Pass-through matters: a caller who already holds the CLI's id (from the
+   * `providerNativeId` on the handle, or from `higgsfield generate list`) must
+   * still be able to poll. A miss is therefore not an error here — the CLI
+   * itself gives the better message if the id is genuinely unknown.
+   */
+  private resolveNativeJobId(jobId: string): string {
+    if (this.dbPath === undefined) return jobId;
+    return (
+      findRequestIdByJobId({ dbPath: this.dbPath, jobId }) ?? jobId
+    );
   }
 
   /**
@@ -418,6 +567,33 @@ export class HiggsfieldCliProvider implements VideoProvider {
       throw err;
     }
 
+    // AFTER a successful submit, and only then: rows for a job that was never
+    // accepted would make a phantom pollable and put a charge in the cost report
+    // that no generation backs.
+    //
+    // `recordJob` was missing entirely on this transport. HiggsfieldProvider has
+    // written it since P14, so a CLI generation reserved credit through the
+    // ledger hooks and then left NOTHING for `media_video_cost_report` or the
+    // settle path to find — the reservation could never be reconciled against a
+    // job, because there was no job row.
+    if (this.dbPath !== undefined) {
+      recordJob({
+        dbPath: this.dbPath,
+        jobId,
+        provider: this.name,
+        model: req.modelId,
+        mode: req.mode,
+        paramsHash: hashCliParams(req),
+        estUsd: estimateUsd,
+      });
+      recordRequestMapping({
+        dbPath: this.dbPath,
+        jobId,
+        provider: this.name,
+        providerRequestId: nativeId,
+      });
+    }
+
     logger.info('higgsfield-cli: job submitted', { jobId, nativeId, credits });
 
     return {
@@ -431,22 +607,17 @@ export class HiggsfieldCliProvider implements VideoProvider {
   }
 
   /**
-   * KNOWN GAP — `jobId` here must be the CLI's OWN job id, not ours.
+   * `jobId` is OUR id; the CLI only knows its own.
    *
-   * `generate()` mints a local id (`hfcli-<ts>-<rand>`) for the ledger and
-   * returns the CLI's id separately as `providerNativeId`. `higgsfield generate
-   * get` only knows the latter, so passing the local id back into this method
-   * asks the CLI about a job it has never heard of.
-   *
-   * HiggsfieldProvider solves this with `recordRequestMapping` (local id ->
-   * request_id, persisted); this transport has no equivalent, so the mapping has
-   * to be held by the caller. Written down rather than papered over: there is no
-   * MCP tool wired to this provider yet, so no caller is getting it wrong today,
-   * and inventing a mapping table here without the tool that needs it would be
-   * guessing at its shape.
+   * `generate()` mints a local id (`hfcli-<ts>-<rand>`) so the ledger has a
+   * stable key from before the submit, and records the pair against the same
+   * `provider-request-map` table HiggsfieldProvider uses. Passing our id
+   * straight to `higgsfield generate get` would ask the CLI about a job it has
+   * never heard of, so it is translated first.
    */
   async pollStatus(jobId: string): Promise<JobStatus> {
-    const result = await this.runner(['generate', 'get', jobId, '--json'], COST_TIMEOUT_MS);
+    const nativeId = this.resolveNativeJobId(jobId);
+    const result = await this.runner(['generate', 'get', nativeId, '--json'], COST_TIMEOUT_MS);
 
     if (result.exitCode !== 0) {
       return {
@@ -540,11 +711,22 @@ function cacheKey(req: VideoGenerationRequest): string {
  * cost report starts disagreeing with the invoice.
  */
 export function creditsToUsd(credits: number): number {
-  // USD_PER_CREDIT is a boot-validated binding that is NaN until validation
-  // runs, so it is read at call time rather than captured at module load. A NaN
-  // rate must surface as NaN here and fail the guard loudly — silently
-  // substituting a fallback would price the job at a number nobody configured.
-  return credits * USD_PER_CREDIT;
+  // USD_PER_CREDIT is a boot-validated binding, NaN until validation runs, so it
+  // is read at call time rather than captured at module load.
+  //
+  // The env fallback matches HiggsfieldProvider.resolveUsdPerCredit and is not a
+  // silent default: it reads the SAME variable the boot validator reads, so
+  // nothing is priced at a number nobody configured. Without it this transport
+  // returned NaN outside the MCP server boot path — every direct call, and every
+  // test that sets the env var without booting, priced the job at NaN and the
+  // cost guard compared against it.
+  //
+  // A missing or unparseable rate still surfaces as NaN and fails loudly.
+  if (Number.isFinite(USD_PER_CREDIT)) return credits * USD_PER_CREDIT;
+  const fromEnv = Number.parseFloat(
+    process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] ?? 'NaN',
+  );
+  return credits * fromEnv;
 }
 
 /**

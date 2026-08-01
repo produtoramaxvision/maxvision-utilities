@@ -99,8 +99,6 @@ import {
   handleHiggsfieldCinemaStudio,
   handleHiggsfieldSpeak,
   handleHiggsfieldMarketingStudio,
-  handleHiggsfieldRecast,
-  handleHiggsfieldViralityPredictor,
   handleHiggsfieldGenerate,
   handleHiggsfieldPoll,
   handleHiggsfieldDownload,
@@ -1596,31 +1594,7 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     );
   }
 
-  // ---- Higgsfield Recast (1 — P14 Task 13 character swap in existing video) ----
 
-  {
-    const t = getTool('media_higgsfield_recast');
-    regIfAllowed(
-      t.name,
-      { title: 'Higgsfield Recast', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => {
-        const r = await handleHiggsfieldRecast(input, videoGuardOpts);
-        if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
-        return asResult(r);
-      }),
-    );
-  }
-
-  // ---- Higgsfield Virality Predictor (1 — P14 Task 14 score asset viral/audience/hook) ----
-
-  {
-    const t = getTool('media_higgsfield_virality_predictor');
-    regIfAllowed(
-      t.name,
-      { title: 'Higgsfield Virality Predictor', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleHiggsfieldViralityPredictor(input))),
-    );
-  }
 
   // ---- Higgsfield Generate (Codex P2 round 7 PR#10 — generic Soul/Soul2 submit) ----
   {

@@ -149,4 +149,3 @@ Always include a clean `productUrl` — the platform crawls product imagery from
 | Talking head (photo + audio) | `media_higgsfield_speak` |
 | Product UGC | `media_higgsfield_marketing_studio` |
 | Swap character in existing video | `media_higgsfield_recast` |
-| Score a candidate | `media_higgsfield_virality_predictor` |

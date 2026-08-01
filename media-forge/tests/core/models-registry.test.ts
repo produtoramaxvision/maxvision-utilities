@@ -49,17 +49,28 @@ describe('P14 — Higgsfield models registered', () => {
     expect(providers).toEqual(expect.arrayContaining(['google', 'higgsfield']));
   });
 
+  // Ten became five on 2026-08-01, after probing every mapped path with a live
+  // API key. Five were never real and are gone rather than annotated:
+  //
+  //   higgsfield-soul-pro           "pro" is not a tier — /soul/{mode} takes
+  //                                 reference | character | standard
+  //   higgsfield-speak2             404 with and without the tier segment; on no
+  //                                 Higgsfield surface at all
+  //   higgsfield-recast             404; absent from the CLI too
+  //   higgsfield-cinema-studio-3.5  404 on the Cloud API — repointed, see below
+  //   higgsfield-marketing-studio   404 on the Cloud API — repointed, see below
+  //
+  // The two Studios were NOT deleted: the products are real and central, they
+  // simply live on the CLI transport. They are re-registered further down as
+  // `cinematic_studio_video_3_5` and `marketing_studio_video`, provider
+  // higgsfield-cli, priced credits-per-second from live measurement. The MCP
+  // tool names did not change.
   const expected = [
     'higgsfield-soul-standard',
-    'higgsfield-soul-pro',
     'higgsfield-soul2',
     'higgsfield-dop',
     'higgsfield-dop-turbo',
     'higgsfield-speak',
-    'higgsfield-speak2',
-    'higgsfield-cinema-studio-3.5',
-    'higgsfield-marketing-studio',
-    'higgsfield-recast',
   ];
 
   for (const id of expected) {
@@ -73,6 +84,13 @@ describe('P14 — Higgsfield models registered', () => {
       expect(spec!.pricing.updatedAt).toMatch(/^2026-05-/);
     });
   }
+
+  it('no Higgsfield HTTP spec survives that the platform does not serve', () => {
+    const stillDead = Object.values(VIDEO_MODELS)
+      .filter((s) => s.provider === 'higgsfield' && s.unavailable !== undefined)
+      .map((s) => s.id);
+    expect(stillDead, 'an unserved spec is still registered — remove it or repoint it').toEqual([]);
+  });
 
   it('higgsfield-soul-standard supports t2v + i2v', () => {
     const spec = VIDEO_MODELS['higgsfield-soul-standard']!;
@@ -89,10 +107,25 @@ describe('P14 — Higgsfield models registered', () => {
     expect(spec.modes).toContain('lip-sync');
   });
 
-  it('higgsfield-marketing-studio is a template-driven video (t2v)', () => {
-    const spec = VIDEO_MODELS['higgsfield-marketing-studio']!;
-    expect(spec.modes).toContain('t2v');
-  });
+  // The two Studio products, on the transport that actually serves them.
+  //
+  // Rates measured live via `higgsfield generate cost <job_type>` (a read, 0
+  // credits): both are exactly 5 credits/second on the 720p baseline, with
+  // 480p at 0.7x and 1080p at 2.0x. `id` equals the CLI job_type by convention
+  // for this provider — buildCliArgs passes it as argv[0].
+  for (const id of ['cinematic_studio_video_3_5', 'marketing_studio_video']) {
+    it(`registers ${id} on the CLI transport, priced per second`, () => {
+      const spec = VIDEO_MODELS[id];
+      expect(spec, `missing spec: ${id}`).toBeDefined();
+      expect(spec!.provider).toBe('higgsfield-cli');
+      expect(spec!.outputType).toBe('video');
+      expect(spec!.pricing.unit).toBe('credits-per-second');
+      expect(spec!.pricing.rate).toBe(5.0);
+      expect(spec!.pricing.resolutionMultipliers).toEqual({ '480p': 0.7, '1080p': 2.0 });
+      expect(spec!.modes).toEqual(expect.arrayContaining(['t2v', 'i2v']));
+      expect(spec!.unavailable).toBeUndefined();
+    });
+  }
 });
 
 describe('P15 — Kling models registered', () => {

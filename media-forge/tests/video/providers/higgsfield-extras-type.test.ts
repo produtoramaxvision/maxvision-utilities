@@ -31,7 +31,6 @@ describe('HiggsfieldExtras (compile-time)', () => {
       marketingStudioTemplate: 'unboxing',
       marketingStudioProductUrl: 'https://example.com/product/123',
       multiReferenceImages: ['/tmp/ref1.png', '/tmp/ref2.png'],
-      viralityPredictor: true,
       recastTargetCharacterPath: '/tmp/new-character.png',
       aggregatorProxyModel: 'veo-3-fast',
       webhookUrl: 'https://example.com/webhook/job-abc',

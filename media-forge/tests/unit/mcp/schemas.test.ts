@@ -61,8 +61,6 @@ const EXPECTED_TOOL_NAMES = [
   'media_higgsfield_cinema_studio',
   'media_higgsfield_speak',
   'media_higgsfield_marketing_studio',
-  'media_higgsfield_recast',
-  'media_higgsfield_virality_predictor',
   // higgsfield generate (1 — Codex P2 round 7 PR#10 generic Soul/Soul2 submit)
   'media_higgsfield_generate',
   // higgsfield async lifecycle (2 — Codex P2 round 5 PR#10)
@@ -114,8 +112,8 @@ describe('MCP_TOOLS registry', () => {
   // EXPECTED_TOOL_NAMES gains every new name in the same change. Bumping the
   // number alone would leave the sibling test reading "all 61 expected" while
   // actually checking fewer.
-  it('contains exactly 72 tools', () => {
-    expect(MCP_TOOLS.length).toBe(72);
+  it('contains exactly 70 tools', () => {
+    expect(MCP_TOOLS.length).toBe(70);
   });
 
   it('is frozen (Object.isFrozen)', () => {
@@ -160,8 +158,8 @@ describe('MCP_TOOLS registry', () => {
 // listMCPToolNames()
 // ---------------------------------------------------------------------------
 describe('listMCPToolNames()', () => {
-  it('returns an array of length 72', () => {
-    expect(listMCPToolNames().length).toBe(72);
+  it('returns an array of length 70', () => {
+    expect(listMCPToolNames().length).toBe(70);
   });
 
   it('contains all 61 expected tool names', () => {
