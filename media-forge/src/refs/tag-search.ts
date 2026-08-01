@@ -3,9 +3,10 @@
 // presign each, return structured refs.
 import type { MinioClient, MinioObject } from './minio-client.js';
 import { isCategory, resolveAliases } from './taxonomy.js';
+import { envOrUndefined } from '../core/env.js';
 
 const MAX_OBJECTS_PER_CATEGORY = Number(
-  process.env['MEDIA_FORGE_MAX_OBJECTS_PER_CATEGORY'] ?? '10000',
+  envOrUndefined('MEDIA_FORGE_MAX_OBJECTS_PER_CATEGORY') ?? '10000',
 );
 
 export interface SampleOptions {

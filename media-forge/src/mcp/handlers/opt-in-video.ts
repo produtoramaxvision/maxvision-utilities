@@ -44,6 +44,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ValidationError } from '../../core/errors.js';
+import { envOrUndefined } from '../../core/env.js';
 import {
   MuapiModelsInput,
   MuapiGenerateInput,
@@ -305,8 +306,8 @@ export async function handleMuapiDownload(
   const provider = new MuapiProvider(providerOpts(opts));
   const asset = await provider.download(input.requestId);
 
-  const projectDir = process.env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
-  const outputsDir = process.env['MEDIA_FORGE_OUTPUTS_DIR'] ?? join(projectDir, 'outputs');
+  const projectDir = envOrUndefined('MEDIA_FORGE_PROJECT_DIR') ?? join(process.cwd(), '.media-forge');
+  const outputsDir = envOrUndefined('MEDIA_FORGE_OUTPUTS_DIR') ?? join(projectDir, 'outputs');
   mkdirSync(outputsDir, { recursive: true });
 
   // Extension from what MuAPI actually served. The catalogue spans video AND

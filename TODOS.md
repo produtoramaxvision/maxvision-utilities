@@ -105,11 +105,38 @@ CODEX_HOME                              HOME
 **A pior delas é a primeira.** `validateHiggsfieldPricingAtBoot()` **exige**
 `MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT` sempre que `HF_API_KEY` estiver setado, e
 falha com `process.exit(2)` (`server.ts:66-69`). O `.mcp.json` encaminha
-`HF_API_KEY` e **não** encaminha a variável de preço. Se o bloco `env` for
-whitelist — que é o que `tests/core/mcp-config-env-contract.test.ts:11-13` afirma,
-a partir de um defeito real observado com `KLING_API_KEY` — então **nenhum
-usuário de Higgsfield consegue subir o servidor**. Não checado ao vivo porque
-`HF_API_KEY` não está setado em lugar nenhum desta máquina.
+`HF_API_KEY` e **não** encaminhava a variável de preço.
+
+**A severidade depende de duas coisas que não estão verificadas, e o registro tem
+que dizer qual.** Primeira: se o bloco `env` substitui o ambiente ou soma a ele.
+`tests/core/mcp-config-env-contract.test.ts:11-13` afirma whitelist, a partir de
+um defeito real observado com `KLING_API_KEY`; a doc oficial do Claude Code diz
+só *"env: environment variables passed to the server"* e não decide a questão.
+Segunda: `src/core/config.ts:1` faz `import 'dotenv/config'` e `server.ts:11`
+importa esse módulo, então o `.env` é carregado **antes** de
+`validateHiggsfieldPricingAtBoot()` ler `process.env`. Dotenv sem caminho
+explícito resolve a partir do `process.cwd()` do processo, e o servidor é
+lançado como `node ${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js` — cwd quase
+certamente a raiz do projeto, não a do plugin.
+
+Logo a afirmação correta **não** é "nenhum usuário de Higgsfield sobe o
+servidor". É: quem tiver a taxa num `.env` no cwd resolvido sobe; quem depender
+do encaminhamento do `.mcp.json` não subia. Não dá para testar ao vivo aqui —
+`HF_API_KEY` não está setado em lugar nenhum desta máquina, e o `.env` local tem
+só `GOOGLE_API_KEY` e `KLING_API_KEY`, o que também explica por que o provider
+HTTP do Higgsfield nunca foi exercitado (a CLI usa OAuth próprio, não essas
+variáveis).
+
+**Efeito colateral do próprio conserto, achado antes de commitar.** Passar a
+encaminhar `"NAME": "${NAME}"` cria o caso "variável chega vazia", que antes não
+existia porque a variável não chegava. `process.env['X'] ?? default` só rejeita
+`undefined`, então string vazia vence o default: `MEDIA_FORGE_OUTPUTS_DIR` viraria
+`mkdirSync('')` (ENOENT) e `MEDIA_FORGE_MAX_OBJECTS_PER_CATEGORY` viraria
+`Number('') === 0`. Corrigido com `envOrUndefined()` (`src/core/env.ts`), que
+trata vazio e só-espaço como ausente — correto sob qualquer um dos dois
+comportamentos de expansão, sem precisar saber qual está em vigor.
+`MEDIA_FORGE_ARTIFACT_TTL_SECONDS` já usava `if (raw)` e `MEDIA_FORGE_CONFIG_HOME`
+já usava `||`; os dois eram seguros.
 
 `.env.example` tinha o mesmo buraco, menor do que a primeira contagem sugeriu —
 `MUAPI_API_KEY`, `OPENAI_API_KEY`, `MEDIA_FORGE_WAN2GP_URL` e os três

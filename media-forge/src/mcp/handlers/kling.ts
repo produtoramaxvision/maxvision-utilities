@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { envOrUndefined } from '../../core/env.js';
 import type { OutputStorageClient } from '../../output/storage.js';
 import { presignExistingArtifact } from '../../output/output-storage.js';
 import { KlingProvider } from '../../video/providers/kling.js';
@@ -570,9 +571,8 @@ export async function handleKlingDownload(
   if (!looksLikeUrl) provider.hydrateFromDb(input.jobIdOrUrl);
   const asset = await provider.download(input.jobIdOrUrl);
 
-  const projectDir =
-    process.env['MEDIA_FORGE_PROJECT_DIR'] ?? join(process.cwd(), '.media-forge');
-  const outputsDir = process.env['MEDIA_FORGE_OUTPUTS_DIR'] ?? join(projectDir, 'outputs');
+  const projectDir = envOrUndefined('MEDIA_FORGE_PROJECT_DIR') ?? join(process.cwd(), '.media-forge');
+  const outputsDir = envOrUndefined('MEDIA_FORGE_OUTPUTS_DIR') ?? join(projectDir, 'outputs');
   mkdirSync(outputsDir, { recursive: true });
   const baseName = looksLikeUrl
     ? `kling-download-${Date.now()}.mp4`
