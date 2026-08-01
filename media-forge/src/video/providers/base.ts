@@ -348,5 +348,24 @@ export interface VideoProvider {
    */
   download(jobIdOrPath: string): Promise<DownloadedAsset>;
   estimateCostUSD(req: VideoGenerationRequest): number;
-  recordActualCostUSD(jobId: string, usd: number): Promise<void>;
+
+  /**
+   * Settles a job at the amount the PROVIDER reported, when the provider reports
+   * one. Optional, and that is the honest shape.
+   *
+   * It was required, which advertised a settlement capability four of the five
+   * providers never exercise. Their real settlement runs through
+   * `recordActualCost` called directly from a webhook handler, a poll path or a
+   * download handler — never through this method. Only MuAPI settles this way,
+   * because MuAPI is the one provider that returns the charge it actually made
+   * (`cost.amount_usd`); everywhere else the figure is derived from
+   * `rate x duration` at whichever call site owns the completion.
+   *
+   * Optional means a provider that does not settle from a reported figure simply
+   * does not declare it. That is a stronger signal than a method present and
+   * doing nothing: `HiggsfieldCliProvider` used to carry an implementation whose
+   * whole body was `logger.debug('… is a documented no-op')`, which reads as
+   * "settled" to anything holding the interface.
+   */
+  recordActualCostUSD?(jobId: string, usd: number): Promise<void>;
 }

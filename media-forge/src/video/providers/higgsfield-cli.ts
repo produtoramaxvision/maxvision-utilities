@@ -470,9 +470,14 @@ export class HiggsfieldCliProvider implements VideoProvider {
    * number that would look authoritative and be wrong, this records nothing and
    * says so. Filed in TODOS.md alongside the equivalent Kling deduction-API gap.
    */
-  async recordActualCostUSD(jobId: string, usd: number): Promise<void> {
-    logger.debug('higgsfield-cli: recordActualCostUSD is a documented no-op', { jobId, usd });
-  }
+  // recordActualCostUSD is DELIBERATELY ABSENT.
+  //
+  // It used to exist here with a body that logged "is a documented no-op" and
+  // did nothing else. `VideoProvider` now declares the method optional, so not
+  // declaring it is the accurate statement: this transport bills the logged-in
+  // workspace in Higgsfield credits and never learns a USD figure it could
+  // settle with. A method that accepts a settlement and discards it looks
+  // identical, from the interface, to one that records it.
 }
 
 /** Stable key over the fields that affect price. */

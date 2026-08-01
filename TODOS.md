@@ -86,7 +86,7 @@ unidades (~125s de Kling 3.0 Turbo 720p).
 
 ---
 
-## P2 — Métodos `recordActualCostUSD` órfãos em 4 providers
+## (fechado) P2 — Métodos `recordActualCostUSD` órfãos em 4 providers
 
 **Achado pelo Codex em 2026-08-01, verificado por mim.** `GoogleVeoProvider`,
 `HiggsfieldProvider`, `KlingProvider` e `HiggsfieldCliProvider` declaram
@@ -104,11 +104,23 @@ caminhos diferentes (webhook, poll, download-capture), e decidir se o método de
 ser **removido do contrato** ou **ligado** em cada um é obra acoplada a dinheiro —
 exige plano e review, não enxerto no fim de uma auditoria.
 
-**Esforço:** M. **Depende de:** decisão sobre o contrato `VideoProvider`.
+**FECHADO em 2026-08-01 — decisão: tornar opcional no contrato.**
+
+Quatro das cinco implementações são a MESMA linha (`recordActualCost({dbPath,
+jobId, actualUsd})`) e a quinta era no-op que só logava. A liquidação real desses
+providers corre por `recordActualCost` chamado direto do webhook handler, do
+poll ou do download — nunca por este método. Só o MuAPI liquida assim, porque é o
+único provider que devolve a cobrança que de fato fez.
+
+`recordActualCostUSD?` agora é **opcional** no `VideoProvider`. Provider que não
+liquida a partir de figura reportada simplesmente **não declara** — sinal mais
+forte que um método presente sem efeito. O no-op do `higgsfield-cli` foi removido:
+esse transporte cobra a workspace em créditos e nunca aprende um valor em USD que
+pudesse liquidar.
 
 ---
 
-## P3 — Sonda de áudio do Higgsfield Speak não discrimina o que promete
+## (fechado) P3 — Sonda de áudio do Higgsfield Speak não discrimina o que promete
 
 **Achado pelo Codex em 2026-08-01, verificado.**
 `tests/video/providers/higgsfield-speak-audio-empirical.test.ts` tem uma única
@@ -121,9 +133,14 @@ verde normal. O risco é de leitura: o nome diz "empirical" e mora em `tests/`,
 então dá a impressão de que a forma do corpo foi verificada — e a produção
 (`higgsfield.ts:509`) chama a decisão de `PRELIMINAR_URL`, admitindo que não foi.
 
-**Correção proposta:** fazer a sonda classificar o resultado (erro-de-áudio vs
-erro-de-outra-coisa) e falhar quando não conseguir discriminar, que é o que o
-próprio cabeçalho descreve. Exige credencial HF ao vivo para valer.
+**FECHADO em 2026-08-01.** A sonda classifica o resultado em quatro veredictos
+(`audio_url-accepted`, `audio_url-rejected-upload-required`,
+`audio_url-not-the-complaint`, `inconclusive-auth-or-routing`) e **falha** no
+último. Credencial errada ou endpoint movido é problema da sonda, e uma sonda que
+não consegue fazer a pergunta não pode reportar como se tivesse feito.
+
+Continua exigindo credencial HF ao vivo (`MEDIA_FORGE_RUN_LIVE_TESTS=true`) para
+executar — o que mudou é que executar agora significa alguma coisa.
 
 ---
 
