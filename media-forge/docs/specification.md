@@ -1,6 +1,6 @@
 # media-forge — Specification
 
-**Version:** 0.2.13
+**Version:** 0.2.14
 **Source:** Distilled from design spec (2026-05-21) + implementation reality (P0-P16 complete: baseline + refs-integration + multi-provider video).
 
 ---

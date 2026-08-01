@@ -54,7 +54,6 @@ jobs:
         run: pnpm lint
 
       - name: Test
-        # The Windows GitHub runner cannot bootstrap embedded-postgres (pg_ctl
         # The windows-latest runner cannot start embedded-postgres, so the
         # pg-backed suites throw at collection ("Test Files: no tests" ->
         # Unhandled Error) and the step exits 1. The runner's exact refusal:

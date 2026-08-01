@@ -4,6 +4,34 @@ All notable changes to `media-forge` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.14] - 2026-08-01
+
+### Fixed
+
+- **`recordActualCostUSD` was mandatory on a contract four providers do not
+  honour.** Four of the five implementations are one identical line with no
+  production caller; the fifth logged "is a documented no-op" and returned. Real
+  settlement runs through `recordActualCost` called directly from a webhook,
+  poll or download handler — only MuAPI settles through this method, because it
+  is the only provider that reports the charge it actually made. The method is
+  optional now, and higgsfield-cli no longer declares it: from behind an
+  interface, a no-op and a real settlement look the same.
+- **A live probe passed on every outcome it existed to tell apart.** The
+  Higgsfield Speak audio test asserted only `status < 500`, and both answers to
+  its question (`audio_url` accepted vs upload required) are 4xx. It classifies
+  now and fails when it cannot discriminate — a probe that could not ask its
+  question must not report as though it did.
+
+### Housekeeping
+
+- Recovered 12 plans/specs that existed only on an unpushed local branch, one of
+  which `.maxvision/PENDING.md` cites by path. Following that reference on main
+  previously found nothing.
+- Repository cleaned after a full audit: 4 remote branches whose commits
+  `git cherry` confirms are already applied to main, 2 redundant local branches,
+  3 stale fallow worktree registrations, and 483 MB of frozen worktree
+  directories whose every file was verified byte-present in git history first.
+
 ## [0.2.13] - 2026-08-01
 
 Findings from an independent Codex cross-audit, each verified in the code before

@@ -36,7 +36,42 @@ describeIfLive('Higgsfield Speak audio format probe', () => {
       status: res.status,
       bodyExcerpt: body.slice(0, 600),
     }, null, 2));
-    // We accept ANY non-5xx outcome — the test exists to surface platform behavior, not to assert success.
+    // The probe has to DISCRIMINATE, not merely survive.
+    //
+    // Its only assertion used to be `expect(res.status).toBeLessThan(500)`, which
+    // passes on every outcome this probe exists to tell apart: a 4xx rejecting
+    // `audio_url` and a 4xx complaining about the portrait are both < 500. A
+    // green run therefore said nothing, while the filename says "empirical" and
+    // production still calls the shape PRELIMINAR_URL (higgsfield.ts). That is a
+    // false signal of verification attached to a guessed request body.
+    //
+    // Classified instead. An auth/routing failure means the probe never reached
+    // the question and is reported as inconclusive rather than passing quietly.
+    const lower = body.toLowerCase();
+    const mentionsAudio = /audio/.test(lower);
+    const authOrRouting = res.status === 401 || res.status === 403 || res.status === 404;
+
+    const verdict = authOrRouting
+      ? 'inconclusive-auth-or-routing'
+      : mentionsAudio
+        ? 'audio_url-rejected-upload-required'
+        : res.status < 400
+          ? 'audio_url-accepted'
+          : 'audio_url-not-the-complaint';
+
+    // eslint-disable-next-line no-console
+    console.log('[P14-speak-audio-probe] VERDICT:', verdict);
+
+    // Reaching the platform at all is still required — a 5xx or a network error
+    // means the probe told us nothing about the payload.
     expect(res.status).toBeLessThan(500);
+    // And the run must have produced an answer to the question it was written to
+    // ask. `inconclusive-auth-or-routing` fails here on purpose: credentials or a
+    // moved endpoint are a problem with the PROBE, and a probe that cannot ask
+    // its question must not report as if it did.
+    expect(
+      verdict,
+      `probe could not discriminate — status ${res.status}, body: ${body.slice(0, 200)}`,
+    ).not.toBe('inconclusive-auth-or-routing');
   }, 30_000);
 });
