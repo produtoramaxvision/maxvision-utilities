@@ -87,7 +87,11 @@ import {
 } from '../../core/cost-tracker.js';
 import { isSeedanceEnabled } from '../../core/feature-flags.js';
 import { logger } from '../../core/logger.js';
-import { defaultDbPath, handleVideoWebhookStatus } from './shared.js';
+import {
+  defaultDbPath,
+  handleVideoWebhookStatus,
+  higgsfieldCliRunnerIfEnabled,
+} from './shared.js';
 import { handleVideoCostEstimate, handleVideoCostReport, handleVideoRoute } from './video.js';
 import {
   handleHiggsfieldSoulId,
@@ -2203,7 +2207,13 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Train Soul-ID', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const result = await handleSoulIdTrain(input, { dbPath: defaultDbPath() });
+        // The runner is what makes this tool exist. Without it handleSoulIdTrain
+        // throws every time, and it was never supplied from anywhere.
+        const runner = higgsfieldCliRunnerIfEnabled();
+        const result = await handleSoulIdTrain(input, {
+          dbPath: defaultDbPath(),
+          ...(runner ? { runner } : {}),
+        });
         return asResult(result as unknown as Record<string, unknown>);
       }),
     );
@@ -2215,7 +2225,13 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'List Soul-IDs', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const result = await handleSoulIdList(input, { dbPath: defaultDbPath() });
+        // Same omission, quieter symptom: without a runner this reported the
+        // local cache as if it were the whole answer, with no remote comparison.
+        const runner = higgsfieldCliRunnerIfEnabled();
+        const result = await handleSoulIdList(input, {
+          dbPath: defaultDbPath(),
+          ...(runner ? { runner } : {}),
+        });
         return asResult(result as unknown as Record<string, unknown>);
       }),
     );

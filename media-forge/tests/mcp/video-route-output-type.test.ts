@@ -112,6 +112,47 @@ describe('video routing never selects an image-output model', () => {
     expect(result.provider).toBe('higgsfield');
   });
 
+  // Pins the `unavailable` mechanism ITSELF, not a side effect of it.
+  //
+  // The refusal tests above would still pass with the unavailable filter deleted
+  // — outputType already removes the Soul specs, and targeted-edit has no other
+  // provider once Seedance is off. This walks every mode an unserved spec claims
+  // and asserts it never comes back, so removing the filter turns THIS red.
+  it('never returns a spec marked unavailable, in any mode it claims', async () => {
+    const unserved = Object.values(VIDEO_MODELS).filter((s) => s.unavailable !== undefined);
+    expect(unserved.length, 'no unavailable specs to check — has the marker been lost?')
+      .toBeGreaterThan(0);
+
+    const unservedIds = unserved.map((s) => s.id);
+    const modes = [...new Set(unserved.flatMap((s) => s.modes))];
+
+    for (const mode of modes) {
+      for (const resolution of ['720p', '1080p'] as const) {
+        // preferProvider is REQUIRED for this to test anything. Every unserved
+        // spec here belongs to 'higgsfield', and in the open cost sort Kling
+        // undercuts all of them — so a default route never surfaces one even
+        // with the filter deleted. Narrowing the pool to the provider that owns
+        // them is what makes the assertion bite. (Verified by deleting the
+        // filter and watching this go red.)
+        //
+        // Some modes have no provider at all once these are excluded; a refusal
+        // is a pass. What must never happen is a dead model coming back.
+        const result = await handleVideoRoute({
+          mode,
+          prompt: 'unavailable-spec routing check',
+          durationSec: 5,
+          resolution,
+          preferProvider: 'higgsfield',
+        }).catch(() => undefined);
+        if (result === undefined) continue;
+        expect(
+          unservedIds,
+          `mode='${mode}' ${resolution} routed to ${result.modelId}, whose endpoint the provider does not serve`,
+        ).not.toContain(result.modelId);
+      }
+    }
+  });
+
   // The default path, across the grid where Soul is actually eligible.
   //
   // This does NOT simulate the latent case (Soul repriced at the catalogue's 1.0

@@ -118,8 +118,12 @@ export type CliRunner = (args: ReadonlyArray<string>, timeoutMs: number) => Prom
  * or backticks would execute. With an argv array the prompt is one opaque
  * element no matter what it contains. Never rewrite this to build a command
  * string.
+ *
+ * Exported so the Soul-ID handlers can run through the SAME spawn path as
+ * generation — including the Windows shim resolution, which is why they must not
+ * grow a second runner of their own.
  */
-const defaultRunner: CliRunner = (args, timeoutMs) =>
+export const defaultRunner: CliRunner = (args, timeoutMs) =>
   new Promise<CliResult>((resolve, reject) => {
     // Same Windows resolution as the Codex adapter, and for the same reason: the
     // Higgsfield CLI installs as a .CMD/sh shim here, which Node refuses to spawn

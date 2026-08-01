@@ -4,6 +4,8 @@ import { isSeedanceEnabled } from '../../core/feature-flags.js';
 import {
   isHiggsfieldCliEnabled,
   HiggsfieldCliProvider,
+  defaultRunner,
+  type CliRunner,
 } from '../../video/providers/higgsfield-cli.js';
 import type { WebhookRouter } from '../../video/providers/webhook-router.js';
 import { HiggsfieldProvider } from '../../video/providers/higgsfield.js';
@@ -174,4 +176,22 @@ export function higgsfieldCliProvider(): HiggsfieldCliProvider {
 /** Test utility — mirrors _resetHiggsfieldProviderForTests for the CLI transport. */
 export function _resetHiggsfieldCliProviderForTests(): void {
   _hfCliProvider = undefined;
+}
+
+/**
+ * The CLI runner to hand the Soul-ID handlers, or undefined when the CLI is off.
+ *
+ * `handleSoulIdTrain` has always accepted an optional runner and thrown a clear
+ * "enable MEDIA_FORGE_HF_CLI_ENABLED" message without one — but register.ts never
+ * passed one, from any code path, so `media_higgsfield_soul_id_train` threw
+ * UNCONDITIONALLY. The flag was not the gate; there was no gate, only a dead
+ * tool. `handleSoulIdList` degraded to local-cache-only forever for the same
+ * reason, which is worse than throwing: it answered, and the answer was
+ * silently partial.
+ *
+ * Gated at call time so tests can toggle the env var per-test, matching
+ * getAdaptedProviders above.
+ */
+export function higgsfieldCliRunnerIfEnabled(): CliRunner | undefined {
+  return isHiggsfieldCliEnabled() ? defaultRunner : undefined;
 }
