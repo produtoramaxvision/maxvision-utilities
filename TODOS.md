@@ -154,7 +154,7 @@ inferir autoridade de tipo de mídia, ordem de upload ou nome de arquivo.
 
 ---
 
-## P2 — Reconciliar `generation-run` com `trace.jsonl`
+## (fechado) P2 — Reconciliar `generation-run` com `trace.jsonl`
 
 **O quê:** decidir se o schema `generation-run` absorvido do seedance substitui,
 complementa ou é descartado frente ao `trace.jsonl` que o media-forge já grava.
