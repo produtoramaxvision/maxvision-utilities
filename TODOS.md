@@ -8,6 +8,67 @@ Criado em 2026-07-29 pelo `/maxvision:plan-ceo-review` sobre
 
 ---
 
+## (aberto) Itens do plano de 2026-08-01 que NÃO foram implantados
+
+Revisão do plano item a item feita em 2026-08-01, com o gate verde. Estes quatro
+são os únicos itens do plano original que não têm código correspondente. Nenhum
+deles é bloqueante para produção; todos são decisão, não descoberta.
+
+### 1. Item 11 — catálogo da CLI como fixture versionada
+
+**O quê:** o plano previa gravar o catálogo medido (75 modelos, 18 workflows,
+custos por job type) como fixture no repo, "para o registry parar de ser memória
+de sessão". Não existe `tests/fixtures/`.
+
+**Por que importa:** hoje a única prova de que os specs `higgsfield-cli` batem com
+a plataforma é o portão ao vivo, que precisa de rede e de sessão OAuth. Sem
+fixture não há como detectar drift do catálogo offline nem em CI.
+
+**Esforço:** S. **Custo:** 0 créditos (tudo leitura).
+
+### 2. Item 12 — `source: 'unverified'` nos specs HTTP
+
+**O quê:** `PricingSource` só tem `fixed-public-rate` (8 usos) e
+`volatile-by-tier` (11). O plano recomendava marcar os specs HTTP como não
+verificados e fazer o guarda de custo avisar, em vez de fingir precisão.
+
+**Por que importa:** os preços HTTP continuam sendo os números antigos do registry
+(25/70/40/18) enquanto `GET /models` reporta `base_credits` 1.0/0.0/9.0/6.5. Não
+sabemos qual é verdade — e o registry não diz que não sabe.
+
+**Bloqueado em:** saldo 0 na conta de API. Só uma geração cobrada fecha o ciclo.
+A marcação, porém, não depende de crédito nenhum.
+
+### 3. Item 14 — taxa única de USD por crédito (agora quantificável)
+
+**O quê:** `creditsToUsd` (`src/video/providers/higgsfield-cli.ts:829`) lê a global
+`MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT`, que o `.env` fixa em `0.0625` (taxa da
+API). A CLI cobra do pool de assinatura, cujo valor é `0.048333`.
+
+**Deixou de ser abstrato.** Os 350 créditos do incidente custaram, de fato,
+**US$ 16,92**. O ledger do plugin registraria **US$ 21,88**. Todo job da CLI é
+superestimado em **29,3%**.
+
+O comentário em `higgsfield-cli.ts:826` defende a variável única — "two rates for
+one provider's credit is how the cost report starts disagreeing with the invoice".
+Com números reais na mão, o argumento se inverte: é a taxa única que faz o
+relatório discordar da fatura. Decisão do dono, não recomendação fechada.
+
+### 4. Fase 5 parcial — três superfícies da CLI sem cobertura
+
+Entregues: `marketing-studio <kind> list` (tool genérica por `kind`),
+`product-photoshoot`, `marketplace-cards`. Fora:
+
+| superfície | inventário medido | observação |
+|---|---|---|
+| `voices list/get` | **57** | TTS e voice-change |
+| `preset list/resolve` | 21 em `video-explainer` | tipos adicionais não inventariados |
+| `marketing-studio dtc-ads generate` | — | exige `--brand-kit-id`; a conta tem 0 brand-kits |
+
+`upload` continua fora por decisão do plano: caminhos locais são auto-upload.
+
+---
+
 ## (fechado) Auditoria Higgsfield de ponta a ponta — 2026-08-01
 
 Seis commits em `homolog`: `3aa7351`, `c38198b`, `499c47b`, `b303404`, `4aaff77`,
@@ -55,6 +116,43 @@ completa deixa o saldo em 260 e a contagem de jobs em 6.
 | — | CLI não gravava `recordJob` | Reservava crédito e não deixava linha em `video_jobs` | Grava |
 | — | `creditsToUsd` NaN fora do boot | Lia só o binding validado no boot | Fallback para a mesma env var |
 | D9 | Versão nos docs | `architecture.md` dizia 0.1.1 contra `package.json` 0.2.14 | Sincronizado |
+
+### O que os 350 créditos provaram (revisão de 2026-08-01, pós-incidente)
+
+Gasto não autorizado não vira acerto por ter produzido dado. Mas o dado existe e
+não deve ser jogado fora: seis gerações **cobradas** são a primeira validação de
+preço deste repo contra fatura, e não contra a função de estimativa.
+
+Cruzando `higgsfield generate list --json` com `account transactions --json`:
+
+| job_type | duração | resolução | previsto pelo registry | cobrado |
+|---|---|---|---|---|
+| `cinematic_studio_video_3_5` | 4s | 720p | 4 × 5,0 × 1,0 = **20** | 20 |
+| `marketing_studio_video` | 10s | 720p | 10 × 5,0 × 1,0 = **50** | 50 |
+| `marketing_studio_video` | 12s | 1080p | 12 × 5,0 × 2,0 = **120** | 120 |
+
+As três formas batem exatamente. Fica **confirmado por cobrança**: taxa
+`5.0 credits-per-second` e multiplicadores `720p = 1.0` e `1080p = 2.0`.
+
+**Não confirmado por cobrança:** `480p = 0.7`. Nenhum job em 480p rodou; esse
+multiplicador segue apoiado só em `generate cost`, que é função de preço e não
+valida nada. O portão ao vivo o cobre, mas o portão também usa `generate cost`.
+
+**Teto de duração:** 12s agora é fato aceito por `marketing_studio_video`. O
+`maxDurationSec: 15` do spec continua **não medido no topo** — 15 é o default do
+schema, não um limite publicado.
+
+### Atribuição por job na CLI — deixa de estar em aberto na prática
+
+O `TODOS` registrava "não dá para atribuir gasto por job" como **não refutado**.
+Com seis jobs e seis transações, dá para medir: cada `created_at` de job casa com
+o `created_at` da cobrança dentro de ~75 ms, e o valor cobrado bate com os
+parâmetros do job.
+
+A transação **continua sem referência a job id** — a correlação é por timestamp e
+valor, o que é heurística, não contrato: dois jobs no mesmo milissegundo ficariam
+ambíguos. Na prática isso não bloqueia nada, porque o ledger local grava o job
+por `recordJob` e não depende dessa correlação.
 
 ### Registry: 10 specs HTTP viraram 5
 
