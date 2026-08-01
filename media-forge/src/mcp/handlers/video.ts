@@ -108,6 +108,20 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
   const input: VideoRouteInputT = VideoRouteInput.parse(rawInput);
 
   const allByMode = Object.values(VIDEO_MODELS)
+    // This is a VIDEO router. A spec whose endpoint returns an image cannot
+    // satisfy any of these modes, however well its `modes` array reads.
+    //
+    // Higgsfield's Soul family is `text2image` on the platform and shipped here
+    // as `modes: ['t2v','i2v']`. Every filter below passed it, because none of
+    // them looks at what comes back. The default cost sort was the only thing
+    // hiding it — the flat 25-credit price loses to kling-v3-standard at every
+    // duration Soul allows — so `preferProvider: 'higgsfield'` selected an image
+    // endpoint for a video request, and aligning Soul's price with the 1.0
+    // base_credits the catalogue reports would have made it win every t2v route.
+    //
+    // First, not last: an image model must never reach the cost sort, not merely
+    // lose it.
+    .filter((spec) => spec.outputType === 'video')
     .filter((spec) => spec.modes.includes(input.mode as never))
     // Constrain to providers with a wired adapter. Models registered for
     // future providers (Kling P15, Seedance P16) must not be selected until

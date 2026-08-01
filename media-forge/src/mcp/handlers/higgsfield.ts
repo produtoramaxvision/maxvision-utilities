@@ -20,6 +20,8 @@ import {
   buildHiggsfieldHeaders,
   buildFallbackHeaders,
 } from '../../video/providers/auth/higgsfield-headers.js';
+import { VIDEO_MODELS, type ModelOutputType } from '../../core/models.js';
+import { ValidationError } from '../../core/errors.js';
 import { defaultDbPath, higgsfieldProvider } from './shared.js';
 import { assertPromptWithinBudget } from '../../core/prompt-budget.js';
 import type { VideoLedgerHooks } from '../../video/providers/base.js';
@@ -151,9 +153,29 @@ export async function handleHiggsfieldGenerate(
   jobId: string;
   providerNativeId?: string;
   estimatedCostUSD: number;
+  outputType: ModelOutputType;
   costWarning?: string;
 }> {
   const input: HiggsfieldGenerateInputT = HiggsfieldGenerateInput.parse(rawInput);
+  // The three models this tool accepts are ALL `text2image` on the platform, and
+  // it takes `mode: 't2v' | 'i2v'` and a `durationSec`. A caller reading only the
+  // schema would expect a video back.
+  //
+  // handleVideoRoute can no longer select them (they are filtered on outputType),
+  // but this tool names them explicitly, so the mismatch has to be answered here
+  // rather than routed around. It is answered by SAYING SO: the result declares
+  // what the endpoint returns, and buildRequestBody drops `duration` for image
+  // models instead of sending a number nothing will honour.
+  //
+  // The registry lookup is not defensive dressing — it is the single place this
+  // fact lives, so the tool cannot drift from it.
+  const spec = VIDEO_MODELS[input.modelId];
+  if (spec === undefined) {
+    throw new ValidationError(
+      `${input.modelId} is not in the model registry; media_higgsfield_generate cannot price or submit it`,
+      { field: 'modelId' },
+    );
+  }
   assertPromptWithinBudget({ provider: 'higgsfield', prompt: input.prompt, field: 'prompt' });
   const provider = higgsfieldProvider();
   const req = {
@@ -180,6 +202,7 @@ export async function handleHiggsfieldGenerate(
     jobId: handle.jobId,
     providerNativeId: handle.providerNativeId,
     estimatedCostUSD: estimateUsd,
+    outputType: spec.outputType,
     ...(costWarning ? { costWarning } : {}),
   };
 }

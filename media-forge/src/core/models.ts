@@ -132,9 +132,35 @@ export type PricingUnit = (typeof PRICING_UNITS)[number];
 export const PRICING_SOURCES = ['fixed-public-rate', 'volatile-by-tier', 'user-override'] as const;
 export type PricingSource = (typeof PRICING_SOURCES)[number];
 
+/**
+ * What the endpoint actually returns.
+ *
+ * Not derivable from `modes`. Higgsfield's Soul family accepts a prompt and an
+ * aspect ratio exactly like a t2v model does, and the registry duly described it
+ * as `modes: ['t2v','i2v']` — but the platform serves it as `text2image` and
+ * hands back an image. `GET /models` says so in its own words, and the live gate
+ * prints it every run:
+ *
+ *   higgsfield-ai/soul/standard    text2image  image  1.0000
+ *
+ * `handleVideoRoute` filtered on mode, provider, duration and resolution and had
+ * no way to see that, so a video request could be answered with an image
+ * endpoint. Only the default cost sort hid it: at USD_PER_CREDIT=0.0625 the flat
+ * 25-credit Soul price loses to kling-v3-standard at every duration Soul allows.
+ * Name the provider and it wins; align its price with the 1.0 base_credits the
+ * catalogue reports and it wins EVERYWHERE, by roughly 16x.
+ *
+ * REQUIRED, not defaulted. A spec that forgets to declare this would inherit
+ * whichever default the field carried, and a wrong inherited value is exactly
+ * the failure being fixed — silently in one direction, and silently dropping a
+ * working model out of routing in the other.
+ */
+export type ModelOutputType = 'video' | 'image';
+
 export interface VideoModelSpec {
   readonly id: string;
   readonly provider: Provider;
+  readonly outputType: ModelOutputType;
   readonly modes: ReadonlyArray<VideoMode>;
   readonly maxDurationSec: number;
   readonly resolutions: ReadonlyArray<'480p' | '720p' | '1080p' | '2k' | '4k'>;
@@ -200,6 +226,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   [VIDEO_MODEL_VEO_3_1_PRO]: {
     id: VIDEO_MODEL_VEO_3_1_PRO,
     provider: 'google',
+    outputType: 'video',
     modes: ['t2v', 'i2v', 'interpolate', 'extend', 'with-refs'],
     maxDurationSec: 148,
     resolutions: ['720p', '1080p', '4k'],
@@ -217,6 +244,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'higgsfield-soul-standard': {
     id: 'higgsfield-soul-standard',
     provider: 'higgsfield',
+    outputType: 'image',
     modes: ['t2v', 'i2v'],
     maxDurationSec: 8,
     resolutions: ['720p', '1080p'],
@@ -234,6 +262,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'higgsfield-soul-pro': {
     id: 'higgsfield-soul-pro',
     provider: 'higgsfield',
+    outputType: 'image',
     modes: ['t2v', 'i2v'],
     maxDurationSec: 8,
     resolutions: ['720p', '1080p'],
@@ -251,6 +280,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'higgsfield-soul2': {
     id: 'higgsfield-soul2',
     provider: 'higgsfield',
+    outputType: 'image',
     modes: ['t2v', 'i2v', 'with-refs'],
     maxDurationSec: 8,
     resolutions: ['720p', '1080p'],
@@ -268,6 +298,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'higgsfield-dop': {
     id: 'higgsfield-dop',
     provider: 'higgsfield',
+    outputType: 'video',
     modes: ['i2v', 'with-refs'],
     maxDurationSec: 6,
     resolutions: ['720p', '1080p'],
@@ -285,6 +316,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'higgsfield-dop-turbo': {
     id: 'higgsfield-dop-turbo',
     provider: 'higgsfield',
+    outputType: 'video',
     modes: ['i2v', 'with-refs'],
     maxDurationSec: 6,
     resolutions: ['720p'],
@@ -302,6 +334,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'higgsfield-speak': {
     id: 'higgsfield-speak',
     provider: 'higgsfield',
+    outputType: 'video',
     modes: ['lip-sync'],
     // 15, not 30. `POST /higgsfield-ai/speak` with duration 99 answers
     // `Input should be 5, 10 or 15` — the platform's own enum, read 2026-08-01.
@@ -325,6 +358,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'higgsfield-speak2': {
     id: 'higgsfield-speak2',
     provider: 'higgsfield',
+    outputType: 'video',
     modes: ['lip-sync'],
     maxDurationSec: 60,
     resolutions: ['720p', '1080p'],
@@ -342,6 +376,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'higgsfield-cinema-studio-3.5': {
     id: 'higgsfield-cinema-studio-3.5',
     provider: 'higgsfield',
+    outputType: 'video',
     modes: ['i2v', 't2v', 'with-refs'],
     maxDurationSec: 8,
     resolutions: ['720p', '1080p'],
@@ -359,6 +394,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'higgsfield-marketing-studio': {
     id: 'higgsfield-marketing-studio',
     provider: 'higgsfield',
+    outputType: 'video',
     modes: ['t2v'],
     maxDurationSec: 15,
     resolutions: ['720p', '1080p'],
@@ -376,6 +412,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'higgsfield-recast': {
     id: 'higgsfield-recast',
     provider: 'higgsfield',
+    outputType: 'video',
     modes: ['targeted-edit'],
     maxDurationSec: 30,
     resolutions: ['720p', '1080p'],
@@ -427,6 +464,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   kling3_0_turbo: {
     id: 'kling3_0_turbo',
     provider: 'higgsfield-cli',
+    outputType: 'video',
     modes: ['t2v', 'i2v'],
     maxDurationSec: 10,
     resolutions: ['720p', '1080p'],
@@ -447,6 +485,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   kling3_0: {
     id: 'kling3_0',
     provider: 'higgsfield-cli',
+    outputType: 'video',
     modes: ['t2v', 'i2v'],
     maxDurationSec: 10,
     resolutions: ['720p', '1080p', '4k'],
@@ -474,6 +513,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   seedance_2_0: {
     id: 'seedance_2_0',
     provider: 'higgsfield-cli',
+    outputType: 'video',
     modes: ['t2v', 'i2v'],
     maxDurationSec: 10,
     resolutions: ['480p', '720p', '1080p', '4k'],
@@ -502,6 +542,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   seedance_2_0_mini: {
     id: 'seedance_2_0_mini',
     provider: 'higgsfield-cli',
+    outputType: 'video',
     modes: ['t2v', 'i2v'],
     // No 1080p: the CLI rejects it for this model ("allowed: 480p, 720p"),
     // which matches the registry's own resolutions for seedance-2.0-fast.
@@ -524,6 +565,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'kling-v3-standard': {
     id: 'kling-v3-standard',
     provider: 'kling',
+    outputType: 'video',
     modes: ['t2v', 'i2v'],
     maxDurationSec: 10,
     resolutions: ['720p', '1080p'],
@@ -555,6 +597,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'kling-3.0-turbo': {
     id: 'kling-3.0-turbo',
     provider: 'kling',
+    outputType: 'video',
     modes: ['t2v', 'i2v'],
     // "durations (3-15 seconds)" per the model page's capability map.
     maxDurationSec: 15,
@@ -591,6 +634,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'kling-v3-pro': {
     id: 'kling-v3-pro',
     provider: 'kling',
+    outputType: 'video',
     modes: ['t2v', 'i2v', 'motion-brush', 'elements', 'lip-sync', 'extend'],
     maxDurationSec: 10,
     // '2k' unverified: Kling's `mode` enum (std/pro/4k) maps 'pro' to 1080P output only —
@@ -615,6 +659,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'kling-v3-master': {
     id: 'kling-v3-master',
     provider: 'kling',
+    outputType: 'video',
     modes: ['t2v'],
     maxDurationSec: 10,
     resolutions: ['4k'],
@@ -637,6 +682,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'kling-v3-omni': {
     id: 'kling-v3-omni',
     provider: 'kling',
+    outputType: 'video',
     modes: ['t2v', 'i2v', 'multi-shot'],
     maxDurationSec: 30, // 6 shots × 5s max each per Omni schema
     resolutions: ['1080p'],
@@ -671,6 +717,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'seedance-2.0-fast': {
     id: 'seedance-2.0-fast',
     provider: 'bytedance',
+    outputType: 'video',
     modes: ['t2v', 'i2v', 'with-refs', 'multi-shot', 'targeted-edit'],
     maxDurationSec: 15,
     resolutions: ['480p', '720p'],
@@ -695,6 +742,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'seedance-2.0-standard': {
     id: 'seedance-2.0-standard',
     provider: 'bytedance',
+    outputType: 'video',
     modes: ['t2v', 'i2v', 'with-refs', 'multi-shot', 'targeted-edit'],
     maxDurationSec: 15,
     resolutions: ['480p', '720p', '1080p'],

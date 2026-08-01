@@ -64,6 +64,31 @@ export const HIGGSFIELD_ENDPOINTS: Readonly<Record<string, string>> = {
 // One-shot warning latch for the broken HF_WEBHOOK_ENABLE path (Codex P2 PR#13).
 let _warnedHfWebhookBroken = false;
 
+/**
+ * Does this model's endpoint return a video?
+ *
+ * The Soul family is `text2image` on the platform — it takes aspect_ratio,
+ * resolution, batch_size and seed, and there is no duration to honour. Sending
+ * `duration` anyway is not an ERROR, and that is exactly the danger: this API
+ * IGNORES unknown and inapplicable fields rather than rejecting them, which is
+ * how `duration_seconds` spent months being silently discarded while every
+ * generation ran at the model default. Omitting the field keeps the request an
+ * honest description of what will happen.
+ *
+ * Lifted out of `buildRequestBody` deliberately. That function is already the
+ * most complex in this file (cyclomatic 28 before this change, over the repo's
+ * threshold of 20); adding a branch and an optional chain inside it pushed it to
+ * 30. A named predicate keeps the fix from making a known hotspot worse, and
+ * reads better than the inline lookup did.
+ *
+ * Unknown ids answer `true`: this is not the place to decide a model does not
+ * exist — `endpointForModel` already refuses those by name, with a better
+ * message.
+ */
+function producesVideo(modelId: string): boolean {
+  return VIDEO_MODELS[modelId]?.outputType !== 'image';
+}
+
 interface PlatformGenerateResponse {
   readonly request_id: string;
   readonly status_url: string;
@@ -503,8 +528,12 @@ export class HiggsfieldProvider implements VideoProvider {
       prompt,
       aspect_ratio: req.aspectRatio ?? '16:9',
       resolution: req.resolution,
-      duration: req.durationSec,
     };
+
+    //   duration is sent ONLY to endpoints that produce a video — see
+    //   `producesVideo` above for why, and why the decision lives outside this
+    //   function.
+    if (producesVideo(req.modelId)) body['duration'] = req.durationSec;
 
     //   first_frame_url -> image_url
     //     THE defect that made every image-driven Higgsfield call fail:
