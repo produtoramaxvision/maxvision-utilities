@@ -42,7 +42,7 @@
 // hosted path must never enable it.
 
 import { spawn } from 'node:child_process';
-import { VIDEO_MODELS, type Provider } from '../../core/models.js';
+import { VIDEO_MODELS, type Provider, type VideoModelSpec } from '../../core/models.js';
 import { USD_PER_CREDIT } from '../../core/higgsfield-pricing.js';
 import { logger } from '../../core/logger.js';
 import { ApiError, ValidationError } from '../../core/errors.js';
@@ -311,6 +311,105 @@ const MEDIA_FLAG_NAMES: ReadonlySet<string> = new Set([
  *
  * Returned as an array of discrete elements, never joined. See defaultRunner.
  */
+/**
+ * Most job types take `--resolution`. kling3_0 takes `--mode std|pro|4k` and
+ * rejects `--resolution` with `Unknown params: resolution`, so emitting the
+ * default flag failed every request that named a resolution — cost estimate and
+ * generation alike. The per-spec mapping lives on the spec because the job type,
+ * not the transport, is what decides the parameter name.
+ */
+function pushResolutionFlag(
+  args: string[],
+  spec: VideoModelSpec,
+  modelId: string,
+  resolution: NonNullable<VideoGenerationRequest['resolution']>,
+): void {
+  const override = spec.cliResolutionParam;
+  if (override === undefined) {
+    args.push('--resolution', resolution);
+    return;
+  }
+  const value = override.values[resolution];
+  if (value === undefined) {
+    throw new ValidationError(
+      `${modelId} has no ${override.flag} value for resolution ${resolution}. ` +
+        `Supported: ${Object.keys(override.values).join(', ')}.`,
+    );
+  }
+  args.push(override.flag, value);
+}
+
+/**
+ * Flags this transport derives from the request itself.
+ *
+ * Refused rather than silently overwritten when they arrive through cliParams —
+ * a caller passing `duration` here would produce two `--duration` flags and let
+ * the CLI decide which wins, defeating the cost estimate computed from the other
+ * one.
+ */
+const RESERVED_CLI_PARAMS: ReadonlySet<string> = new Set([
+  'prompt',
+  'duration',
+  'resolution',
+  'aspect-ratio',
+  'aspect_ratio',
+  'start-image',
+  'start_image',
+  'end-image',
+  'end_image',
+  'image-references',
+  'image_references',
+]);
+
+/**
+ * Job-type-specific parameters, using the platform's own names.
+ *
+ * Marketing Studio and Cinematic Studio carry a dozen each (avatar_ids, hook_id,
+ * camera_style, light_scheme …) that no shared VideoGenerationRequest field
+ * could hold. They go through verbatim rather than through a typed field per job
+ * type: the previous typed set (focal_length_mm, template, product_url …) was
+ * invented for endpoints that answer 404 and drifted out of existence without
+ * anything noticing. `higgsfield model get <job_type>` is the source, and the
+ * MCP schema layer validates against the enums it reports.
+ */
+function pushCliParams(args: string[], cliParams: Readonly<Record<string, unknown>>): void {
+  for (const [name, value] of Object.entries(cliParams)) {
+    if (RESERVED_CLI_PARAMS.has(name)) {
+      throw new ValidationError(
+        `cliParams may not carry "${name}" — it is already derived from the request ` +
+          `(prompt, durationSec, resolution, aspectRatio, frames, references).`,
+      );
+    }
+    const flag = `--${name}`;
+    if (!Array.isArray(value)) {
+      args.push(flag, String(value));
+      continue;
+    }
+    // Two kinds of array flag, and they take OPPOSITE forms. Measured against
+    // the binary, not inferred from the schema — `model get` types both as
+    // `array` and gives no hint which is which:
+    //
+    //   --avatar_ids '["id"]'                    ok
+    //   --avatar_ids id1 --avatar_ids id2        Invalid types: avatar_ids
+    //                                            should be array, got string
+    //   --image-references id1 --image-references id2   ok
+    //   --image-references '["id"]'              Media "[...]" is neither a
+    //                                            UUID nor an existing file path
+    //
+    // Media flags resolve each value as a UUID or a path to upload, so a JSON
+    // string is a filename to them. Everything else is a typed parameter that
+    // wants the array itself. Getting this backwards fails at the CLI, after the
+    // cost estimate has already been computed from the same argv — which is
+    // exactly how it was found: `fetchCostCredits` rejected the submit shape
+    // while every fake-runner test passed.
+    if (MEDIA_FLAG_NAMES.has(name)) {
+      for (const v of value) args.push(flag, String(v));
+    } else {
+      args.push(flag, JSON.stringify(value));
+    }
+  }
+}
+
 export function buildCliArgs(req: VideoGenerationRequest): string[] {
   const spec = VIDEO_MODELS[req.modelId];
   if (spec === undefined) {
@@ -320,28 +419,7 @@ export function buildCliArgs(req: VideoGenerationRequest): string[] {
   const args: string[] = [req.modelId, '--prompt', req.prompt];
 
   if (req.durationSec > 0) args.push('--duration', String(req.durationSec));
-
-  // Most job types take `--resolution`. kling3_0 takes `--mode std|pro|4k` and
-  // rejects `--resolution` with `Unknown params: resolution`, so emitting the
-  // default flag failed every request that named a resolution — cost estimate
-  // and generation alike. The per-spec mapping lives on the spec because the
-  // job type, not the transport, is what decides the parameter name.
-  if (req.resolution) {
-    const override = spec.cliResolutionParam;
-    if (override === undefined) {
-      args.push('--resolution', req.resolution);
-    } else {
-      const value = override.values[req.resolution];
-      if (value === undefined) {
-        throw new ValidationError(
-          `${req.modelId} has no ${override.flag} value for resolution ${req.resolution}. ` +
-            `Supported: ${Object.keys(override.values).join(', ')}.`,
-        );
-      }
-      args.push(override.flag, value);
-    }
-  }
-
+  if (req.resolution) pushResolutionFlag(args, spec, req.modelId, req.resolution);
   if (req.aspectRatio) args.push('--aspect-ratio', req.aspectRatio);
 
   // --start-image / --end-image are the CLI's first/last frame flags. Both
@@ -354,69 +432,8 @@ export function buildCliArgs(req: VideoGenerationRequest): string[] {
     args.push('--image-references', ref);
   }
 
-  // Job-type-specific parameters, using the platform's own names.
-  //
-  // Marketing Studio and Cinematic Studio carry a dozen each (avatar_ids,
-  // hook_id, camera_style, light_scheme …) that no shared VideoGenerationRequest
-  // field could hold. They go through verbatim rather than through a typed field
-  // per job type: the previous typed set (focal_length_mm, template,
-  // product_url …) was invented for endpoints that answer 404 and drifted out of
-  // existence without anything noticing. `higgsfield model get <job_type>` is
-  // the source, and the MCP schema layer validates against the enums it reports.
-  //
-  // Reserved flags are refused rather than silently overwritten — a caller
-  // passing `duration` through here would produce two `--duration` flags and let
-  // the CLI decide which wins, defeating the cost estimate that was computed
-  // from the other one.
-  const RESERVED = new Set([
-    'prompt',
-    'duration',
-    'resolution',
-    'aspect-ratio',
-    'aspect_ratio',
-    'start-image',
-    'start_image',
-    'end-image',
-    'end_image',
-    'image-references',
-    'image_references',
-  ]);
   const extras = req.extras?.providerKind === 'higgsfield' ? req.extras : undefined;
-  for (const [name, value] of Object.entries(extras?.cliParams ?? {})) {
-    if (RESERVED.has(name)) {
-      throw new ValidationError(
-        `cliParams may not carry "${name}" — it is already derived from the request ` +
-          `(prompt, durationSec, resolution, aspectRatio, frames, references).`,
-      );
-    }
-    const flag = `--${name}`;
-    if (Array.isArray(value)) {
-      // Two kinds of array flag, and they take OPPOSITE forms. Measured against
-      // the binary, not inferred from the schema — `model get` types both as
-      // `array` and gives no hint which is which:
-      //
-      //   --avatar_ids '["id"]'                    ok
-      //   --avatar_ids id1 --avatar_ids id2        Invalid types: avatar_ids
-      //                                            should be array, got string
-      //   --image-references id1 --image-references id2   ok
-      //   --image-references '["id"]'              Media "[...]" is neither a
-      //                                            UUID nor an existing file path
-      //
-      // Media flags resolve each value as a UUID or a path to upload, so a JSON
-      // string is a filename to them. Everything else is a typed parameter that
-      // wants the array itself. Getting this backwards fails at the CLI, after
-      // the cost estimate has already been computed from the same argv — which
-      // is exactly how it was found: `fetchCostCredits` rejected the submit shape
-      // while every fake-runner test passed.
-      if (MEDIA_FLAG_NAMES.has(name)) {
-        for (const v of value) args.push(flag, String(v));
-      } else {
-        args.push(flag, JSON.stringify(value));
-      }
-    } else {
-      args.push(flag, String(value));
-    }
-  }
+  pushCliParams(args, extras?.cliParams ?? {});
 
   return args;
 }

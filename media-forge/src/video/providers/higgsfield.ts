@@ -225,6 +225,26 @@ let _warnedHfWebhookBroken = false;
  * exist — `endpointForModel` already refuses those by name, with a better
  * message.
  */
+/**
+ * Fold the Higgsfield-specific extras into the body, under the names the
+ * platform validates.
+ *
+ * Lifted out of `buildRequestBody` for the same reason `producesVideo` was: that
+ * function is the one place the whole field map is legible, and each rename
+ * below needs its evidence attached to it.
+ */
+function applyHiggsfieldExtras(body: Record<string, unknown>, extras: HiggsfieldExtras): void {
+  //   soul_id -> custom_reference_id
+  //     The Soul family validates `custom_reference_id` (and `style_id`).
+  //     `soul_id` is not a field, so a Soul-ID the user trained — 40 credits —
+  //     was never applied to the generation it was trained for.
+  if (extras.soulId) body['custom_reference_id'] = extras.soulId;
+
+  // Speak audio path (PRELIMINAR_URL decision — passes through as audio_url).
+  if (extras.speakAudioPath) body['audio_url'] = extras.speakAudioPath;
+  if (extras.aggregatorProxyModel) body['proxy_model'] = extras.aggregatorProxyModel;
+}
+
 function producesVideo(modelId: string): boolean {
   return VIDEO_MODELS[modelId]?.outputType !== 'image';
 }
@@ -645,6 +665,18 @@ export class HiggsfieldProvider implements VideoProvider {
     return base;
   }
 
+  /**
+   * The caller-supplied half of the body.
+   *
+   * DELIBERATELY NOT SENT — probed on every endpoint that answers, named by none
+   * of them: fps, reference_urls, multi_reference_urls, template, product_url,
+   * target_character_url, virality_predictor, and the five cinema-studio lens
+   * fields (focal_length_mm, aperture_fstop, sensor_size, color_grading,
+   * lens_id). The endpoints they were written for (cinema-studio/3.5,
+   * marketing-studio, recast) answer 404, so those fields were never validated
+   * by anything. Building them here would only restore the silent-discard
+   * behaviour dropUnacceptedFields exists to end.
+   */
   private buildRequestBody(req: VideoGenerationRequest): Record<string, unknown> {
     const extras =
       req.extras?.providerKind === 'higgsfield' ? (req.extras as HiggsfieldExtras) : undefined;
@@ -691,26 +723,7 @@ export class HiggsfieldProvider implements VideoProvider {
     //     Accepted by the plain dop endpoints too, not only /first-last-frame.
     if (req.lastFrameImagePath) body['end_image_url'] = req.lastFrameImagePath;
 
-    if (!extras) return dropUnacceptedFields(req.modelId, body);
-
-    //   soul_id -> custom_reference_id
-    //     The Soul family validates `custom_reference_id` (and `style_id`).
-    //     `soul_id` is not a field, so a Soul-ID the user trained — 40 credits —
-    //     was never applied to the generation it was trained for.
-    if (extras.soulId) body['custom_reference_id'] = extras.soulId;
-
-    // Speak audio path (PRELIMINAR_URL decision — passes through as audio_url).
-    if (extras.speakAudioPath) body['audio_url'] = extras.speakAudioPath;
-    if (extras.aggregatorProxyModel) body['proxy_model'] = extras.aggregatorProxyModel;
-
-    // DELIBERATELY NOT SENT — probed on every endpoint that answers, named by
-    // none of them: fps, reference_urls, multi_reference_urls, template,
-    // product_url, target_character_url, virality_predictor, and the five
-    // cinema-studio lens fields (focal_length_mm, aperture_fstop, sensor_size,
-    // color_grading, lens_id). The endpoints they were written for
-    // (cinema-studio/3.5, marketing-studio, recast) answer 404, so those fields
-    // were never validated by anything. Building them here would only restore
-    // the silent-discard behaviour this filter exists to end.
+    if (extras) applyHiggsfieldExtras(body, extras);
 
     return dropUnacceptedFields(req.modelId, body);
   }
