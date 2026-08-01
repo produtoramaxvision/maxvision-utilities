@@ -557,8 +557,8 @@ export const HiggsfieldMarketplaceCardsInput = z.object({
 export type HiggsfieldMarketplaceCardsInputT = z.infer<typeof HiggsfieldMarketplaceCardsInput>;
 
 // HiggsfieldGenerateInput — generic Higgsfield submit (Soul / Soul2 / aesthetic
-// presets) when no specialized tool (dop / cinema_studio / speak / marketing /
-// recast) applies. Codex P2 round 7 PR#10 closed the gap where the director
+// presets) when no specialized tool (dop / cinema_studio / speak / marketing)
+// applies. Codex P2 round 7 PR#10 closed the gap where the director
 // doc routed Soul t2v through media_video_route (a decision-only tool) with
 // no actual submit path.
 // ---------------------------------------------------------------------------
@@ -1470,7 +1470,7 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   {
     name: 'media_higgsfield_generate',
     description:
-      'Generic Higgsfield submit for Soul / Soul 2.0 / aesthetic presets when none of the specialized tools (dop, cinema_studio, speak, marketing_studio, recast) applies. Required: modelId, prompt. Optional: mode (t2v/i2v), firstFrameImagePath (REQUIRED when mode=i2v), referenceImagePaths, soulId.',
+      'Generic Higgsfield submit for Soul / Soul 2.0 / aesthetic presets when none of the specialized tools (dop, cinema_studio, speak, marketing_studio) applies. RETURNS AN IMAGE, not a video: all three models it accepts are text2image on the platform, and the result declares outputType:"image". `mode` and `durationSec` are carried for schema compatibility and are NOT honoured by the endpoint. For video, use media_video_route or a specialized tool. Required: modelId, prompt. Optional: mode (t2v/i2v), firstFrameImagePath (REQUIRED when mode=i2v), referenceImagePaths, soulId.',
     // DEBT-008: tools/list wants a plain ZodObject; runtime validation uses
     // the refined schema (cross-field check: i2v requires firstFrameImagePath).
     inputSchema: _HiggsfieldGenerateBase,

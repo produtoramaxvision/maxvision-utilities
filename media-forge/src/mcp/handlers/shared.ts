@@ -48,9 +48,12 @@ export function getAdaptedProviders(): ReadonlySet<Provider> {
  *
  * Checked on 2026-07-31, and the two catalogues do not intersect at all:
  *
- *   registry `higgsfield` specs   higgsfield-soul2, -dop, -speak, -recast,
- *                                 -cinema-studio-3.5, -marketing-studio …
+ *   registry `higgsfield` specs   higgsfield-soul2, -dop, -dop-turbo, -speak …
  *                                 Higgsfield's OWN products, modes t2v/i2v
+ *                                 (-recast, -cinema-studio-3.5 and
+ *                                 -marketing-studio were in this list until
+ *                                 2026-08-01; the first has no surface at all
+ *                                 and the other two moved to the CLI transport)
  *   `higgsfield model list --video`  veo3_1, kling3_0, seedance_2_0, wan2_7 …
  *                                 third-party models it RESELLS, plus utilities
  *   `higgsfield model list --image`  text2image_soul_v2, soul_cast,
