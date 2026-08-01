@@ -338,17 +338,55 @@ export type HiggsfieldDopInputT = z.infer<typeof HiggsfieldDopInput>;
 // HiggsfieldCinemaStudioInput — Cinema Studio 3.5 with full lens dictionary (P14 Task 10)
 // ---------------------------------------------------------------------------
 
+// Rewritten 2026-08-01 against `higgsfield model get cinematic_studio_video_3_5`.
+//
+// The old shape modelled a "full lens dictionary" — focalLengthMm, apertureFStop,
+// sensorSize, lensId — for /higgsfield-ai/cinema-studio/3.5, which answers 404.
+// None of those five fields exists on any Higgsfield endpoint; probed with wrong
+// types, no 422 ever names them. What the product actually exposes is a set of
+// named CREATIVE presets, and they are richer than the invented numbers were.
 export const HiggsfieldCinemaStudioInput = z.object({
   prompt: z.string().min(1),
-  firstFrameImagePath: z.string().min(1),
-  durationSec: z.number().positive().max(8),
-  resolution: z.enum(['720p', '1080p']),
-  aspectRatio: z.enum(['16:9', '9:16', '1:1', '21:9', '4:3', '3:4']).optional(),
-  focalLengthMm: z.number().positive().max(800).optional(),
-  apertureFStop: z.number().positive().max(32).optional(),
-  sensorSize: z.enum(['full-frame', 'super35', 'apsc', 'm43', 'imax']).optional(),
-  colorGrading: z.string().min(1).optional(),
-  lensId: z.string().min(1).optional(),
+  durationSec: z.number().positive().max(15).default(15),
+  resolution: z.enum(['480p', '720p', '1080p']).default('720p'),
+  aspectRatio: z
+    .enum(['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'])
+    .default('auto'),
+  cameraStyle: z
+    .enum([
+      'classic_static',
+      'silent_machine',
+      'one_take',
+      'epic_scale',
+      'intimate_observer',
+      'impossible_camera',
+      'documentary_snap',
+      'raw_chaos',
+      'dreamy_flow',
+    ])
+    .optional(),
+  colorGrading: z
+    .enum([
+      'naturalistic_clean',
+      'bleached_warm',
+      'hyper_neon',
+      'teal_orange_epic',
+      'sodium_decay',
+      'cold_steel',
+      'bleach_bypass',
+      'classic_bw',
+    ])
+    .optional(),
+  lightScheme: z
+    .enum(['soft_cross', 'contre_jour', 'overhead_fall', 'window', 'practicals', 'silhouette'])
+    .optional(),
+  genre: z.enum(['auto', 'action', 'horror', 'comedy', 'noir', 'drama', 'epic']).default('auto'),
+  stylePrompt: z.string().min(1).optional(),
+  generateAudio: z.boolean().default(false),
+  multiShots: z.boolean().default(false),
+  startImagePath: z.string().min(1).optional(),
+  endImagePath: z.string().min(1).optional(),
+  imageReferencePaths: z.array(z.string().min(1)).optional(),
 });
 export type HiggsfieldCinemaStudioInputT = z.infer<typeof HiggsfieldCinemaStudioInput>;
 
@@ -357,7 +395,9 @@ export type HiggsfieldCinemaStudioInputT = z.infer<typeof HiggsfieldCinemaStudio
 // ---------------------------------------------------------------------------
 
 const _HiggsfieldSpeakBase = z.object({
-  modelId: z.enum(['higgsfield-speak', 'higgsfield-speak2']),
+  // speak2 removed 2026-08-01: 404 with and without the tier segment, and it is
+  // not a job type or workflow on the CLI either. It only ever existed here.
+  modelId: z.enum(['higgsfield-speak']).default('higgsfield-speak'),
   portraitImagePath: z.string().min(1),
   audioPath: z.string().min(1),
   prompt: z.string().min(1),
@@ -365,47 +405,160 @@ const _HiggsfieldSpeakBase = z.object({
   resolution: z.enum(['720p', '1080p']),
   aspectRatio: z.enum(['16:9', '9:16', '1:1', '4:3', '3:4']).optional(),
 });
-// FIX (Codex P2, PR#10): per-model duration cap. higgsfield-speak (Speak 1.0)
-// caps at 30s; only higgsfield-speak2 supports up to 60s. Without this refine
-// direct handler calls bypass the route-level filter and would submit oversized
-// jobs that the upstream provider rejects with a confusing error.
+// FIX (Codex P2, PR#10): per-model duration cap, so direct handler calls cannot
+// bypass the route-level filter and submit a job the provider will reject.
+//
+// The bound now comes from the registry instead of a literal 30. The platform
+// answers `Input should be 5, 10 or 15` for `duration` on
+// `/higgsfield-ai/speak` (probed 2026-08-01), so the spec caps at 15 and this
+// refine has to follow it or the two disagree about the same model.
+//
+// `higgsfield-speak2` was removed from the enum on 2026-08-01. It answered 404
+// on every path tried, and it is not a job type or a workflow on the CLI either,
+// so there was no surface left to reach it on and nothing to repoint it to.
 export const HiggsfieldSpeakInput = _HiggsfieldSpeakBase.refine(
   (data) => {
-    if (data.modelId === 'higgsfield-speak' && data.durationSec > 30) return false;
-    return true;
+    const cap = VIDEO_MODELS[data.modelId]?.maxDurationSec;
+    return cap === undefined || data.durationSec <= cap;
   },
-  {
+  (data) => ({
     message:
-      'higgsfield-speak (Speak 1.0) caps at 30s. Use higgsfield-speak2 for durations up to 60s.',
+      `${data.modelId} caps at ${VIDEO_MODELS[data.modelId]?.maxDurationSec ?? '?'}s ` +
+      `(the platform's own enum for this model).`,
     path: ['durationSec'],
-  },
+  }),
 );
 export type HiggsfieldSpeakInputT = z.infer<typeof HiggsfieldSpeakInput>;
 
-// HiggsfieldRecastInput — Recast Studio: swap character in existing video (P14 Task 13)
+// REMOVED 2026-08-01 — HiggsfieldRecastInput / media_higgsfield_recast.
+//
+// /higgsfield-ai/recast/standard answers 404 model_not_found with and without
+// the tier segment, and Recast is on no other Higgsfield surface: the CLI has
+// no such job type or workflow (`dubbing` and `voice_change` are a different
+// product — they replace audio, not the character). Unlike Cinema Studio and
+// Marketing Studio, there was nowhere to repoint it to.
 // ---------------------------------------------------------------------------
 
-export const HiggsfieldRecastInput = z.object({
-  sourceVideoPath: z.string().min(1),
-  targetCharacterImagePath: z.string().min(1),
+// REMOVED 2026-08-01 — HiggsfieldViralityPredictorInput / media_higgsfield_virality_predictor.
+//
+// The endpoint does not exist. Probed live on three URL shapes, all three
+// answered `404 {"detail":"model_not_found"}`:
+//
+//   /higgsfield-ai/virality-predictor
+//   /higgsfield-ai/virality-predictor/standard
+//   /virality-predictor
+//
+// It is absent from the CLI surface too (`higgsfield --help` lists no such
+// command) and had no VIDEO_MODELS entry, so it bypassed the cost guard and the
+// ledger entirely with a raw fetch to a hardcoded URL. `virality_predictor` as a
+// body flag on other generations is equally fictitious: sent with a wrong type to
+// dop/standard, the 422 does not name it, which means the schema has never heard
+// of it and it was being discarded in silence.
+//
+// A tool that cannot succeed is worse than an absent one — it advertises a
+// capability, passes validation, and fails at the network.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Marketing Studio asset catalogue — ONE tool, not nine
+//
+// The CLI exposes nine asset groups (avatars, hooks, settings, ad-formats,
+// products, brand-kits, ad-references, webproducts) behind
+// `higgsfield marketing-studio <group> list`. A tool per group would add nine
+// entries to a registry that already costs startup tokens for every session,
+// to model nine calls that differ only in one path segment.
+//
+// A single tool with a `kind` parameter keeps the registry growth at one, and
+// the enum is exactly the platform's own group list — so a group appearing or
+// disappearing upstream shows up here as a schema change, not as eight tools
+// silently drifting apart.
+//
+// READ-ONLY by design. `create` and `fetch` exist on several of these groups and
+// are deliberately absent: they mutate account state, some of them cost credits
+// (brand-kits fetch runs a site crawl), and a listing tool that can also create
+// is a tool whose blast radius nobody can predict from its name.
+// ---------------------------------------------------------------------------
+
+export const MARKETING_STUDIO_ASSET_KINDS = [
+  'avatars',
+  'hooks',
+  'settings',
+  'ad-formats',
+  'ad-references',
+  'brand-kits',
+  'products',
+  'webproducts',
+] as const;
+
+export const HiggsfieldMarketingAssetsInput = z.object({
+  kind: z.enum(MARKETING_STUDIO_ASSET_KINDS),
+  /** Case-insensitive substring filter on the asset name, applied locally. */
+  query: z.string().min(1).optional(),
+  limit: z.number().int().positive().max(200).default(50),
+});
+export type HiggsfieldMarketingAssetsInputT = z.infer<typeof HiggsfieldMarketingAssetsInput>;
+
+// ---------------------------------------------------------------------------
+// Product Photoshoot / Marketplace Cards — backend prompt enhancement
+//
+// Both take a high-level intent plus a mode/scope and let Higgsfield's backend
+// assemble the structured prompt, then generate. Both also accept
+// `--enhance-only`, which returns the assembled prompts WITHOUT submitting a
+// job — a zero-credit preview, exposed here as `enhanceOnly` and defaulted to
+// TRUE. A tool that spends money on its default setting is a tool that spends
+// money by accident.
+//
+// Mode and scope enums are the platform's, read from the CLI's own validation
+// error (it lists the valid values when given an invalid one — free to obtain,
+// and authoritative in a way a docs page is not).
+// ---------------------------------------------------------------------------
+
+export const PRODUCT_PHOTOSHOOT_MODES = [
+  'social_carousel',
+  'ad_creative_pack',
+  'conceptual_product',
+  'moodboard_pin',
+  'virtual_model_tryout',
+  'restyle',
+  'product_shot',
+  'lifestyle_scene',
+  'closeup_product_with_person',
+  'hero_banner',
+] as const;
+
+export const HiggsfieldProductPhotoshootInput = z.object({
   prompt: z.string().min(1),
-  durationSec: z.number().positive().max(30),
-  resolution: z.enum(['720p', '1080p']),
+  mode: z.enum(PRODUCT_PHOTOSHOOT_MODES),
+  imagePaths: z.array(z.string().min(1)).min(1).max(10),
+  count: z.number().int().positive().max(10).default(1),
+  aspectRatio: z.string().min(1).optional(),
+  brandContext: z.string().min(1).optional(),
+  productContext: z.string().min(1).optional(),
+  /** Default TRUE — see the note above on spending by accident. */
+  enhanceOnly: z.boolean().default(true),
 });
-export type HiggsfieldRecastInputT = z.infer<typeof HiggsfieldRecastInput>;
+export type HiggsfieldProductPhotoshootInputT = z.infer<typeof HiggsfieldProductPhotoshootInput>;
 
-// HiggsfieldViralityPredictorInput — Virality Predictor: score an asset (P14 Task 14)
-// ---------------------------------------------------------------------------
+export const MARKETPLACE_CARD_SCOPES = ['main', 'product-images', 'aplus', 'full-set'] as const;
 
-export const HiggsfieldViralityPredictorInput = z.object({
-  assetUrl: z.string().url(),
-  platform: z.enum(['tiktok', 'instagram', 'youtube-shorts', 'general']).default('general'),
+export const HiggsfieldMarketplaceCardsInput = z.object({
+  prompt: z.string().min(1),
+  scope: z.enum(MARKETPLACE_CARD_SCOPES).default('main'),
+  imagePaths: z.array(z.string().min(1)).min(1).max(10),
+  category: z.string().min(1).optional(),
+  visualStyle: z.string().min(1).optional(),
+  productUrl: z.string().url().optional(),
+  brandContext: z.string().min(1).optional(),
+  productContext: z.string().min(1).optional(),
+  /** Chains from a completed nano_banana_2 main-image job for secondary/A+ assets. */
+  mainJobId: z.string().min(1).optional(),
+  enhanceOnly: z.boolean().default(true),
 });
-export type HiggsfieldViralityPredictorInputT = z.infer<typeof HiggsfieldViralityPredictorInput>;
+export type HiggsfieldMarketplaceCardsInputT = z.infer<typeof HiggsfieldMarketplaceCardsInput>;
 
 // HiggsfieldGenerateInput — generic Higgsfield submit (Soul / Soul2 / aesthetic
-// presets) when no specialized tool (dop / cinema_studio / speak / marketing /
-// recast) applies. Codex P2 round 7 PR#10 closed the gap where the director
+// presets) when no specialized tool (dop / cinema_studio / speak / marketing)
+// applies. Codex P2 round 7 PR#10 closed the gap where the director
 // doc routed Soul t2v through media_video_route (a decision-only tool) with
 // no actual submit path.
 // ---------------------------------------------------------------------------
@@ -413,11 +566,9 @@ export type HiggsfieldViralityPredictorInputT = z.infer<typeof HiggsfieldViralit
 // requires a plain ZodObject; the refined cross-field check lives on the
 // exported `HiggsfieldGenerateInput` for runtime validation).
 const _HiggsfieldGenerateBase = z.object({
-  modelId: z.enum([
-    'higgsfield-soul-standard',
-    'higgsfield-soul-pro',
-    'higgsfield-soul2',
-  ]),
+  // soul-pro removed 2026-08-01: "pro" is not a tier. /higgsfield-ai/soul/{mode}
+  // takes reference | character | standard, so the segment was never valid.
+  modelId: z.enum(['higgsfield-soul-standard', 'higgsfield-soul2']),
   mode: z.enum(['t2v', 'i2v']).default('t2v'),
   prompt: z.string().min(1),
   durationSec: z.number().positive().default(5),
@@ -484,17 +635,62 @@ export const KlingMotionBrushInput = z.object({
 });
 export type KlingMotionBrushInputT = z.infer<typeof KlingMotionBrushInput>;
 
-export const HiggsfieldMarketingStudioInput = z.object({
-  template: z.enum([
-    'ugc', 'unboxing', 'tv-spot', 'hyper-motion', 'product-review',
-    'asmr', 'lifestyle', 'testimonial', 'reel',
-  ]),
-  productUrl: z.string().url(),
-  prompt: z.string().min(1),
-  durationSec: z.number().positive().max(15),
-  resolution: z.enum(['720p', '1080p']),
-  aspectRatio: z.enum(['16:9', '9:16', '1:1']).optional(),
+// Rewritten 2026-08-01 against `higgsfield model get marketing_studio_video`.
+//
+// The old shape was invented for the Cloud API endpoint
+// /higgsfield-ai/marketing-studio/standard, which answers 404 — so none of it was
+// ever validated by anything. `template` with nine hand-written values and
+// `productUrl` are not parameters of this product; the real ones are ids you
+// resolve from the account (avatars, hooks, settings, products) plus a mode.
+//
+// Enums and defaults below are the platform's own, read from the CLI schema.
+const _HiggsfieldMarketingStudioBase = z.object({
+    prompt: z.string().min(1),
+    /** Free-form on the platform (no enum published); 'ugc' is its default. */
+    mode: z.string().min(1).default('ugc'),
+    specificMode: z.enum(['default', 'web_product', 'from_storyboard']).default('default'),
+    durationSec: z.number().positive().max(15).default(15),
+    resolution: z.enum(['480p', '720p', '1080p']).default('720p'),
+    aspectRatio: z
+      .enum(['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'])
+      .default('9:16'),
+    /** Ids from `media_higgsfield_ms_assets` — avatars / hooks / settings / products. */
+    avatarIds: z.array(z.string().min(1)).optional(),
+    productIds: z.array(z.string().min(1)).optional(),
+    webProductIds: z.array(z.string().min(1)).optional(),
+    webProductType: z.enum(['desktop', 'mobile']).optional(),
+    hookId: z.string().min(1).optional(),
+    settingId: z.string().min(1).optional(),
+    storyboardId: z.string().min(1).optional(),
+    adReferenceId: z.string().min(1).optional(),
+    generateAudio: z.boolean().default(false),
+    startImagePath: z.string().min(1).optional(),
+    endImagePath: z.string().min(1).optional(),
+  imageReferencePaths: z.array(z.string().min(1)).optional(),
 });
+// Both rules are the platform's, verbatim from `model get`.rules (CEL). Checked
+// here so the CLI is not paid to reject what we could have caught locally.
+//
+// Split base/refined per DEBT-008: tools/list requires a plain ZodObject as
+// `inputSchema`, and a cross-field check makes it a ZodEffects.
+export const HiggsfieldMarketingStudioInput = _HiggsfieldMarketingStudioBase.superRefine(
+  (v, ctx) => {
+    if (v.adReferenceId !== undefined && (v.hookId !== undefined || v.settingId !== undefined)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['adReferenceId'],
+        message: 'ad_reference_id cannot be combined with hook_id or setting_id',
+      });
+    }
+    if ((v.productIds?.length ?? 0) > 0 && (v.webProductIds?.length ?? 0) > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['webProductIds'],
+        message: 'product_ids and web_product_ids cannot both be set',
+      });
+    }
+  },
+);
 export type HiggsfieldMarketingStudioInputT = z.infer<typeof HiggsfieldMarketingStudioInput>;
 
 // ---------------------------------------------------------------------------
@@ -911,7 +1107,9 @@ export interface MCPTool {
 // 1 last-frame = 56)
 // 6 image + 8 video (T9-d adds media_extract_last_frame) + 8 pipeline/utility
 // + 1 help + 4 refs + 1 webhook + 2 cost + 1 route
-// + 7 higgsfield (soul_id, dop, cinema_studio, speak, marketing_studio, recast, virality_predictor)
+// + higgsfield (soul_id, dop, cinema_studio, speak, marketing_studio, generate,
+//   poll, download, + soul_id_train/list). virality_predictor was removed —
+//   its endpoint 404s on every URL shape.
 // + 1 higgsfield_generate (Codex round 7 PR#10)
 // + 2 higgsfield lifecycle (poll, download — Codex round 5 PR#10)
 // + 11 kling (motion_brush, element_create/list/delete, elements, lip_sync, omni_multishot, video_extend, poll, download, +1 from R6)
@@ -1234,31 +1432,45 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   {
     name: 'media_higgsfield_marketing_studio',
     description: 'Higgsfield Marketing Studio — 9 UGC templates from product URL (unboxing/TV spot/reel/etc).',
-    inputSchema: HiggsfieldMarketingStudioInput,
+    // DEBT-008: tools/list needs a plain ZodObject; the cross-field CEL rules
+    // make the exported schema a ZodEffects, so validation uses the refined one.
+    inputSchema: _HiggsfieldMarketingStudioBase,
     validationSchema: HiggsfieldMarketingStudioInput,
   },
 
-  // ---- Higgsfield Recast (1 — P14 Task 13 character swap in existing video) ----
+  // ---- Marketing Studio UGC surface (3 — the CLI transport, 2026-08-01) ----
   {
-    name: 'media_higgsfield_recast',
-    description: 'Higgsfield Recast Studio — swap character in existing video (Instadump / Character Swap).',
-    inputSchema: HiggsfieldRecastInput,
-    validationSchema: HiggsfieldRecastInput,
+    name: 'media_higgsfield_ms_assets',
+    description:
+      'Marketing Studio catalogue — list avatars, hooks, settings, ad-formats, ad-references, ' +
+      'brand-kits, products or web-products from the signed-in account. Read-only, no credits. ' +
+      'The ids it returns are what media_higgsfield_marketing_studio takes.',
+    inputSchema: HiggsfieldMarketingAssetsInput,
+    validationSchema: HiggsfieldMarketingAssetsInput,
   },
-
-  // ---- Higgsfield Virality Predictor (1 — P14 Task 14 score asset viral/audience/hook) ----
   {
-    name: 'media_higgsfield_virality_predictor',
-    description: 'Higgsfield Virality Predictor — score an asset (viral / audience-fit / hook-strength).',
-    inputSchema: HiggsfieldViralityPredictorInput,
-    validationSchema: HiggsfieldViralityPredictorInput,
+    name: 'media_higgsfield_product_photoshoot',
+    description:
+      'Product Photoshoot — brand-quality product images from a high-level intent plus a mode ' +
+      '(product_shot, lifestyle_scene, ad_creative_pack, hero_banner, …). Higgsfield assembles ' +
+      'the structured prompt. Defaults to enhanceOnly: returns the prompts without generating.',
+    inputSchema: HiggsfieldProductPhotoshootInput,
+    validationSchema: HiggsfieldProductPhotoshootInput,
+  },
+  {
+    name: 'media_higgsfield_marketplace_cards',
+    description:
+      'Marketplace Cards — main images, secondary product images and A+ modules for marketplace ' +
+      'listings. Defaults to enhanceOnly: returns the prompts without generating.',
+    inputSchema: HiggsfieldMarketplaceCardsInput,
+    validationSchema: HiggsfieldMarketplaceCardsInput,
   },
 
   // ---- Higgsfield Generate (Codex P2 round 7 PR#10 — generic Soul/Soul2 t2v|i2v submit) ----
   {
     name: 'media_higgsfield_generate',
     description:
-      'Generic Higgsfield submit for Soul / Soul 2.0 / aesthetic presets when none of the specialized tools (dop, cinema_studio, speak, marketing_studio, recast) applies. Required: modelId, prompt. Optional: mode (t2v/i2v), firstFrameImagePath (REQUIRED when mode=i2v), referenceImagePaths, soulId.',
+      'Generic Higgsfield submit for Soul / Soul 2.0 / aesthetic presets when none of the specialized tools (dop, cinema_studio, speak, marketing_studio) applies. RETURNS AN IMAGE, not a video: all three models it accepts are text2image on the platform, and the result declares outputType:"image". `mode` and `durationSec` are carried for schema compatibility and are NOT honoured by the endpoint. For video, use media_video_route or a specialized tool. Required: modelId, prompt. Optional: mode (t2v/i2v), firstFrameImagePath (REQUIRED when mode=i2v), referenceImagePaths, soulId.',
     // DEBT-008: tools/list wants a plain ZodObject; runtime validation uses
     // the refined schema (cross-field check: i2v requires firstFrameImagePath).
     inputSchema: _HiggsfieldGenerateBase,

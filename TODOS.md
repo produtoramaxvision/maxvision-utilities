@@ -8,6 +8,814 @@ Criado em 2026-07-29 pelo `/maxvision:plan-ceo-review` sobre
 
 ---
 
+## (aberto) Itens do plano de 2026-08-01 que NÃO foram implantados
+
+Revisão do plano item a item feita em 2026-08-01, com o gate verde. Estes quatro
+são os únicos itens do plano original que não têm código correspondente. Nenhum
+deles é bloqueante para produção; todos são decisão, não descoberta.
+
+### 1. Item 11 — catálogo da CLI como fixture versionada
+
+**O quê:** o plano previa gravar o catálogo medido (75 modelos, 18 workflows,
+custos por job type) como fixture no repo, "para o registry parar de ser memória
+de sessão". Não existe `tests/fixtures/`.
+
+**Por que importa:** hoje a única prova de que os specs `higgsfield-cli` batem com
+a plataforma é o portão ao vivo, que precisa de rede e de sessão OAuth. Sem
+fixture não há como detectar drift do catálogo offline nem em CI.
+
+**Esforço:** S. **Custo:** 0 créditos (tudo leitura).
+
+### 2. Item 12 — `source: 'unverified'` nos specs HTTP
+
+**O quê:** `PricingSource` só tem `fixed-public-rate` (8 usos) e
+`volatile-by-tier` (11). O plano recomendava marcar os specs HTTP como não
+verificados e fazer o guarda de custo avisar, em vez de fingir precisão.
+
+**Por que importa:** os preços HTTP continuam sendo os números antigos do registry
+(25/70/40/18) enquanto `GET /models` reporta `base_credits` 1.0/0.0/9.0/6.5. Não
+sabemos qual é verdade — e o registry não diz que não sabe.
+
+**Bloqueado em:** saldo 0 na conta de API. Só uma geração cobrada fecha o ciclo.
+A marcação, porém, não depende de crédito nenhum.
+
+### 3. Item 14 — taxa única de USD por crédito (agora quantificável)
+
+**O quê:** `creditsToUsd` (`src/video/providers/higgsfield-cli.ts:829`) lê a global
+`MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT`, que o `.env` fixa em `0.0625` (taxa da
+API). A CLI cobra do pool de assinatura, cujo valor é `0.048333`.
+
+**Deixou de ser abstrato.** Os 350 créditos do incidente custaram, de fato,
+**US$ 16,92**. O ledger do plugin registraria **US$ 21,88**. Todo job da CLI é
+superestimado em **29,3%**.
+
+O comentário em `higgsfield-cli.ts:826` defende a variável única — "two rates for
+one provider's credit is how the cost report starts disagreeing with the invoice".
+Com números reais na mão, o argumento se inverte: é a taxa única que faz o
+relatório discordar da fatura. Decisão do dono, não recomendação fechada.
+
+### 4. Fase 5 parcial — três superfícies da CLI sem cobertura
+
+Entregues: `marketing-studio <kind> list` (tool genérica por `kind`),
+`product-photoshoot`, `marketplace-cards`. Fora:
+
+| superfície | inventário medido | observação |
+|---|---|---|
+| `voices list/get` | **57** | TTS e voice-change |
+| `preset list/resolve` | 21 em `video-explainer` | tipos adicionais não inventariados |
+| `marketing-studio dtc-ads generate` | — | exige `--brand-kit-id`; a conta tem 0 brand-kits |
+
+`upload` continua fora por decisão do plano: caminhos locais são auto-upload.
+
+---
+
+## (fechado) Auditoria Higgsfield de ponta a ponta — 2026-08-01
+
+Seis commits em `homolog`: `3aa7351`, `c38198b`, `499c47b`, `b303404`, `4aaff77`,
+`6215d5d`. Gate final: typecheck e lint limpos, **2589 testes**, portões ao vivo
+verdes (23/23).
+
+### INCIDENTE — 350 créditos gastos pela suíte de testes
+
+Ao repontar os handlers de Cinema Studio e Marketing Studio para o transporte
+CLI, eles passaram a chamar `higgsfieldCliProvider()`, que faz `spawn` do binário
+real contra a sessão OAuth logada. Duas suítes (`higgsfield-billing-submit`,
+`video-ledger-no-double-reserve`) invocavam esses handlers com apenas um stub de
+`global.fetch` — correto para o transporte que eles usavam até aquele momento,
+inútil para um binário. O `pnpm test` submeteu **seis gerações reais**:
+
+    3x Marketing Studio Video      -120, -120, -50
+    3x Cinematic Studio 3.5 Video   -20,  -20, -20
+
+Saldo 610 → 260. Nada falhou: a CLI aceitou todos os submits e a suíte ficou
+verde em volta deles. Um teste que esquece de stubar um transporte é
+indistinguível de um que não esquece.
+
+**Correção estrutural, não convenção.** `defaultRunner` agora recusa, sob vitest,
+qualquer comando que possa criar ou cobrar (`generate create`,
+`generate workflow`, `soul-id create`, `upload`), liberando só leituras
+(`auth token`, `generate cost|get|list`, `model`, `workflow`, `account`) e
+`--enhance-only`. Escape hatch: `MEDIA_FORGE_ALLOW_REAL_CLI_IN_TESTS=true`,
+deliberadamente ausente do `.env.example` e fixado como nunca-encaminhado no
+teste de contrato do `.mcp.json`. Regressão coberta em
+`tests/video/providers/higgsfield-cli-test-guard.test.ts`. Verificado: uma suíte
+completa deixa o saldo em 260 e a contagem de jobs em 6.
+
+### Defeitos fechados
+
+| # | Defeito | Como estava | Como está |
+|---|---|---|---|
+| P1 | Modelos de imagem roteáveis como vídeo | `handleVideoRoute` filtrava modo/provider/duração/resolução, nunca a saída. Provado: `routed a video request to higgsfield-soul-standard, which returns an image` | `outputType` **obrigatório** no `VideoModelSpec`, filtrado antes do cost sort |
+| P1 | Divergência de preço Kling 3.0 | Comparava eixos diferentes: `kling3_0` não tem `resolution`, só `mode` | Não é divergência. `generate cost` é a autoridade |
+| P2 | Campo do último frame | Enviava `last_frame_url`, que não existe em endpoint nenhum — toda chamada first-last-frame rodava só com o primeiro frame | **`end_image_url`**, medido |
+| — | Soul-ID nunca aplicado | Enviava `soul_id`; o campo real é `custom_reference_id`. Um Soul-ID treinado (40 créditos) nunca chegou a nenhuma geração | Corrigido |
+| — | `dop/*` não aceita `aspect_ratio`, `resolution` nem `duration` | Os três eram enviados e descartados em silêncio | `HIGGSFIELD_ACCEPTED_BODY_FIELDS` + aviso no descarte |
+| D1 | `HiggsfieldCliProvider` nunca instanciado | Flag tornava 4 specs roteáveis sem caminho de submit | Singleton + tools de submit + mapeamento de job id nativo |
+| D2 | `virality_predictor` | 404 em três formas de URL, sem guarda de custo, sem ledger, sem registry | Removido de toda a superfície |
+| D3 | `soul_id_train` lançava sempre | `register.ts` nunca passava `runner` | `higgsfieldCliRunnerIfEnabled()` |
+| — | CLI não gravava `recordJob` | Reservava crédito e não deixava linha em `video_jobs` | Grava |
+| — | `creditsToUsd` NaN fora do boot | Lia só o binding validado no boot | Fallback para a mesma env var |
+| D9 | Versão nos docs | `architecture.md` dizia 0.1.1 contra `package.json` 0.2.14 | Sincronizado |
+
+### O que os 350 créditos provaram (revisão de 2026-08-01, pós-incidente)
+
+Gasto não autorizado não vira acerto por ter produzido dado. Mas o dado existe e
+não deve ser jogado fora: seis gerações **cobradas** são a primeira validação de
+preço deste repo contra fatura, e não contra a função de estimativa.
+
+Cruzando `higgsfield generate list --json` com `account transactions --json`:
+
+| job_type | duração | resolução | previsto pelo registry | cobrado |
+|---|---|---|---|---|
+| `cinematic_studio_video_3_5` | 4s | 720p | 4 × 5,0 × 1,0 = **20** | 20 |
+| `marketing_studio_video` | 10s | 720p | 10 × 5,0 × 1,0 = **50** | 50 |
+| `marketing_studio_video` | 12s | 1080p | 12 × 5,0 × 2,0 = **120** | 120 |
+
+As três formas batem exatamente. Fica **confirmado por cobrança**: taxa
+`5.0 credits-per-second` e multiplicadores `720p = 1.0` e `1080p = 2.0`.
+
+**Não confirmado por cobrança:** `480p = 0.7`. Nenhum job em 480p rodou; esse
+multiplicador segue apoiado só em `generate cost`, que é função de preço e não
+valida nada. O portão ao vivo o cobre, mas o portão também usa `generate cost`.
+
+**Teto de duração:** 12s agora é fato aceito por `marketing_studio_video`. O
+`maxDurationSec: 15` do spec continua **não medido no topo** — 15 é o default do
+schema, não um limite publicado.
+
+### Atribuição por job na CLI — deixa de estar em aberto na prática
+
+O `TODOS` registrava "não dá para atribuir gasto por job" como **não refutado**.
+Com seis jobs e seis transações, dá para medir: cada `created_at` de job casa com
+o `created_at` da cobrança dentro de ~75 ms, e o valor cobrado bate com os
+parâmetros do job.
+
+A transação **continua sem referência a job id** — a correlação é por timestamp e
+valor, o que é heurística, não contrato: dois jobs no mesmo milissegundo ficariam
+ambíguos. Na prática isso não bloqueia nada, porque o ledger local grava o job
+por `recordJob` e não depende dessa correlação.
+
+### Registry: 10 specs HTTP viraram 5
+
+Removidos após sondagem ao vivo: `soul-pro` ("pro" não é tier — o segmento é
+MODO), `speak2` e `recast` (404 em toda forma, ausentes em qualquer superfície).
+`soul2` corrigido para `/higgsfield-ai/soul/v2/standard`.
+
+`cinema-studio-3.5` e `marketing-studio` também 404 na Cloud API, mas os
+**produtos são reais**: repontados para specs `higgsfield-cli`
+(`cinematic_studio_video_3_5`, `marketing_studio_video`), **5 créditos/segundo**
+a 720p, 480p 0.7x, 1080p 2.0x — medido ao vivo. Nomes das tools MCP inalterados.
+
+`maxDurationSec: 15` nesses dois é **teto conservador, NÃO medido**:
+`generate cost` aceita 600 e só multiplica — é função de preço, não validador — e
+a plataforma não publica limite.
+
+### Superfície UGC — antes zero cobertura
+
+3 tools novas + 8 skills. Verificado ao vivo, 0 créditos: 40 avatares, 9 hooks,
+14 cenários, 42 formatos de anúncio.
+
+- `media_higgsfield_ms_assets` — catálogo (8 grupos num parâmetro `kind`, não 8 tools)
+- `media_higgsfield_product_photoshoot` — 10 modos, `enhanceOnly` default
+- `media_higgsfield_marketplace_cards` — 4 escopos, `enhanceOnly` default
+- skills `mf-ugc-brief`, `-decode`, `-hooks`, `-script`, `-produce`,
+  `mf-product-photo`, `mf-marketplace-cards`, `mf-cinematic-studio`
+
+### Técnica que destravou tudo: sondagem por tipo errado
+
+Enviar o campo candidato com o **tipo errado** e ler o 422 — campo conhecido
+responde com erro de tipo citando o nome, campo desconhecido some da resposta. O
+corpo nunca valida, então nada é enfileirado e a varredura custa **0 créditos**.
+Foi assim que `end_image_url`, `custom_reference_id` e a ausência de
+`duration`/`resolution` no `dop/*` apareceram.
+
+Necessária porque **esta API ignora campo desconhecido em vez de recusar** — foi
+assim que `duration_seconds` passou meses sendo descartado.
+
+### Pendências que sobram
+
+- **Preços HTTP (`base_credits`) continuam NÃO VERIFICADOS.** Saldo da conta de
+  API é 0; nenhuma geração cobrada fechou o ciclo. A doc oficial não publica
+  preço (confirmado nas 3 libs do context7 e nas 8 páginas do `llms.txt`).
+  `soul2` está marcado `UNVERIFIED` no `notes`.
+- **Teto real de duração** dos dois estúdios: só aparece num `generate create`
+  cobrado.
+- **Liquidação por job na CLI**: continua NÃO REFUTADO. As 6 transações de
+  `spend` do incidente têm `display_name` mas nenhuma referência a job id — o que
+  é evidência a favor de "não dá para atribuir", agora com dados reais.
+- **`MEDIA_FORGE_HF_CLI_ENABLED`** segue default-off. Ligá-la torna 6 specs
+  roteáveis; os dois estúdios têm tool própria e não dependem da flag.
+- **Pastas auditadas e NÃO vendorizadas:** `Downloads/ugc-media-forge` (4 skills,
+  zero licença, uma CC BY-SA 4.0 confirmada, e as duas melhores orquestram o
+  **Topview Canvas**, plataforma concorrente) e `Downloads/agregar-media-forge`
+  (OpenMontage, **AGPLv3** com LICENSE ausente + componente **CC BY-NC-SA**
+  NonCommercial + Remotion proprietário). Serviram de levantamento de requisitos;
+  nenhum arquivo copiado. As 8 skills são reescrita nativa, MIT, apontando para a
+  Higgsfield em vez do canvas do concorrente.
+
+
+## (referência) O Higgsfield tem 5 superfícies, não 2 — levantado em 2026-08-01
+
+Investigado com sessão de browser autenticada na conta real, mais
+`docs.higgsfield.ai/docs/llms.txt` (o índice oficial completo).
+
+**A doc oficial da API inteira tem 8 páginas e documenta 4 endpoints:**
+
+```
+/higgsfield-ai/dop/standard
+/higgsfield-ai/soul/standard
+/kling-video/v2.1/pro/image-to-video
+/bytedance/seedance/v1/pro/image-to-video   <- e este responde 404 na sondagem
+```
+
+Não existe página listando modelos. `GET /models` (13 itens) é a lista mais
+completa que a plataforma publica, e ainda assim é parcial — `/v1/*`, `/soul-id`
+e `/kling-video/...` respondem sem estar nela.
+
+**As superfícies, e a frase oficial que prova que não se misturam.** Da página de
+preços de `higgsfield.ai`, nota de rodapé:
+
+> "Unlimited models and Free Generations on plans are accessible only via
+> higgsfield.ai and are **not accessible on MCP/CLI, Canvas or Supercomputer**."
+
+| Superfície | Catálogo | Créditos |
+|---|---|---|
+| `higgsfield.ai` (web) | maior — Cinema Studio, Marketing Studio, Lipsync Studio, Canvas | assinatura |
+| **Cloud API** (`platform.` / `cloud.higgsfield.ai`) | 13 em `GET /models` + `/v1/*` + revendas | **comprados**, 16 = $1 |
+| **MCP/CLI** (OAuth) | 26 vídeo + 28 imagem + 18 workflows | assinatura |
+| Canvas | — | assinatura |
+| Supercomputer | — | assinatura |
+
+**Isso explica os 404 sem precisar de hipótese.** Recast, Cinema Studio,
+Marketing Studio e Virality Predictor são recursos do **app web**, não modelos da
+API. As specs correspondentes foram escritas a partir de **nomes de produto** do
+site, não da API — e a única superfície que o `HiggsfieldProvider` fala é a API.
+
+**Preço do crédito: as duas taxas agora são exatas.**
+
+| Pool | Origem | USD/crédito |
+|---|---|---|
+| API | diálogo de top-up: "16 credits = $1" | **0,0625** |
+| Assinatura (CLI) | plano **Pro, $29/mês, "Fixed amount of 600 credits/mo"** | **0,048333** |
+
+Planos: Free · Basic $9 · **Pro $29 (atual)** · Max $59–79. Confirmado no
+comparativo da própria conta ("Manage Plan" no card do Pro).
+
+**Tabela oficial de créditos do consumo, e ela NÃO bate com `generate cost`:**
+
+| Modelo (página) | Página | `higgsfield generate cost` |
+|---|---|---|
+| Kling 3.0 720p | 7 cr/5s | **10** |
+| Kling 3.0 1080p | 8 cr/5s | **12,5** |
+| Kling 3.0 4K | 30 cr/5s | 30 ✔ |
+| Seedance 2.0 720p | 22 cr/5s | 22,5 |
+| Seedance 2.0 1080p | 45 cr/5s | 45 ✔ |
+| Seedance 2.0 4K | 110 cr/5s | 110 ✔ |
+| Seedance 2.0 Fast 720p | 17 cr/5s | 12,5 (`seedance_2_0_mini`) |
+| DoP Standard 720p | 7 cr/**3s** | — |
+| Higgsfield Speak 2.0 720p | 14 cr/5s | — (não é job type da CLI) |
+| Higgsfield Soul 2.0 | 0,12 cr/imagem | — |
+| Higgsfield Soul | 0,25 cr/imagem | — |
+
+`generate cost` é a resposta da plataforma **para aquele job_type exato** e
+continua sendo a autoridade para a CLI; a página tem unidades de duração
+diferentes por modelo (3s, 4s, 5s, 6s, 8s) e pode estar defasada. A divergência
+do Kling 3.0 não está explicada.
+
+Também na página e ausentes do nosso registry: `Seedance 2.0 Fast`, `Kling Omni
+3` (Image Reference e FLF), `Kling 3.0 Motion Control`, `Sora 2` (Pro/Max),
+`Wan 2.6`, `Minimax Hailuo 2.3`, `Nano Banana Pro`. **Recast e Virality Predictor
+não aparecem em superfície nenhuma** — nem na página de preços, nem na CLI, nem
+na API.
+
+---
+
+## (parcial) P1 — Endpoints e nomes de campo do Higgsfield HTTP: 3 corrigidos, 6 mortos
+
+**RETRATAÇÃO, no mesmo dia.** A versão anterior desta entrada declarou o
+`higgsfield-speak` inexistente. **Está errado.** O erro de método: tratei ausência
+em `GET /models` como prova de não existir. `GET /models` **não é o catálogo da
+plataforma** — é a lista de modelos próprios de geração. Respondem e não estão
+lá: `/kling-video/v2.1/pro/image-to-video` (400), `/soul-id` (403
+`not_enough_credits`) e toda a família `/v1/*` (422). A prova válida é o `POST`
+direto: `404 model_not_found` = não existe; `422` = existe.
+
+Refeito o teste com sondagem direta, o Speak apareceu: **`/higgsfield-ai/speak`**,
+sem segmento de tier. Só o `/standard` sobrava.
+
+### Corrigido (provado ao vivo, 0 créditos)
+
+| Defeito | Era | É |
+|---|---|---|
+| Caminho do Speak | `/higgsfield-ai/speak/standard` → 404 | `/higgsfield-ai/speak` → 422 |
+| Campo da imagem | `first_frame_url` | **`image_url`** |
+| Campo da duração | `duration_seconds` | **`duration`** |
+| Cap do Speak | `maxDurationSec: 30` | **15** (`Input should be 5, 10 or 15`) |
+
+**`first_frame_url` era o defeito mais grave e não tinha nada a ver com o Speak.**
+Toda chamada guiada por imagem falhava, em qualquer modelo:
+
+```
+POST /higgsfield-ai/dop/standard  {"prompt":"x","first_frame_url":"…"}
+  -> 422 {"loc":["body","image_url"],"msg":"Field required"}
+```
+
+`docs.higgsfield.ai/guides/video` usa `image_url` em todos os exemplos. Campos
+desconhecidos são **ignorados**, não recusados — então `duration_seconds` era
+descartado em silêncio e toda geração rodava no default do modelo.
+
+O refine de duração em `schemas.ts` lia `30` literal; agora lê
+`VIDEO_MODELS[modelId].maxDurationSec`, senão o schema e o registry discordam
+sobre o mesmo modelo.
+
+### Contratos completos, obtidos por sondagem incremental
+
+```
+POST /higgsfield-ai/speak
+  obrigatórios: image_url, audio_url, prompt
+  opcionais:    quality high|mid · duration 5|10|15 · enhance_prompt bool · seed int
+
+POST /higgsfield-ai/dop/{lite,standard,turbo}[/first-last-frame]
+  obrigatórios: prompt, image_url
+  opcionais:    seed int · motions list · enhance_prompt bool
+
+POST /higgsfield-ai/soul/{standard,reference,character,cinema}, /soul/v2/standard, /popcorn/auto
+  obrigatório:  prompt
+  opcionais:    aspect_ratio 9:16|16:9|4:3|3:4|1:1|2:3|3:2 · resolution 720p|1080p
+                batch_size 1|4 · seed int
+```
+
+### Ainda mortos na API — e o que a CLI tem
+
+A CLI usa OAuth (`higgsfield auth login`), é opcional para o usuário e tem
+catálogo próprio. Enumerado com `higgsfield workflow list --json` e
+`model list --image --json`:
+
+| Nossa ferramenta | API HTTP | CLI (OAuth) |
+|---|---|---|
+| `higgsfield-speak2` | 404 com e sem tier | ausente |
+| `higgsfield-cinema-studio-3.5` | 404 | **workflow `cinematic_studio_video_3_5`** |
+| `higgsfield-marketing-studio` | 404 | **workflow `marketing_studio_video`** (+ `_image`) |
+| `higgsfield-recast` | 404 com e sem tier | ausente (`dubbing`/`voice_change` são outro produto) |
+| `higgsfield-virality-predictor` | 404 | ausente |
+| `higgsfield-soul-pro` | 422 `loc:["path","mode"]` — o segmento é **modo**, `reference\|character\|standard` | — |
+| `higgsfield-soul2` | 404; real é `/higgsfield-ai/soul/v2/standard` | `text2image_soul_v2` |
+
+Não dependem de rede e seguem intactas: `media_higgsfield_soul_id` (só banco
+local) e `media_higgsfield_soul_id_train` / `_list` (transporte CLI).
+
+**Decisão pendente do usuário:** cinema-studio e marketing-studio existem na CLI
+como *workflows*, não como job types — roteá-los exige `generate workflow`, que é
+outro caminho de submit. Apagar as ferramentas ou construir esse caminho é
+escopo, não conserto.
+
+### Preços: medidos, não aplicados
+
+| Slug | `base_credits` | Nossa taxa |
+|---|---|---|
+| `soul/standard` | 1,0 | 25 |
+| `soul/v2/standard` | 0,0 | 70 |
+| `dop/standard` | 9,0 | 40 |
+| `dop/turbo` | 6,5 | 18 |
+
+O campo se chama **base**\_credits e o saldo da conta de API é 0, então não dá
+para saber se é preço final por geração ou base que escala. Trocar 40 por 9 sem
+saber a semântica é trocar um número errado por outro.
+
+### Erro de categoria, registrado e não operado
+
+`soul/standard`, `soul/v2/standard`, `soul/character`, `soul/reference`,
+`soul/cinema` e `popcorn/auto` são `operation_type: text2image`,
+`output_type: image` — e as nossas specs correspondentes vivem em `VIDEO_MODELS`
+com `modes: ['t2v','i2v']` e `maxDurationSec: 8`. Realojar mexe em roteador,
+schemas e caminho de custo.
+
+### Modelos que existem e não oferecemos
+
+`dop/lite` (2,0), os três `dop/*/first-last-frame`, `popcorn/auto` (1,4720),
+`soul/character` (1,0), `soul/cinema` (0,0), `soul/reference` (1,0), `soul-id`
+(40,0). E, fora do `GET /models`, `/kling-video/v2.1/pro/image-to-video`.
+
+### Portão
+
+`tests/video/providers/higgsfield-endpoints-live.test.ts` — 5 asserções, **todas
+verdes ao vivo, 0 créditos**. Sonda cada caminho com `POST {}`, trata `422` com
+`loc[0] === 'path'` como **não servido** (o caso do `soul/pro`), confere que o
+campo exigido pelo DoP continua sendo `image_url`, e que o Speak responde no
+caminho que enviamos com os campos que enviamos.
+
+Texto original abaixo.
+
+---
+
+## (histórico) P1 — 6 dos 10 endpoints do Higgsfield HTTP não existem
+
+**Medido em 2026-08-01** contra a API real, com chave recém-criada no dashboard,
+custo zero (todo `POST {}` falha na validação antes de enfileirar trabalho).
+
+`GET /models` é o catálogo autoritativo — devolve slug, `operation_type`,
+`output_type` e `base_credits`. **13 modelos.** Contra ele, o mapa de
+`HIGGSFIELD_ENDPOINTS`:
+
+| Nossa spec | Caminho que enviamos | Resposta real |
+|---|---|---|
+| `higgsfield-soul-standard` | `/higgsfield-ai/soul/standard` | **200 no catálogo** |
+| `higgsfield-dop` | `/higgsfield-ai/dop/standard` | **200 no catálogo** |
+| `higgsfield-dop-turbo` | `/higgsfield-ai/dop/turbo` | **200 no catálogo** |
+| `higgsfield-soul-pro` | `/higgsfield-ai/soul/pro` | `422` — `mode` deve ser `reference \| character \| standard` |
+| `higgsfield-soul2` | `/higgsfield-ai/soul2/standard` | `404 model_not_found` (catálogo: `soul/v2/standard`) |
+| `higgsfield-speak` | `/higgsfield-ai/speak/standard` | `404 model_not_found` |
+| `higgsfield-speak2` | `/higgsfield-ai/speak2/standard` | `404 model_not_found` |
+| `higgsfield-cinema-studio-3.5` | `/higgsfield-ai/cinema-studio/3.5` | `404 model_not_found` |
+| `higgsfield-marketing-studio` | `/higgsfield-ai/marketing-studio/standard` | `404 model_not_found` |
+| `higgsfield-recast` | `/higgsfield-ai/recast/standard` | `404 model_not_found` |
+
+`soul/pro` revela a gramática da URL: o segmento é **modo**, não tier —
+`/higgsfield-ai/soul/{reference|character|standard}` respondem `422 prompt
+required`, ou seja, existem.
+
+**Três classes de defeito, tratadas diferente de propósito:**
+
+1. **Slug errado, modelo existe** — `soul2/standard` → `soul/v2/standard`.
+   Mecânico, mas ver a classe 3 antes de corrigir.
+2. **Modelo não existe na API** — speak, speak2, cinema-studio,
+   marketing-studio, recast, soul/pro. São **ferramentas MCP registradas que
+   nunca podem dar certo**. Apagar é decisão de escopo do usuário, não conserto.
+3. **Erro de categoria.** `soul/standard`, `soul/v2/standard`, `soul/character`
+   e `soul/reference` são `operation_type: text2image`, `output_type: image` —
+   e estão em `VIDEO_MODELS` com `modes: ['t2v','i2v']` e `maxDurationSec: 8`.
+   Mover modelo de imagem para fora de `VIDEO_MODELS` mexe em roteador, schemas
+   e caminho de custo. Registrado, não operado.
+
+**Os preços também estão errados nos que existem** (`base_credits` do catálogo
+vs `pricing.rate` do registry):
+
+| Slug | `base_credits` | Nossa taxa |
+|---|---|---|
+| `soul/standard` | 1,0 | 25 |
+| `soul/v2/standard` | 0,0 | 70 |
+| `dop/standard` | 9,0 | 40 |
+| `dop/turbo` | 6,5 | 18 |
+
+**Não corrigi os números.** `base_credits` tem "base" no nome e o saldo da conta
+de API é 0, então não dá para verificar se é preço final por geração ou base que
+escala com duração/resolução. Trocar 40 por 9 sem saber a semântica seria
+substituir um número errado por outro. Fica medido e registrado.
+
+**Modelos que existem e não oferecemos:** `dop/lite` (2,0), os três
+`dop/*/first-last-frame` (mesmo preço do tier), `popcorn/auto` (1,4720),
+`soul/character` (1,0), `soul/cinema` (0,0), `soul/reference` (1,0), `soul-id`
+(40,0).
+
+**Portão construído:** `tests/video/providers/higgsfield-endpoints-live.test.ts`
+fixa a verdade de hoje — os 4 alcançáveis têm que continuar alcançáveis, os 6
+ausentes têm que continuar ausentes, e o contrato do Speak é reafirmado a cada
+execução. Fica vermelho no dia em que o Higgsfield publicar o Speak nessa
+superfície ou aposentar o DoP Turbo. Precisa de `HF_API_KEY`/`HF_API_SECRET` e
+`MEDIA_FORGE_RUN_LIVE_TESTS=true`. **3 passed ao vivo, 0 créditos.**
+
+---
+
+## P1 — O contrato documentado do Speak não é o que o código envia
+
+**Levantado em 2026-07-31**, pesquisando a doc oficial. Não corrigido de propósito
+— ver "por que não mexi" no fim.
+
+O que o código faz hoje (`higgsfield.ts:432`, `:510`):
+
+```
+POST https://platform.higgsfield.ai/higgsfield-ai/speak/standard
+{ prompt, first_frame_url, audio_url, aspect_ratio, resolution }
+```
+
+O que o SDK oficial declara — `@higgsfield/client@0.2.1`, instalado neste repo,
+`dist/v2/types.d.ts:15-28`, **não** é web, é o pacote publicado:
+
+```ts
+export interface SpeakVideoInput {
+    input_image: { type: 'image_url'; image_url: string };
+    input_audio: { type: 'audio_url'; audio_url: string };
+    prompt: string;
+    quality: 'mid' | 'high';
+    duration: 5 | 10 | 15;
+    seed?: number;
+}
+// EndpointInputMap: '/v1/speak/higgsfield' → SpeakVideoInput
+```
+
+**A pergunta do P14 está respondida, e a resposta é URL simples.** `input_audio`
+carrega `audio_url: string` — não há upload assinado no contrato. O README do
+`higgsfield-ai/higgsfield-js` acrescenta a restrição de formato: *"Only WAV
+files"*. Nenhuma das duas coisas está no código nem na sonda.
+
+**O que NÃO ficou provado:** que `/higgsfield-ai/speak/standard` seja inválido. A
+família `/higgsfield-ai/*/standard` é documentada e real — `docs.higgsfield.ai`
+descreve `POST https://platform.higgsfield.ai/{model_id}` com corpo achatado
+(`prompt`, `aspect_ratio`, `resolution`) e resposta
+`{status, request_id, status_url, cancel_url}`, que é exatamente o que
+`higgsfield.ts` consome. O que a doc **não** traz é `speak` nessa família: ela
+mostra `soul/standard`, `dop/standard`, `bytedance/seedance/...`,
+`kling-video/...`. O caminho do Speak foi deduzido dos vizinhos, não lido.
+
+**RETRATAÇÃO (2026-08-01).** A versão anterior desta entrada trazia uma tabela
+"v1 vs v2" apresentando as duas como **superfícies REST distintas**, com base
+diferente e polling diferente. Isso estava errado, e a evidência que desmonta
+está no pacote instalado:
+
+- `dist/config.js:13` define `baseURL = 'https://platform.higgsfield.ai'` — o
+  **mesmo host** para os dois clients.
+- O client v2 faz polling em `/requests/{request_id}/status`, exatamente a URL
+  que `higgsfield.ts:245` já monta.
+- O exemplo do Speak no README é `client.generate('/v1/speak/higgsfield', …)`, e
+  `generate()` é método do client **v1**. O título da seção, "Speak v2", é a
+  versão do **modelo**, não do client.
+
+A diferença real entre as duas famílias é caminho e embrulho do corpo:
+
+| | família `/v1/*` | família modelo-nu |
+|---|---|---|
+| Corpo | `{ "params": { … } }` (`dist/client.js:59`) | achatado (`dist/v2/client.js:190`) |
+| Exemplos | `/v1/speak/higgsfield`, `/v1/text2image/soul` | `higgsfield-ai/soul/standard`, `flux-pro/kontext/max/text-to-image` |
+
+**Os nossos nove mapeamentos são todos modelo-nu com corpo achatado — a família
+documentada em `docs.higgsfield.ai`.** Ou seja: já estamos na superfície
+moderna. O Speak é o único produto cujo contrato documentado mora na família
+`/v1/*`, e o caminho que usamos para ele foi deduzido dos vizinhos.
+
+`@higgsfield/client@0.2.1` é a **última versão publicada** (`npm view` devolve só
+`0.1.2` e `0.2.1`, `latest: 0.2.1`, modificado 2026-05-12) e é dependência fixada
+em `package.json:76`. Nenhum arquivo sob `src/` a importa: ela está no repo como
+fonte de verdade do formato de auth, não como transporte.
+
+**Inconsistência que fica registrada e NÃO foi mexida:** nosso header primário é
+`hf-api-key`/`hf-secret` (forma do client v1), enquanto `docs.higgsfield.ai`
+documenta `Authorization: Key` para a família que de fato usamos —
+`buildFallbackHeaders()` emite essa segunda forma como *fallback*. A ordem parece
+invertida, mas o registro de 2026-05-27 diz que a forma primária foi validada ao
+vivo, com a ressalva ambígua "REST form also/not also accepted", e não há
+credencial nesta máquina para revalidar. Trocar o primário sem poder testar seria
+substituir uma escolha verificada por um palpite.
+
+**Por que não mexi.** Trocar um corpo chutado por outro corpo não validado é o
+padrão que produziu o bug do submit da ARK. E "corrigir o Speak" na verdade é
+**migrar o Speak para o v2** — auth diferente, polling diferente, enum de status
+diferente. Isso é decisão de escopo, não conserto.
+
+**O agravante:** `higgsfield-speak` é alcançável. `schemas.ts:360` registra
+`z.enum(['higgsfield-speak','higgsfield-speak2'])` e `handleHiggsfieldSpeak`
+submete com o modo padrão `URL`. Ou seja: a primeira chamada de um usuário gasta
+crédito contra um formato que ninguém verificou.
+
+**SONDA EXECUTADA em 2026-08-01**, com chave de API criada no dashboard. Custo
+zero: os dois `POST` falham na validação antes de qualquer trabalho ser
+enfileirado.
+
+```
+POST /higgsfield-ai/speak/standard   {}              -> 404 {"detail":"model_not_found"}
+POST /v1/speak/higgsfield            {"params":{}}   -> 422 params.input_image / input_audio / prompt required
+```
+
+**O caminho que o código envia não existe.** Foi deduzido dos vizinhos e nunca
+respondeu.
+
+Contrato completo, obtido por sondagem incremental (todas 422, custo zero):
+
+```
+POST /v1/speak/higgsfield
+{ "params": {
+    "input_image": { "type": …, "image_url": … },   // ambos obrigatórios
+    "input_audio": { "type": …, "audio_url": … },   // ambos obrigatórios
+    "prompt":   string,                              // obrigatório
+    "quality":  "high" | "mid",                      // opcional (SpeakWanQuality)
+    "duration": 5 | 10 | 15                          // opcional
+} }
+```
+
+Erro literal que fixa os enums:
+`Input should be <SpeakWanQuality.HIGH: 'high'> or <SpeakWanQuality.MID: 'mid'>`
+e `Input should be 5, 10 or 15`.
+
+Bate campo a campo com `dist/v2/types.d.ts`. **`audio_url` é URL simples** — a
+pergunta do P14 está respondida com evidência da própria API, não da doc.
+
+**Consequência para o registry:** `maxDurationSec` de 30 (`higgsfield-speak`) e
+60 (`-speak2`) estão errados. A API aceita **no máximo 15**. E não existe
+`speak2` em superfície nenhuma.
+
+**Os dois esquemas de auth funcionam.** `GET /requests/<uuid>/status` com a chave
+nova respondeu `404` (id inexistente) — não `401` — nas duas formas:
+
+```
+hf-api-key + hf-secret        -> HTTP 404
+Authorization: Key K:S        -> HTTP 404
+```
+
+Isso encerra a ambiguidade aberta em 2026-05-27 ("REST form also/not also
+accepted"): **as duas são aceitas**. A ordem primário/fallback deixa de ser risco
+e vira preferência.
+
+**O que falta para fechar, e é decisão de escopo:** trocar caminho e corpo de
+`higgsfield-speak` (embrulho `params`, objetos tipados, `quality`, `duration`),
+recortar `maxDurationSec` para 15, apagar `higgsfield-speak2` (não existe) e
+apagar `MEDIA_FORGE_HF_SPEAK_AUDIO_MODE`, que só existia para escolher entre URL
+e upload — pergunta agora respondida. **Não é migração de superfície:** mesma
+base, mesma auth, mesmo polling.
+
+**Ressalva que não dá para resolver com o que se sabe hoje:** o Speak responde em
+`/v1/speak/higgsfield` e **não aparece em `GET /models`**. Duas superfícies vivas,
+só uma catalogada. Não há evidência de que `/v1/*` seja legado nem de que seja
+suportado — e apostar em qualquer um dos dois lados muda o que se constrói.
+
+---
+
+## P1 — `.env.example` e `.mcp.json` não conhecem metade das variáveis que o código lê
+
+**Levantado em 2026-07-31** por varredura: todo `process.env['X']` sob `src/`
+comparado com as chaves do bloco `env` do `.mcp.json`.
+
+Lidas pelo runtime e **ausentes** do `.mcp.json`:
+
+```
+MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT   MEDIA_FORGE_HF_SPEAK_AUDIO_MODE
+MEDIA_FORGE_HF_WEBHOOK_ENABLE           MEDIA_FORGE_OUTPUTS_DIR
+MEDIA_FORGE_HTTP_PORT                   MEDIA_FORGE_INTERNAL_URL
+MEDIA_FORGE_LOG_LEVEL / _FORMAT         MEDIA_FORGE_ARTIFACT_TTL_SECONDS
+MEDIA_FORGE_CONFIG_HOME                 MEDIA_FORGE_MAX_OBJECTS_PER_CATEGORY
+MEDIA_FORGE_SKIP_OCR_WHEN_NO_TEXT_INTENT
+VOYAGE_API_KEY                          PGVECTOR_URL
+CODEX_HOME                              HOME
+```
+
+**A pior delas é a primeira.** `validateHiggsfieldPricingAtBoot()` **exige**
+`MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT` sempre que `HF_API_KEY` estiver setado, e
+falha com `process.exit(2)` (`server.ts:66-69`). O `.mcp.json` encaminha
+`HF_API_KEY` e **não** encaminhava a variável de preço.
+
+**A severidade depende de duas coisas que não estão verificadas, e o registro tem
+que dizer qual.** Primeira: se o bloco `env` substitui o ambiente ou soma a ele.
+`tests/core/mcp-config-env-contract.test.ts:11-13` afirma whitelist, a partir de
+um defeito real observado com `KLING_API_KEY`; a doc oficial do Claude Code diz
+só *"env: environment variables passed to the server"* e não decide a questão.
+Segunda: `src/core/config.ts:1` faz `import 'dotenv/config'` e `server.ts:11`
+importa esse módulo, então o `.env` é carregado **antes** de
+`validateHiggsfieldPricingAtBoot()` ler `process.env`. Dotenv sem caminho
+explícito resolve a partir do `process.cwd()` do processo, e o servidor é
+lançado como `node ${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js` — cwd quase
+certamente a raiz do projeto, não a do plugin.
+
+Logo a afirmação correta **não** é "nenhum usuário de Higgsfield sobe o
+servidor". É: quem tiver a taxa num `.env` no cwd resolvido sobe; quem depender
+do encaminhamento do `.mcp.json` não subia. Não dá para testar ao vivo aqui —
+`HF_API_KEY` não está setado em lugar nenhum desta máquina, e o `.env` local tem
+só `GOOGLE_API_KEY` e `KLING_API_KEY`, o que também explica por que o provider
+HTTP do Higgsfield nunca foi exercitado (a CLI usa OAuth próprio, não essas
+variáveis).
+
+**Efeito colateral do próprio conserto, achado antes de commitar.** Passar a
+encaminhar `"NAME": "${NAME}"` cria o caso "variável chega vazia", que antes não
+existia porque a variável não chegava. `process.env['X'] ?? default` só rejeita
+`undefined`, então string vazia vence o default: `MEDIA_FORGE_OUTPUTS_DIR` viraria
+`mkdirSync('')` (ENOENT) e `MEDIA_FORGE_MAX_OBJECTS_PER_CATEGORY` viraria
+`Number('') === 0`. Corrigido com `envOrUndefined()` (`src/core/env.ts`), que
+trata vazio e só-espaço como ausente — correto sob qualquer um dos dois
+comportamentos de expansão, sem precisar saber qual está em vigor.
+`MEDIA_FORGE_ARTIFACT_TTL_SECONDS` já usava `if (raw)` e `MEDIA_FORGE_CONFIG_HOME`
+já usava `||`; os dois eram seguros.
+
+`.env.example` tinha o mesmo buraco, menor do que a primeira contagem sugeriu —
+`MUAPI_API_KEY`, `OPENAI_API_KEY`, `MEDIA_FORGE_WAN2GP_URL` e os três
+`MEDIA_FORGE_CODEX_IMAGE_*` já estavam lá, comentados, e a primeira varredura os
+perdeu por só olhar linhas não comentadas. Genuinamente ausentes eram
+`HF_API_KEY`, `HF_API_SECRET`, `MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT`,
+`MEDIA_FORGE_HF_SPEAK_AUDIO_MODE`, `MEDIA_FORGE_HF_WEBHOOK_ENABLE`,
+`MEDIA_FORGE_HF_BIN` e `MEDIA_FORGE_CODEX_BIN` — ou seja, o arquivo que existe
+para dizer o que configurar não conhecia **nenhuma** credencial do Higgsfield
+HTTP nem a taxa sem a qual o servidor não sobe.
+
+**`HIGGSFIELD_API_KEY` não é credencial.** Só aparece em `server.ts:62` como
+heurística de "Higgsfield está configurado?" e em `.mcp.json:37`. Nenhum código de
+auth a lê — `higgsfield-headers.ts` lê `HF_API_KEY`/`HF_API_SECRET`. Quem setar só
+esse nome passa pela validação de boot e falha na primeira chamada com
+`Missing required environment variable(s): HF_API_KEY, HF_API_SECRET`. A pior
+forma de defeito de config: sucesso barulhento, falha no uso.
+
+**Correções aplicadas** (mesma data): variáveis acrescentadas ao `.mcp.json` e ao
+`.env.example`; `HIGGSFIELD_API_KEY` reclassificado no teste de contrato como
+heurística de boot, não credencial; e um teste novo varre `src/` atrás de
+`process.env` e falha quando uma variável nova aparece sem estar encaminhada nem
+numa lista explícita de "deliberadamente não encaminhada".
+
+**Não corrigido:** se `env` é whitelist de fato. A doc oficial do Claude Code diz
+apenas *"env: environment variables passed to the server"* — não afirma
+substituição. Fica registrado como não verificado.
+
+---
+
+## (fechado) P1 — `kling3_0` rejeitava toda resolução que o roteador mandava
+
+**CONSTRUÍDO E FECHADO em 2026-08-01**, e o portão grátis achou o bug no primeiro
+uso.
+
+`higgsfield generate cost <job_type>` estima **sem criar job** — é leitura, custa
+zero, e é a única autoridade sobre o preço real. Virou teste ao vivo por spec
+(`tests/video/providers/higgsfield-cli-cost-live.test.ts`), com o mesmo portão da
+sonda do Speak (`MEDIA_FORGE_RUN_LIVE_TESTS`). Deriva aqui significa que **toda
+estimativa** futura está errada, inclusive a que o cap diário usa antes do submit.
+
+**O que ele encontrou.** `buildCliArgs` emitia `--resolution <res>` para todo job
+type. O `kling3_0` não tem esse parâmetro:
+
+```
+$ higgsfield generate cost kling3_0 --prompt p --resolution 1080p
+Error: Unknown params: resolution   Hint: Run: hf model get kling3_0
+```
+
+`higgsfield model get kling3_0 --json` declara `mode [std,pro,4k]`, não
+`resolution`. Ou seja: **toda** requisição de `kling3_0` que nomeasse resolução
+falhava, na estimativa e na geração. Só o 720p default passava, e só porque a
+flag não era emitida com valor aceito por acaso — não era: falhava também.
+
+Os preços por `--mode` batem exatamente com os multiplicadores já registrados
+(std 10, pro 12,5, 4k 30 créditos em 5s), então **o preço estava certo e só a flag
+estava errada**. Corrigido com `cliResolutionParam` na spec — o job type, não o
+transporte, é quem decide o nome do parâmetro — e `buildCliArgs` recusa uma
+resolução sem valor mapeado em vez de chutar.
+
+**Segundo achado:** `seedance_2_0` aceita `4k` (`resolution [480p,720p,1080p,4k]`)
+e o registry oferecia só até 1080p. Medido: 110 créditos/5s, multiplicador
+4,888… sobre a base 720p. Tier que existia e não era oferecido.
+
+**Verificado ao vivo, 0 créditos, pelo provider real** (não por um `exec` à parte
+— assim `buildCliArgs`, a resolução do shim no Windows e o parsing entram na mesma
+asserção):
+
+```
+12 passed — kling3_0_turbo 720p/1080p · kling3_0 720p/1080p/4k
+            seedance_2_0 480p/720p/1080p/4k · seedance_2_0_mini 480p/720p
+```
+
+**Atenção ao editar o teste:** os autodocs da CLI (via context7) descrevem
+`generate cost create <model> … | jq '.cost'` e `higgsfield account credits`. O
+binário instalado (v1.1.20) usa `generate cost <job_type>` devolvendo `.credits`,
+e `account status`. **O binário é a autoridade**; a doc está desatualizada.
+
+---
+
+## P2 — Liquidação do `higgsfield-cli`: o limite do que dá para medir
+
+**Medido em 2026-07-31** contra a conta real, sem gastar:
+
+```
+$ higgsfield account status --json
+{ "credits": 610, "email": "…", "subscription_plan_type": "pro" }
+
+$ higgsfield account transactions --size 5 --json
+{ "cursor": null, "items": [ { "action": "grant", "created_at": "2026-07-28T21:57:10Z",
+                              "credits": 600, "display_name": "Subscription Credits" } ] }
+```
+
+O item de transação tem `action`, `created_at`, `credits`, `display_name` — e
+**nenhuma referência a job**. Se essa forma valer também para gasto, não existe
+atribuição por job: dois jobs concorrentes produzem duas linhas indistinguíveis.
+
+**Isso não está provado.** Só existe uma transação nesta conta e ela é `grant`. O
+formato de uma linha de gasto é desconhecido porque **nenhuma geração foi feita**
+(`higgsfield generate list --json` → `[]`). A afirmação honesta é "não refutado",
+não "provado".
+
+**Se um gasto carregar id de job**, a liquidação se separa em duas metades:
+medir em crédito não depende de decisão nenhuma; expressar em USD depende de
+`MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT`. `recordActualCost` só aceita USD hoje.
+
+**Sobre a taxa — RESOLVIDO PARA A API em 2026-08-01, e a resposta expõe um limite
+do modelo.** O diálogo de top-up do `cloud.higgsfield.ai/credits` publica o preço
+do crédito de API, da própria conta:
+
+| Pacote | Preço | USD por crédito |
+|---|---|---|
+| 500 créditos | $30,00 | 0,0600 |
+| 800 créditos | $50,00 | 0,0625 |
+| 1.600 créditos | $100,00 | 0,0625 |
+| 4.000 créditos | $250,00 | 0,0625 |
+| avulso | "16 credits = $1" | **0,0625** |
+
+**`MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT = 0.0625`** para o caminho HTTP. Dentro
+da faixa `[0.001, 1.0]`.
+
+**São duas contas, não uma.** O saldo da conta de **API** é **0 crédito** —
+nenhum pacote comprado, nenhum método de pagamento salvo, nenhuma transação. Os
+**610 créditos** de `higgsfield account status` são da assinatura de consumo
+(plano `"pro"`), que alimenta a **CLI**. Mesma identidade de login, pools
+separados. Hoje a API não gera nada por falta de saldo — mesma situação do Kling
+(`packs: 0`).
+
+**O limite do modelo:** `USD_PER_CREDIT` é **uma constante global**, consumida
+tanto pelas specs `higgsfield` (API, 0,0625) quanto pelas `higgsfield-cli`
+(assinatura ÷ créditos concedidos). Duas taxas verdadeiras e diferentes para uma
+variável só. Declarar 0,0625 torna o custo da API exato e o da CLI aproximado.
+Separar exige uma segunda variável e é decisão de escopo, não conserto.
+
+---
+
 ## (fechado) P1 — MuAPI submetia e nunca devolvia: caminho só de ida
 
 **FECHADO em 2026-07-31.** O MuAPI tinha tools desde a leva anterior e ainda assim
@@ -185,7 +993,29 @@ em v7. Cada bump conferido contra as release notes do próprio projeto.
 
 ---
 
-## OPS5 — Worktrees órfãos no disco (precisa da sua decisão)
+## (fechado) OPS5 — Worktrees órfãos no disco
+
+**REMOVIDOS em 2026-07-31**, depois da prova que faltava. O bloqueio era "sem
+metadados git não dá para provar que não há trabalho não commitado dentro". A
+prova não precisa de metadados: git guarda por hash de conteúdo, então cada
+arquivo foi passado por `git hash-object` e o blob procurado na história com
+`git cat-file -e`.
+
+| Diretório | Arquivos (fora `node_modules`) | Fora da história |
+|---|---|---|
+| `agent-a439055b5f204c475` | 382 | 1 |
+| `lane-f-g` | 439 | 1 |
+
+O mesmo arquivo nos dois: `media-forge/prompts/_index.json`, gerado por
+`scripts/build-prompt-index.ts` e gitignorado. Artefato de build, não trabalho.
+483 MB recuperados. Também removidos 3 registros de worktree do fallow em
+`%TEMP%`, que se recriam sob demanda.
+
+Registro original abaixo.
+
+---
+
+## (histórico) OPS5 — Worktrees órfãos no disco (precisa da sua decisão)
 
 **Estado em 2026-08-01:** `git worktree prune` não remove nada — os dois
 diretórios **não têm `.git`**, deixaram de ser worktrees e viraram árvores de

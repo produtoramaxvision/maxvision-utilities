@@ -35,6 +35,11 @@ import {
   _resetHiggsfieldProviderForTests,
 } from '../../src/mcp/handlers.js';
 import { closeDb } from '../../src/core/db.js';
+import { HiggsfieldCliProvider } from '../../src/video/providers/higgsfield-cli.js';
+import {
+  _resetHiggsfieldCliProviderForTests,
+  _setHiggsfieldCliProviderForTests,
+} from '../../src/mcp/handlers/shared.js';
 import type { MediaForgeConfig } from '../../src/core/config.js';
 import type { MediaForgeClient } from '../../src/core/client.js';
 import type { CreditClient } from '../../src/billing/credit-client.js';
@@ -167,14 +172,11 @@ const SITES: Array<{ tool: string; input: Record<string, unknown> }> = [
     tool: 'media_higgsfield_cinema_studio',
     input: {
       prompt: 'noir interrogation',
-      firstFrameImagePath: '/tmp/scene.png',
-      durationSec: 8,
+      durationSec: 15,
       resolution: '1080p',
-      focalLengthMm: 50,
-      apertureFStop: 2.0,
-      sensorSize: 'super35',
-      colorGrading: 'noir',
-      lensId: 'arri-master-prime-50mm',
+      cameraStyle: 'intimate_observer',
+      colorGrading: 'classic_bw',
+      genre: 'noir',
     },
   },
   {
@@ -191,21 +193,10 @@ const SITES: Array<{ tool: string; input: Record<string, unknown> }> = [
   {
     tool: 'media_higgsfield_marketing_studio',
     input: {
-      template: 'unboxing',
-      productUrl: 'https://shop.example/product/42',
       prompt: 'show the box opening with the gadget revealed',
-      durationSec: 12,
+      durationSec: 15,
       resolution: '1080p',
-    },
-  },
-  {
-    tool: 'media_higgsfield_recast',
-    input: {
-      sourceVideoPath: '/tmp/original.mp4',
-      targetCharacterImagePath: '/tmp/newchar.png',
-      prompt: 'replace the lead actor',
-      durationSec: 10,
-      resolution: '720p',
+      avatarIds: ['672be390-36ab-4d79-bb95-ff562a57c79c'],
     },
   },
   {
@@ -253,7 +244,7 @@ const SITES: Array<{ tool: string; input: Record<string, unknown> }> = [
   },
 ];
 
-describe('A5 — no submit site double-reserves (Kling + Higgsfield + Seedance, 15 sites)', () => {
+describe('A5 — no submit site double-reserves (Kling + Higgsfield + Seedance, 14 sites)', () => {
   let tmpDir: string;
   let dbPath: string;
   let prevProjectDir: string | undefined;
@@ -273,6 +264,23 @@ describe('A5 — no submit site double-reserves (Kling + Higgsfield + Seedance, 
     process.env['FAL_KEY'] = 'fal_test';
     process.env['BYTEPLUS_ARK_API_KEY'] = 'ark_test';
     _resetHiggsfieldProviderForTests();
+    // The two Studio tools submit over the CLI, not fetch.
+    _setHiggsfieldCliProviderForTests(
+      new HiggsfieldCliProvider({
+        dbPath,
+        runner: async (args) => {
+          const [group, verb] = args;
+          if (group === 'auth') return { stdout: '{"token":"t"}', stderr: '', exitCode: 0 };
+          if (group === 'generate' && verb === 'cost') {
+            return { stdout: '{"credits": 75}', stderr: '', exitCode: 0 };
+          }
+          if (group === 'generate' && verb === 'create') {
+            return { stdout: '{"id":"cli-job"}', stderr: '', exitCode: 0 };
+          }
+          return { stdout: '{}', stderr: '', exitCode: 0 };
+        },
+      }),
+    );
     falCounter = 0;
     vi.mocked(fal.queue.submit).mockImplementation(async () => ({ request_id: `fal-req-${falCounter++}` }) as never);
     // One fetch mock body satisfies BOTH Kling's `{code, data:{task_id}}`
@@ -294,6 +302,7 @@ describe('A5 — no submit site double-reserves (Kling + Higgsfield + Seedance, 
   });
 
   afterEach(() => {
+    _resetHiggsfieldCliProviderForTests();
     closeDb(dbPath);
     try {
       rmSync(tmpDir, { recursive: true, force: true });
@@ -313,7 +322,7 @@ describe('A5 — no submit site double-reserves (Kling + Higgsfield + Seedance, 
     vi.restoreAllMocks();
   });
 
-  it('each of the 15 submit sites reserves credit EXACTLY once — never zero, never twice', async () => {
+  it('each of the 14 submit sites reserves credit EXACTLY once — never zero, never twice', async () => {
     const server = makeMockServer();
     const spy = spyCreditClient(1_000_000);
     const deps: HandlersDeps = {

@@ -1,6 +1,12 @@
 // tests/mcp/higgsfield-billing-submit.test.ts
-// T15 part B — Higgsfield submit-side credit lifecycle, all 6 submit tools
-// (DoP, Cinema Studio, Speak, Marketing Studio, Recast, Generate).
+// T15 part B — Higgsfield submit-side credit lifecycle, all 5 submit tools
+// (DoP, Cinema Studio, Speak, Marketing Studio, Generate).
+//
+// Recast is gone: /higgsfield-ai/recast/standard answers 404 and the product is
+// on no Higgsfield surface. Cinema Studio and Marketing Studio still submit, but
+// over the CLI transport now (their Cloud API endpoints also 404), so this file
+// installs a fake CLI provider alongside the fetch stub — the ledger contract is
+// the same on both transports and both must honour it.
 //
 // Before this change, all 6 landed a row in video_jobs (via
 // HiggsfieldProvider.generate() -> recordJob, on a successful submit only)
@@ -10,9 +16,9 @@
 // handleHiggsfield*(input, videoGuardOpts) -> reserveVideoSubmit, mirroring
 // tests/mcp/veo-billing-submit.test.ts and cost-guard-video-block.test.ts.
 //
-// The reserve/tenant assertions loop over all 6 sites (SITES below) so a
+// The reserve/tenant assertions loop over all 5 sites (SITES below) so a
 // missing `await reserveVideoSubmit(...)` or a forgotten `videoGuardOpts` at
-// any ONE of the six would fail the suite, not just DoP's. The guard-block
+// any ONE of the five would fail the suite, not just DoP's. The guard-block
 // and insufficient-credit tests stay on media_higgsfield_dop alone — that
 // gate logic (checkCostGuardOrThrow / preflightVideoCredit) is shared,
 // provider-agnostic code already covered per-site by the reserve/tenant loop
@@ -28,6 +34,11 @@ import {
   type HandlersDeps,
   _resetHiggsfieldProviderForTests,
 } from '../../src/mcp/handlers.js';
+import { HiggsfieldCliProvider } from '../../src/video/providers/higgsfield-cli.js';
+import {
+  _resetHiggsfieldCliProviderForTests,
+  _setHiggsfieldCliProviderForTests,
+} from '../../src/mcp/handlers/shared.js';
 import { getJobRecord } from '../../src/core/cost-tracker.js';
 import { closeDb } from '../../src/core/db.js';
 import type { MediaForgeConfig } from '../../src/core/config.js';
@@ -120,14 +131,11 @@ const SITES: Array<{ tool: string; input: Record<string, unknown> }> = [
     tool: 'media_higgsfield_cinema_studio',
     input: {
       prompt: 'noir interrogation',
-      firstFrameImagePath: '/tmp/scene.png',
-      durationSec: 8,
+      durationSec: 15,
       resolution: '1080p',
-      focalLengthMm: 50,
-      apertureFStop: 2.0,
-      sensorSize: 'super35',
-      colorGrading: 'noir',
-      lensId: 'arri-master-prime-50mm',
+      cameraStyle: 'intimate_observer',
+      colorGrading: 'classic_bw',
+      genre: 'noir',
     },
   },
   {
@@ -144,21 +152,10 @@ const SITES: Array<{ tool: string; input: Record<string, unknown> }> = [
   {
     tool: 'media_higgsfield_marketing_studio',
     input: {
-      template: 'unboxing',
-      productUrl: 'https://shop.example/product/42',
       prompt: 'show the box opening with the gadget revealed',
-      durationSec: 12,
+      durationSec: 15,
       resolution: '1080p',
-    },
-  },
-  {
-    tool: 'media_higgsfield_recast',
-    input: {
-      sourceVideoPath: '/tmp/original.mp4',
-      targetCharacterImagePath: '/tmp/newchar.png',
-      prompt: 'replace the lead actor',
-      durationSec: 10,
-      resolution: '720p',
+      avatarIds: ['672be390-36ab-4d79-bb95-ff562a57c79c'],
     },
   },
   {
@@ -173,7 +170,7 @@ const SITES: Array<{ tool: string; input: Record<string, unknown> }> = [
   },
 ];
 
-describe('T15 part B — Higgsfield submit ledger (all 6 submit tools)', () => {
+describe('T15 part B — Higgsfield submit ledger (all 5 submit tools)', () => {
   let tmpDir: string;
   let dbPath: string;
   let prevProjectDir: string | undefined;
@@ -187,10 +184,29 @@ describe('T15 part B — Higgsfield submit ledger (all 6 submit tools)', () => {
     process.env['HF_API_KEY'] = 'pk';
     process.env['HF_API_SECRET'] = 'sk';
     process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] = '0.039';
+    // Cinema Studio and Marketing Studio submit over the CLI, so a fetch stub
+    // cannot stand in for them.
+    _setHiggsfieldCliProviderForTests(
+      new HiggsfieldCliProvider({
+        dbPath,
+        runner: async (args) => {
+          const [group, verb] = args;
+          if (group === 'auth') return { stdout: '{"token":"t"}', stderr: '', exitCode: 0 };
+          if (group === 'generate' && verb === 'cost') {
+            return { stdout: '{"credits": 75}', stderr: '', exitCode: 0 };
+          }
+          if (group === 'generate' && verb === 'create') {
+            return { stdout: '{"id":"cli-job"}', stderr: '', exitCode: 0 };
+          }
+          return { stdout: '{}', stderr: '', exitCode: 0 };
+        },
+      }),
+    );
     _resetHiggsfieldProviderForTests();
   });
 
   afterEach(() => {
+    _resetHiggsfieldCliProviderForTests();
     closeDb(dbPath);
     try {
       rmSync(tmpDir, { recursive: true, force: true });
@@ -206,7 +222,7 @@ describe('T15 part B — Higgsfield submit ledger (all 6 submit tools)', () => {
     vi.restoreAllMocks();
   });
 
-  it('each of the 6 submit sites reserves credit + sets tenant when billing is on', async () => {
+  it('each of the 5 submit sites reserves credit + sets tenant when billing is on', async () => {
     const server = makeMockServer();
     let call = 0;
     global.fetch = vi.fn(async () =>
@@ -239,13 +255,22 @@ describe('T15 part B — Higgsfield submit ledger (all 6 submit tools)', () => {
       const row = getJobRecord({ dbPath, jobId: structured.jobId });
       expect(row, `${site.tool}: no video_jobs row`).not.toBeNull();
       expect(row!.tenantId, `${site.tool}: tenant not set`).toBe('t1');
-      expect(row!.provider, `${site.tool}`).toBe('higgsfield');
+      // Two transports, one ledger contract. The Studios bill the subscription
+      // workspace over the CLI and the rest bill API credits over HTTP, so the
+      // row must name which — that separation is why they are distinct providers
+      // rather than a mode flag (see PROVIDERS in models.ts).
+      const expectedProvider =
+        site.tool === 'media_higgsfield_cinema_studio' ||
+        site.tool === 'media_higgsfield_marketing_studio'
+          ? 'higgsfield-cli'
+          : 'higgsfield';
+      expect(row!.provider, `${site.tool}`).toBe(expectedProvider);
     }
 
     expect(spy.reserve).toHaveBeenCalledTimes(SITES.length);
   });
 
-  it('does not reserve when billing is off (no creditClient/tenantId) — each of the 6 sites', async () => {
+  it('does not reserve when billing is off (no creditClient/tenantId) — each of the 5 sites', async () => {
     const server = makeMockServer();
     let call = 0;
     global.fetch = vi.fn(async () =>

@@ -132,9 +132,35 @@ export type PricingUnit = (typeof PRICING_UNITS)[number];
 export const PRICING_SOURCES = ['fixed-public-rate', 'volatile-by-tier', 'user-override'] as const;
 export type PricingSource = (typeof PRICING_SOURCES)[number];
 
+/**
+ * What the endpoint actually returns.
+ *
+ * Not derivable from `modes`. Higgsfield's Soul family accepts a prompt and an
+ * aspect ratio exactly like a t2v model does, and the registry duly described it
+ * as `modes: ['t2v','i2v']` — but the platform serves it as `text2image` and
+ * hands back an image. `GET /models` says so in its own words, and the live gate
+ * prints it every run:
+ *
+ *   higgsfield-ai/soul/standard    text2image  image  1.0000
+ *
+ * `handleVideoRoute` filtered on mode, provider, duration and resolution and had
+ * no way to see that, so a video request could be answered with an image
+ * endpoint. Only the default cost sort hid it: at USD_PER_CREDIT=0.0625 the flat
+ * 25-credit Soul price loses to kling-v3-standard at every duration Soul allows.
+ * Name the provider and it wins; align its price with the 1.0 base_credits the
+ * catalogue reports and it wins EVERYWHERE, by roughly 16x.
+ *
+ * REQUIRED, not defaulted. A spec that forgets to declare this would inherit
+ * whichever default the field carried, and a wrong inherited value is exactly
+ * the failure being fixed — silently in one direction, and silently dropping a
+ * working model out of routing in the other.
+ */
+export type ModelOutputType = 'video' | 'image';
+
 export interface VideoModelSpec {
   readonly id: string;
   readonly provider: Provider;
+  readonly outputType: ModelOutputType;
   readonly modes: ReadonlyArray<VideoMode>;
   readonly maxDurationSec: number;
   readonly resolutions: ReadonlyArray<'480p' | '720p' | '1080p' | '2k' | '4k'>;
@@ -159,6 +185,30 @@ export interface VideoModelSpec {
   };
   readonly ipRiskLevel: IpRiskLevel;
   /**
+   * Present when the provider does not actually serve this model.
+   *
+   * The truth used to live in a KNOWN_ABSENT table inside
+   * tests/video/providers/higgsfield-endpoints-live.test.ts. That made the live
+   * gate correct and the ROUTER blind: six of the ten mapped Higgsfield
+   * endpoints answer `404 model_not_found`, yet handleVideoRoute happily ranked
+   * them and could return one as the cheapest route. A test file is the wrong
+   * home for a fact the runtime has to act on, and two copies of it drift.
+   *
+   * Concrete case this closes: higgsfield-marketing-studio is a live t2v
+   * candidate at $3.125. Once the Soul specs left the pool via outputType, it
+   * became the cheapest Higgsfield t2v — so `preferProvider: 'higgsfield'` would
+   * have started routing to a 404.
+   *
+   * `verifiedAt` is the date the probe ran, not the date someone believed it.
+   * The live gate re-asks the platform every run and fails if any entry here is
+   * now served (remove it and wire the tool) or if anything NOT listed here has
+   * stopped being served.
+   */
+  readonly unavailable?: {
+    readonly reason: string;
+    readonly verifiedAt: string;
+  };
+  /**
    * Optional per-model capability caps. When present, downstream schemas + handlers MUST
    * read from here rather than hardcoding constants. Currently used by:
    *   - kling-v3-omni: maxShots / maxDurationSec / per-shot bounds (Task 9 Zod schema)
@@ -173,12 +223,34 @@ export interface VideoModelSpec {
     readonly maxVideoRefs?: number;
     readonly maxAudioRefs?: number;
   };
+  /**
+   * How the `higgsfield-cli` transport expresses resolution for this job type.
+   *
+   * `buildCliArgs` emits `--resolution <value>` by default, which is right for
+   * every job type that declares a `resolution` param. `kling3_0` does not: it
+   * declares `mode` with `std | pro | 4k` and rejects the other flag outright —
+   *
+   *     $ higgsfield generate cost kling3_0 --prompt p --resolution 1080p
+   *     Error: Unknown params: resolution
+   *
+   * so every non-default-resolution request through that job type failed, at
+   * cost estimation and at generation. Found by running `higgsfield generate
+   * cost` (a read, 0 credits) against all four CLI specs on 2026-08-01.
+   *
+   * The prices reached through `--mode` match this spec's multipliers exactly
+   * (std 10, pro 12.5, 4k 30 credits for 5s), so only the flag was wrong.
+   */
+  readonly cliResolutionParam?: {
+    readonly flag: string;
+    readonly values: Partial<Record<'480p' | '720p' | '1080p' | '2k' | '4k', string>>;
+  };
 }
 
 export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   [VIDEO_MODEL_VEO_3_1_PRO]: {
     id: VIDEO_MODEL_VEO_3_1_PRO,
     provider: 'google',
+    outputType: 'video',
     modes: ['t2v', 'i2v', 'interpolate', 'extend', 'with-refs'],
     maxDurationSec: 148,
     resolutions: ['720p', '1080p', '4k'],
@@ -196,6 +268,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'higgsfield-soul-standard': {
     id: 'higgsfield-soul-standard',
     provider: 'higgsfield',
+    outputType: 'image',
     modes: ['t2v', 'i2v'],
     maxDurationSec: 8,
     resolutions: ['720p', '1080p'],
@@ -210,26 +283,10 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
     },
     ipRiskLevel: 'low',
   },
-  'higgsfield-soul-pro': {
-    id: 'higgsfield-soul-pro',
-    provider: 'higgsfield',
-    modes: ['t2v', 'i2v'],
-    maxDurationSec: 8,
-    resolutions: ['720p', '1080p'],
-    fps: [24],
-    audioNative: false,
-    pricing: {
-      unit: 'credits-per-video',
-      rate: 60,
-      source: 'volatile-by-tier',
-      updatedAt: '2026-05-27',
-      notes: 'Higgsfield Soul pro tier — higher quality, slower.',
-    },
-    ipRiskLevel: 'low',
-  },
   'higgsfield-soul2': {
     id: 'higgsfield-soul2',
     provider: 'higgsfield',
+    outputType: 'image',
     modes: ['t2v', 'i2v', 'with-refs'],
     maxDurationSec: 8,
     resolutions: ['720p', '1080p'],
@@ -240,13 +297,17 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
       rate: 70,
       source: 'volatile-by-tier',
       updatedAt: '2026-05-27',
-      notes: 'Higgsfield Soul 2.0 — improved coherence, character consistency via multi-ref.',
+      notes:
+        'Higgsfield Soul 2.0 — improved coherence, character consistency via custom_reference_id. ' +
+        'UNVERIFIED rate: GET /models reports base_credits 0.0 for this slug, which cannot be a ' +
+        'final price. The API credit balance is 0, so no billed generation has ever confirmed it.',
     },
     ipRiskLevel: 'low',
   },
   'higgsfield-dop': {
     id: 'higgsfield-dop',
     provider: 'higgsfield',
+    outputType: 'video',
     modes: ['i2v', 'with-refs'],
     maxDurationSec: 6,
     resolutions: ['720p', '1080p'],
@@ -264,6 +325,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'higgsfield-dop-turbo': {
     id: 'higgsfield-dop-turbo',
     provider: 'higgsfield',
+    outputType: 'video',
     modes: ['i2v', 'with-refs'],
     maxDurationSec: 6,
     resolutions: ['720p'],
@@ -281,8 +343,11 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'higgsfield-speak': {
     id: 'higgsfield-speak',
     provider: 'higgsfield',
+    outputType: 'video',
     modes: ['lip-sync'],
-    maxDurationSec: 30,
+    // 15, not 30. `POST /higgsfield-ai/speak` with duration 99 answers
+    // `Input should be 5, 10 or 15` — the platform's own enum, read 2026-08-01.
+    maxDurationSec: 15,
     resolutions: ['720p', '1080p'],
     fps: [24],
     audioNative: true,
@@ -291,77 +356,13 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
       rate: 35,
       source: 'volatile-by-tier',
       updatedAt: '2026-05-27',
-      notes: 'Speak lip-sync — photo + audio → talking head.',
+      notes:
+        'Speak lip-sync — photo + audio → talking head. Body: image_url, audio_url, prompt ' +
+        '(required); quality high|mid, duration 5|10|15, enhance_prompt, seed (optional). ' +
+        'The 35-credit rate is NOT verified: `GET /models` does not list speak, so there is no ' +
+        'base_credits to compare against, and the API account has 0 balance.',
     },
     ipRiskLevel: 'medium',
-  },
-  'higgsfield-speak2': {
-    id: 'higgsfield-speak2',
-    provider: 'higgsfield',
-    modes: ['lip-sync'],
-    maxDurationSec: 60,
-    resolutions: ['720p', '1080p'],
-    fps: [24],
-    audioNative: true,
-    pricing: {
-      unit: 'credits-per-video',
-      rate: 55,
-      source: 'volatile-by-tier',
-      updatedAt: '2026-05-27',
-      notes: 'Speak 2.0 — longer clips, better emotion mapping.',
-    },
-    ipRiskLevel: 'medium',
-  },
-  'higgsfield-cinema-studio-3.5': {
-    id: 'higgsfield-cinema-studio-3.5',
-    provider: 'higgsfield',
-    modes: ['i2v', 't2v', 'with-refs'],
-    maxDurationSec: 8,
-    resolutions: ['720p', '1080p'],
-    fps: [24],
-    audioNative: false,
-    pricing: {
-      unit: 'credits-per-video',
-      rate: 90,
-      source: 'volatile-by-tier',
-      updatedAt: '2026-05-27',
-      notes: 'Cinema Studio 3.5 — 1,296 virtual lenses, focal length / aperture / sensor / grading.',
-    },
-    ipRiskLevel: 'low',
-  },
-  'higgsfield-marketing-studio': {
-    id: 'higgsfield-marketing-studio',
-    provider: 'higgsfield',
-    modes: ['t2v'],
-    maxDurationSec: 15,
-    resolutions: ['720p', '1080p'],
-    fps: [24],
-    audioNative: true,
-    pricing: {
-      unit: 'credits-per-video',
-      rate: 50,
-      source: 'volatile-by-tier',
-      updatedAt: '2026-05-27',
-      notes: '9 UGC templates (unboxing, TV spot, hyper-motion, product review, ...) from product URL.',
-    },
-    ipRiskLevel: 'medium',
-  },
-  'higgsfield-recast': {
-    id: 'higgsfield-recast',
-    provider: 'higgsfield',
-    modes: ['targeted-edit'],
-    maxDurationSec: 30,
-    resolutions: ['720p', '1080p'],
-    fps: [24],
-    audioNative: false,
-    pricing: {
-      unit: 'credits-per-video',
-      rate: 80,
-      source: 'volatile-by-tier',
-      updatedAt: '2026-05-27',
-      notes: 'Recast Studio — swap character in existing video (Instadump / Character Swap).',
-    },
-    ipRiskLevel: 'high',
   },
 
   // -------------------------------------------------------------------------
@@ -400,6 +401,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   kling3_0_turbo: {
     id: 'kling3_0_turbo',
     provider: 'higgsfield-cli',
+    outputType: 'video',
     modes: ['t2v', 'i2v'],
     maxDurationSec: 10,
     resolutions: ['720p', '1080p'],
@@ -420,6 +422,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   kling3_0: {
     id: 'kling3_0',
     provider: 'higgsfield-cli',
+    outputType: 'video',
     modes: ['t2v', 'i2v'],
     maxDurationSec: 10,
     resolutions: ['720p', '1080p', '4k'],
@@ -437,24 +440,37 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
       resolutionMultipliers: { '1080p': 1.25, '4k': 3.0 },
     },
     ipRiskLevel: 'low',
+    // This job type has no `resolution` param — see cliResolutionParam on the
+    // VideoModelSpec interface. Values measured 2026-08-01.
+    cliResolutionParam: {
+      flag: '--mode',
+      values: { '720p': 'std', '1080p': 'pro', '4k': '4k' },
+    },
   },
   seedance_2_0: {
     id: 'seedance_2_0',
     provider: 'higgsfield-cli',
+    outputType: 'video',
     modes: ['t2v', 'i2v'],
     maxDurationSec: 10,
-    resolutions: ['480p', '720p', '1080p'],
+    resolutions: ['480p', '720p', '1080p', '4k'],
     fps: [24],
     audioNative: true,
     pricing: {
       unit: 'credits-per-second',
       rate: 4.5,
       source: 'volatile-by-tier',
-      updatedAt: '2026-07-30',
+      updatedAt: '2026-08-01',
       notes:
         'Measured: 15 credits/5s at 480p (3.0 c/s), 22.5/5s at 720p (4.5 c/s), 45/5s at 1080p ' +
-        '(9.0 c/s). Baseline is 720p, matching the other entries here.',
-      resolutionMultipliers: { '480p': 0.6666666666666666, '1080p': 2.0 },
+        '(9.0 c/s), 110/5s at 4k (22.0 c/s). Baseline is 720p, matching the other entries here. ' +
+        '4k was absent until 2026-08-01: `higgsfield model get seedance_2_0` declares ' +
+        'resolution [480p,720p,1080p,4k], so the tier existed and this registry did not offer it.',
+      resolutionMultipliers: {
+        '480p': 0.6666666666666666,
+        '1080p': 2.0,
+        '4k': 4.888888888888889,
+      },
     },
     // Same underlying model as the direct bytedance route, so it carries the
     // same IP risk — the transport does not change what was trained on.
@@ -463,6 +479,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   seedance_2_0_mini: {
     id: 'seedance_2_0_mini',
     provider: 'higgsfield-cli',
+    outputType: 'video',
     modes: ['t2v', 'i2v'],
     // No 1080p: the CLI rejects it for this model ("allowed: 480p, 720p"),
     // which matches the registry's own resolutions for seedance-2.0-fast.
@@ -482,9 +499,80 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
     ipRiskLevel: 'high',
   },
 
+  // ---- Marketing Studio / Cinematic Studio: same products, working transport --
+  //
+  // These two shipped as `higgsfield` HTTP specs pointing at
+  // /higgsfield-ai/marketing-studio/standard and /higgsfield-ai/cinema-studio/3.5.
+  // Both answer 404 model_not_found: the Cloud API does not resell them.
+  //
+  // The PRODUCTS are real and central — Marketing Studio is Higgsfield's UGC ad
+  // suite — they simply live on the CLI surface, where they resolve as ordinary
+  // job types. So the fix is a change of transport, not a deletion: the MCP tool
+  // names are unchanged and callers do not break.
+  //
+  // Prices measured live via `higgsfield generate cost <job_type>` (a read, 0
+  // credits). Both are exactly linear at 5 credits/second on the 720p baseline:
+  //
+  //           480p    720p   1080p
+  //     5s    17.5      25      50
+  //    10s      35      50     100
+  //    15s    52.5      75     150
+  //
+  // maxDurationSec 15 is CONSERVATIVE AND NOT MEASURED. `generate cost` accepts
+  // 20, 30, 60, even 600 and just multiplies — it is a pricing function, not a
+  // validator — and `model get` publishes no bound (`duration` is a plain integer
+  // with no enum and no min/max). 15 is the schema DEFAULT. Capping there fails
+  // closed: the router may refuse a long request that would have worked, but can
+  // never submit one that will not. The real ceiling only surfaces from a billed
+  // `generate create`.
+  cinematic_studio_video_3_5: {
+    id: 'cinematic_studio_video_3_5',
+    provider: 'higgsfield-cli',
+    outputType: 'video',
+    modes: ['t2v', 'i2v'],
+    maxDurationSec: 15,
+    resolutions: ['480p', '720p', '1080p'],
+    fps: [24],
+    audioNative: true,
+    pricing: {
+      unit: 'credits-per-second',
+      rate: 5.0,
+      source: 'volatile-by-tier',
+      updatedAt: '2026-08-01',
+      notes:
+        'Measured via `higgsfield generate cost cinematic_studio_video_3_5`: 75 credits at 15s/720p ' +
+        '(5.0 c/s), 52.5 at 480p, 150 at 1080p. Baseline 720p.',
+      resolutionMultipliers: { '480p': 0.7, '1080p': 2.0 },
+    },
+    ipRiskLevel: 'low',
+  },
+
+  marketing_studio_video: {
+    id: 'marketing_studio_video',
+    provider: 'higgsfield-cli',
+    outputType: 'video',
+    modes: ['t2v', 'i2v'],
+    maxDurationSec: 15,
+    resolutions: ['480p', '720p', '1080p'],
+    fps: [24],
+    audioNative: true,
+    pricing: {
+      unit: 'credits-per-second',
+      rate: 5.0,
+      source: 'volatile-by-tier',
+      updatedAt: '2026-08-01',
+      notes:
+        'Measured via `higgsfield generate cost marketing_studio_video`: 75 credits at 15s/720p ' +
+        '(5.0 c/s), 52.5 at 480p, 150 at 1080p. Baseline 720p. Defaults to mode=ugc, 9:16.',
+      resolutionMultipliers: { '480p': 0.7, '1080p': 2.0 },
+    },
+    ipRiskLevel: 'low',
+  },
+
   'kling-v3-standard': {
     id: 'kling-v3-standard',
     provider: 'kling',
+    outputType: 'video',
     modes: ['t2v', 'i2v'],
     maxDurationSec: 10,
     resolutions: ['720p', '1080p'],
@@ -516,6 +604,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'kling-3.0-turbo': {
     id: 'kling-3.0-turbo',
     provider: 'kling',
+    outputType: 'video',
     modes: ['t2v', 'i2v'],
     // "durations (3-15 seconds)" per the model page's capability map.
     maxDurationSec: 15,
@@ -552,6 +641,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'kling-v3-pro': {
     id: 'kling-v3-pro',
     provider: 'kling',
+    outputType: 'video',
     modes: ['t2v', 'i2v', 'motion-brush', 'elements', 'lip-sync', 'extend'],
     maxDurationSec: 10,
     // '2k' unverified: Kling's `mode` enum (std/pro/4k) maps 'pro' to 1080P output only —
@@ -576,6 +666,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'kling-v3-master': {
     id: 'kling-v3-master',
     provider: 'kling',
+    outputType: 'video',
     modes: ['t2v'],
     maxDurationSec: 10,
     resolutions: ['4k'],
@@ -598,6 +689,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'kling-v3-omni': {
     id: 'kling-v3-omni',
     provider: 'kling',
+    outputType: 'video',
     modes: ['t2v', 'i2v', 'multi-shot'],
     maxDurationSec: 30, // 6 shots × 5s max each per Omni schema
     resolutions: ['1080p'],
@@ -632,6 +724,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'seedance-2.0-fast': {
     id: 'seedance-2.0-fast',
     provider: 'bytedance',
+    outputType: 'video',
     modes: ['t2v', 'i2v', 'with-refs', 'multi-shot', 'targeted-edit'],
     maxDurationSec: 15,
     resolutions: ['480p', '720p'],
@@ -656,6 +749,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
   'seedance-2.0-standard': {
     id: 'seedance-2.0-standard',
     provider: 'bytedance',
+    outputType: 'video',
     modes: ['t2v', 'i2v', 'with-refs', 'multi-shot', 'targeted-edit'],
     maxDurationSec: 15,
     resolutions: ['480p', '720p', '1080p'],

@@ -71,8 +71,6 @@ describe('P15 regression — Kling integration end-to-end', () => {
         'media_higgsfield_cinema_studio',
         'media_higgsfield_speak',
         'media_higgsfield_marketing_studio',
-        'media_higgsfield_recast',
-        'media_higgsfield_virality_predictor',
       ]),
     );
   });

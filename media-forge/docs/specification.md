@@ -1,6 +1,6 @@
 # media-forge — Specification
 
-**Version:** 0.2.14
+**Version:** 0.2.15
 **Source:** Distilled from design spec (2026-05-21) + implementation reality (P0-P16 complete: baseline + refs-integration + multi-provider video).
 
 ---
@@ -154,11 +154,12 @@ The MCP server exposes 72 tools (68 with `MEDIA_FORGE_SEEDANCE_ENABLED=false`), 
 | `media_higgsfield_generate` | Base Higgsfield generation (Soul / Soul 2.0). |
 | `media_higgsfield_soul_id` | Soul ID lifecycle (identity-locked character). |
 | `media_higgsfield_dop` | DoP camera control. |
-| `media_higgsfield_cinema_studio` | Cinema Studio lens grading. |
-| `media_higgsfield_speak` | Speak / Speak 2.0 lip-sync from photo. |
-| `media_higgsfield_marketing_studio` | Marketing Studio templates. |
-| `media_higgsfield_recast` | Recast character swap. |
-| `media_higgsfield_virality_predictor` | Virality score prediction. |
+| `media_higgsfield_cinema_studio` | Cinematic Studio 3.5 — camera style / light scheme / colour grade / genre presets. CLI transport. |
+| `media_higgsfield_speak` | Speak lip-sync from photo. |
+| `media_higgsfield_marketing_studio` | Marketing Studio UGC video — avatars / hooks / settings / products. CLI transport. |
+| `media_higgsfield_ms_assets` | Marketing Studio catalogue (avatars, hooks, settings, ad-formats, ad-references, brand-kits, products, web-products). Read-only. |
+| `media_higgsfield_product_photoshoot` | Product Photoshoot — 10 modes, backend prompt enhancement. Free preview by default. |
+| `media_higgsfield_marketplace_cards` | Marketplace listing assets — main / secondary / A+ modules. Free preview by default. |
 | `media_higgsfield_poll` | Poll a Higgsfield request by id. |
 | `media_higgsfield_download` | Download a completed Higgsfield asset. |
 

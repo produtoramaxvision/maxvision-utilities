@@ -13,21 +13,17 @@ import { HiggsfieldDopInput, type HiggsfieldDopInputT } from '../schemas.js';
 import { HiggsfieldCinemaStudioInput, type HiggsfieldCinemaStudioInputT } from '../schemas.js';
 import { HiggsfieldSpeakInput, type HiggsfieldSpeakInputT } from '../schemas.js';
 import { HiggsfieldMarketingStudioInput, type HiggsfieldMarketingStudioInputT } from '../schemas.js';
-import { HiggsfieldRecastInput, type HiggsfieldRecastInputT } from '../schemas.js';
-import { HiggsfieldViralityPredictorInput, type HiggsfieldViralityPredictorInputT } from '../schemas.js';
 import { HiggsfieldGenerateInput, type HiggsfieldGenerateInputT } from '../schemas.js';
-import {
-  buildHiggsfieldHeaders,
-  buildFallbackHeaders,
-} from '../../video/providers/auth/higgsfield-headers.js';
-import { defaultDbPath, higgsfieldProvider } from './shared.js';
+import { VIDEO_MODELS, type ModelOutputType } from '../../core/models.js';
+import { ValidationError } from '../../core/errors.js';
+import { defaultDbPath, higgsfieldProvider, higgsfieldCliProvider } from './shared.js';
 import { assertPromptWithinBudget } from '../../core/prompt-budget.js';
 import type { VideoLedgerHooks } from '../../video/providers/base.js';
 
 // ---------------------------------------------------------------------------
 // T15 part B (2026-07-29) — cost-guard + credit-preflight hooks for the 6
 // Higgsfield submit handlers below (DoP, Cinema Studio, Speak, Marketing
-// Studio, Recast, Generate). Mirrors KlingHandlerExecOpts/runCostGuards in
+// Studio, Generate). Mirrors KlingHandlerExecOpts/runCostGuards in
 // kling.ts exactly, same shape: both hooks are optional so every handler
 // below is still callable directly with a single argument (e.g. the existing
 // higgsfield-*-handler.test.ts files), and both run BEFORE provider.generate()
@@ -80,6 +76,81 @@ async function runCostGuards(
     await opts.preflightCredit(estimateUsd);
   }
   return costWarning;
+}
+
+/** Drops undefined entries so an absent optional never becomes a `--flag undefined`. */
+function compactCliParams(
+  params: Record<string, string | number | boolean | ReadonlyArray<string> | undefined>,
+): Record<string, string | number | boolean | ReadonlyArray<string>> {
+  const out: Record<string, string | number | boolean | ReadonlyArray<string>> = {};
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined) continue;
+    if (Array.isArray(v) && v.length === 0) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+interface StudioJobInput {
+  readonly modelId: string;
+  readonly mode: 't2v' | 'i2v';
+  readonly prompt: string;
+  readonly durationSec: number;
+  readonly resolution: '480p' | '720p' | '1080p';
+  readonly aspectRatio: '16:9' | '9:16' | '1:1' | '21:9' | '4:3' | '3:4' | 'auto';
+  readonly startImagePath?: string;
+  readonly endImagePath?: string;
+  readonly imageReferencePaths?: ReadonlyArray<string>;
+  readonly cliParams: Record<string, string | number | boolean | ReadonlyArray<string>>;
+  readonly opts: HiggsfieldHandlerExecOpts;
+}
+
+/**
+ * Shared submit path for the two Studio job types, over the CLI transport.
+ *
+ * The cost step is the reason this is not a copy of the HTTP handlers above.
+ * `HiggsfieldCliProvider.estimateCostUSD` is synchronous by the VideoProvider
+ * contract but has no local price table to answer from — deliberately, so a
+ * stale rate can never be enforced by the cost guard. `fetchCostCredits` runs
+ * first, asking `higgsfield generate cost` for the price of THESE parameters (a
+ * read that spends nothing), and the synchronous method then reads that cached
+ * answer. Skipping the fetch makes estimateCostUSD throw rather than guess.
+ */
+async function submitStudioJob(input: StudioJobInput): Promise<{
+  provider: string;
+  jobId: string;
+  providerNativeId?: string;
+  estimatedCostUSD: number;
+  costWarning?: string;
+}> {
+  const provider = higgsfieldCliProvider();
+  const req = {
+    modelId: input.modelId,
+    mode: input.mode,
+    prompt: input.prompt,
+    durationSec: input.durationSec,
+    resolution: input.resolution,
+    aspectRatio: input.aspectRatio,
+    ...(input.startImagePath ? { firstFrameImagePath: input.startImagePath } : {}),
+    ...(input.endImagePath ? { lastFrameImagePath: input.endImagePath } : {}),
+    ...(input.imageReferencePaths ? { referenceImagePaths: input.imageReferencePaths } : {}),
+    extras: {
+      providerKind: 'higgsfield' as const,
+      cliParams: input.cliParams,
+    },
+  };
+
+  await provider.fetchCostCredits(req);
+  const estimateUsd = provider.estimateCostUSD(req);
+  const costWarning = await runCostGuards(estimateUsd, input.opts);
+  const handle = await provider.generate(req, input.opts.ledgerHooks);
+  return {
+    provider: handle.provider,
+    jobId: handle.jobId,
+    providerNativeId: handle.providerNativeId,
+    estimatedCostUSD: estimateUsd,
+    ...(costWarning ? { costWarning } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -151,9 +222,29 @@ export async function handleHiggsfieldGenerate(
   jobId: string;
   providerNativeId?: string;
   estimatedCostUSD: number;
+  outputType: ModelOutputType;
   costWarning?: string;
 }> {
   const input: HiggsfieldGenerateInputT = HiggsfieldGenerateInput.parse(rawInput);
+  // The three models this tool accepts are ALL `text2image` on the platform, and
+  // it takes `mode: 't2v' | 'i2v'` and a `durationSec`. A caller reading only the
+  // schema would expect a video back.
+  //
+  // handleVideoRoute can no longer select them (they are filtered on outputType),
+  // but this tool names them explicitly, so the mismatch has to be answered here
+  // rather than routed around. It is answered by SAYING SO: the result declares
+  // what the endpoint returns, and buildRequestBody drops `duration` for image
+  // models instead of sending a number nothing will honour.
+  //
+  // The registry lookup is not defensive dressing — it is the single place this
+  // fact lives, so the tool cannot drift from it.
+  const spec = VIDEO_MODELS[input.modelId];
+  if (spec === undefined) {
+    throw new ValidationError(
+      `${input.modelId} is not in the model registry; media_higgsfield_generate cannot price or submit it`,
+      { field: 'modelId' },
+    );
+  }
   assertPromptWithinBudget({ provider: 'higgsfield', prompt: input.prompt, field: 'prompt' });
   const provider = higgsfieldProvider();
   const req = {
@@ -180,6 +271,7 @@ export async function handleHiggsfieldGenerate(
     jobId: handle.jobId,
     providerNativeId: handle.providerNativeId,
     estimatedCostUSD: estimateUsd,
+    outputType: spec.outputType,
     ...(costWarning ? { costWarning } : {}),
   };
 }
@@ -245,7 +337,19 @@ export async function handleHiggsfieldDop(
 }
 
 // ---------------------------------------------------------------------------
-// handleHiggsfieldCinemaStudio — Cinema Studio 3.5 with 1,296 virtual lenses
+// handleHiggsfieldCinemaStudio — Cinematic Studio 3.5, over the CLI transport
+//
+// Repointed 2026-08-01. This dispatched to /higgsfield-ai/cinema-studio/3.5,
+// which answers 404 model_not_found: the Cloud API does not resell the product.
+// It resolves on the CLI surface as job type `cinematic_studio_video_3_5`, so
+// the tool name and its place in the toolset are unchanged and only the
+// transport moved.
+//
+// The old input modelled a "1,296 virtual lens" dictionary — focalLengthMm,
+// apertureFStop, sensorSize, lensId. None of those is a field on any Higgsfield
+// endpoint. What the product publishes instead is a set of named creative
+// presets (camera_style, light_scheme, color_grading, genre), which the schema
+// now mirrors from `higgsfield model get`.
 // ---------------------------------------------------------------------------
 
 export async function handleHiggsfieldCinemaStudio(
@@ -260,36 +364,27 @@ export async function handleHiggsfieldCinemaStudio(
 }> {
   const input: HiggsfieldCinemaStudioInputT = HiggsfieldCinemaStudioInput.parse(rawInput);
   assertPromptWithinBudget({ provider: 'higgsfield', prompt: input.prompt, field: 'prompt' });
-  const provider = higgsfieldProvider();
-  const req = {
-    modelId: 'higgsfield-cinema-studio-3.5',
-    mode: 'i2v' as const,
+  return submitStudioJob({
+    modelId: 'cinematic_studio_video_3_5',
+    mode: input.startImagePath ? 'i2v' : 't2v',
     prompt: input.prompt,
     durationSec: input.durationSec,
     resolution: input.resolution,
     aspectRatio: input.aspectRatio,
-    firstFrameImagePath: input.firstFrameImagePath,
-    extras: {
-      providerKind: 'higgsfield' as const,
-      cinemaStudioParams: {
-        focalLengthMm: input.focalLengthMm,
-        apertureFStop: input.apertureFStop,
-        sensorSize: input.sensorSize,
-        colorGrading: input.colorGrading,
-        lensId: input.lensId,
-      },
-    },
-  };
-  const estimateUsd = provider.estimateCostUSD(req);
-  const costWarning = await runCostGuards(estimateUsd, opts);
-  const handle = await provider.generate(req, opts.ledgerHooks);
-  return {
-    provider: handle.provider,
-    jobId: handle.jobId,
-    providerNativeId: handle.providerNativeId,
-    estimatedCostUSD: estimateUsd,
-    ...(costWarning ? { costWarning } : {}),
-  };
+    startImagePath: input.startImagePath,
+    endImagePath: input.endImagePath,
+    imageReferencePaths: input.imageReferencePaths,
+    cliParams: compactCliParams({
+      camera_style: input.cameraStyle,
+      color_grading: input.colorGrading,
+      light_scheme: input.lightScheme,
+      genre: input.genre,
+      style_prompt: input.stylePrompt,
+      generate_audio: input.generateAudio,
+      multi_shots: input.multiShots,
+    }),
+    opts,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -367,7 +462,16 @@ export async function handleHiggsfieldSpeak(
 }
 
 // ---------------------------------------------------------------------------
-// handleHiggsfieldMarketingStudio — Marketing Studio: 9 UGC templates from product URL
+// handleHiggsfieldMarketingStudio — Marketing Studio, over the CLI transport
+//
+// Repointed 2026-08-01, same reason as Cinematic Studio:
+// /higgsfield-ai/marketing-studio/standard answers 404, and the product resolves
+// on the CLI as job type `marketing_studio_video`.
+//
+// The old input took `template` (nine hand-written names) and `productUrl`.
+// Neither is a parameter of this product. What it actually takes is `mode`
+// (default 'ugc'), 9:16 by default, and IDS resolved from the account —
+// avatars, hooks, settings, products — which `media_higgsfield_ms_assets` lists.
 // ---------------------------------------------------------------------------
 
 export async function handleHiggsfieldMarketingStudio(
@@ -382,130 +486,34 @@ export async function handleHiggsfieldMarketingStudio(
 }> {
   const input: HiggsfieldMarketingStudioInputT = HiggsfieldMarketingStudioInput.parse(rawInput);
   assertPromptWithinBudget({ provider: 'higgsfield', prompt: input.prompt, field: 'prompt' });
-  const provider = higgsfieldProvider();
-  const req = {
-    modelId: 'higgsfield-marketing-studio',
-    mode: 't2v' as const,
+  return submitStudioJob({
+    modelId: 'marketing_studio_video',
+    mode: input.startImagePath ? 'i2v' : 't2v',
     prompt: input.prompt,
     durationSec: input.durationSec,
     resolution: input.resolution,
     aspectRatio: input.aspectRatio,
-    extras: {
-      providerKind: 'higgsfield' as const,
-      marketingStudioTemplate: input.template,
-      marketingStudioProductUrl: input.productUrl,
-    },
-  };
-  const estimateUsd = provider.estimateCostUSD(req);
-  const costWarning = await runCostGuards(estimateUsd, opts);
-  const handle = await provider.generate(req, opts.ledgerHooks);
-  return {
-    provider: handle.provider,
-    jobId: handle.jobId,
-    providerNativeId: handle.providerNativeId,
-    estimatedCostUSD: estimateUsd,
-    ...(costWarning ? { costWarning } : {}),
-  };
+    startImagePath: input.startImagePath,
+    endImagePath: input.endImagePath,
+    imageReferencePaths: input.imageReferencePaths,
+    cliParams: compactCliParams({
+      mode: input.mode,
+      specific_mode: input.specificMode,
+      avatar_ids: input.avatarIds,
+      product_ids: input.productIds,
+      web_product_ids: input.webProductIds,
+      web_product_type: input.webProductType,
+      hook_id: input.hookId,
+      setting_id: input.settingId,
+      storyboard_id: input.storyboardId,
+      ad_reference_id: input.adReferenceId,
+      generate_audio: input.generateAudio,
+    }),
+    opts,
+  });
 }
 
-// ---------------------------------------------------------------------------
-// handleHiggsfieldRecast — Recast Studio: swap character in existing video
-// ---------------------------------------------------------------------------
 
-export async function handleHiggsfieldRecast(
-  rawInput: unknown,
-  opts: HiggsfieldHandlerExecOpts = {},
-): Promise<{
-  provider: string;
-  jobId: string;
-  providerNativeId?: string;
-  estimatedCostUSD: number;
-  costWarning?: string;
-}> {
-  const input: HiggsfieldRecastInputT = HiggsfieldRecastInput.parse(rawInput);
-  assertPromptWithinBudget({ provider: 'higgsfield', prompt: input.prompt, field: 'prompt' });
-  const provider = higgsfieldProvider();
-  const req = {
-    modelId: 'higgsfield-recast',
-    mode: 'targeted-edit' as const,
-    prompt: input.prompt,
-    durationSec: input.durationSec,
-    resolution: input.resolution,
-    firstFrameImagePath: input.sourceVideoPath, // platform reads first_frame_url as source ref
-    extras: {
-      providerKind: 'higgsfield' as const,
-      recastTargetCharacterPath: input.targetCharacterImagePath,
-    },
-  };
-  const estimateUsd = provider.estimateCostUSD(req);
-  const costWarning = await runCostGuards(estimateUsd, opts);
-  const handle = await provider.generate(req, opts.ledgerHooks);
-  return {
-    provider: handle.provider,
-    jobId: handle.jobId,
-    providerNativeId: handle.providerNativeId,
-    estimatedCostUSD: estimateUsd,
-    ...(costWarning ? { costWarning } : {}),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// handleHiggsfieldViralityPredictor — score an asset (viral/audience-fit/hook-strength)
-// Uses fetch DIRECTLY — no provider generate cycle, just a scoring POST.
-// ---------------------------------------------------------------------------
-
-export async function handleHiggsfieldViralityPredictor(rawInput: unknown): Promise<{
-  viralityScore: number;
-  audienceFit?: number;
-  hookStrength?: number;
-  raw: Record<string, unknown>;
-}> {
-  const input: HiggsfieldViralityPredictorInputT = HiggsfieldViralityPredictorInput.parse(rawInput);
-  // FIX (Codex P2 round 12, PR#11): every other Higgsfield endpoint
-  // (HiggsfieldProvider.generate / pollStatus / etc.) does a primary→fallback
-  // auth handshake on 401/403 — virality_predictor was missed in the round 5
-  // hardening, so it fails outright in deployments accepting only the
-  // fallback scheme. Mirror the same retry-once pattern here.
-  const url = 'https://platform.higgsfield.ai/higgsfield-ai/virality-predictor';
-  const body = JSON.stringify({ asset_url: input.assetUrl, platform: input.platform });
-  const primaryHeaders = {
-    'content-type': 'application/json',
-    accept: 'application/json',
-    ...buildHiggsfieldHeaders(),
-  };
-  let res = await fetch(url, { method: 'POST', headers: primaryHeaders, body });
-  if (res.status === 401 || res.status === 403) {
-    process.stderr.write(
-      `[higgsfield-auth] virality_predictor primary auth rejected (status=${res.status}) — retrying once with fallback scheme.\n`,
-    );
-    process.env['MEDIA_FORGE_HF_AUTH_FALLBACK_USED'] = 'true';
-    const fallbackHeaders = {
-      'content-type': 'application/json',
-      accept: 'application/json',
-      ...buildFallbackHeaders(),
-    };
-    res = await fetch(url, { method: 'POST', headers: fallbackHeaders, body });
-  }
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Higgsfield virality predictor failed: ${res.status} ${text.slice(0, 300)}`);
-  }
-  const data = (await res.json()) as Record<string, unknown>;
-  const num = (k: string): number | undefined => {
-    const v = data[k];
-    return typeof v === 'number' ? v : undefined;
-  };
-  const score = num('virality_score');
-  if (typeof score !== 'number') {
-    throw new Error('virality predictor response missing virality_score');
-  }
-  return {
-    viralityScore: score,
-    audienceFit: num('audience_fit'),
-    hookStrength: num('hook_strength'),
-    raw: data,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // handleHiggsfieldSoulId — Soul ID lifecycle for Higgsfield character cache

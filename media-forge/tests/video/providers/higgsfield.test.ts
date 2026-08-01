@@ -45,20 +45,20 @@ describe('HiggsfieldProvider', () => {
     expect(provider.name).toBe('higgsfield');
   });
 
-  it('lists all 10 Higgsfield models from VIDEO_MODELS', () => {
+  // Ten became five on 2026-08-01. Five of the original ten answered 404 on the
+  // Cloud API: soul-pro (the segment is a MODE, not a tier), speak2, recast,
+  // cinema-studio-3.5 and marketing-studio. The last two are products that DO
+  // exist — they moved to the CLI transport as cinematic_studio_video_3_5 and
+  // marketing_studio_video, and this provider no longer owns them.
+  it('lists only the Higgsfield models this transport actually serves', () => {
     const ids = provider.models.map((m) => m.id).sort();
     expect(ids).toEqual(
       [
-        'higgsfield-cinema-studio-3.5',
         'higgsfield-dop',
         'higgsfield-dop-turbo',
-        'higgsfield-marketing-studio',
-        'higgsfield-recast',
-        'higgsfield-soul-pro',
         'higgsfield-soul-standard',
         'higgsfield-soul2',
         'higgsfield-speak',
-        'higgsfield-speak2',
       ].sort(),
     );
   });
@@ -75,23 +75,6 @@ describe('HiggsfieldProvider', () => {
     expect(usd).toBeCloseTo(0.975, 3);
   });
 
-  it('estimateCostUSD scales by model — Cinema Studio costs more than Soul standard', () => {
-    const soul = provider.estimateCostUSD({
-      modelId: 'higgsfield-soul-standard',
-      mode: 't2v',
-      prompt: 'x',
-      durationSec: 8,
-      resolution: '720p',
-    });
-    const cinema = provider.estimateCostUSD({
-      modelId: 'higgsfield-cinema-studio-3.5',
-      mode: 't2v',
-      prompt: 'x',
-      durationSec: 8,
-      resolution: '720p',
-    });
-    expect(cinema).toBeGreaterThan(soul);
-  });
 
   it('estimateCostUSD throws on unknown model', () => {
     expect(() =>
@@ -244,7 +227,13 @@ describe('HiggsfieldProvider', () => {
     expect(body['audio_url'] ?? body['audio_path']).toBe('/tmp/voice.wav');
   });
 
-  it('generate routes Marketing Studio with template + product URL', async () => {
+  // The two field renames below are the core corrections of the 2026-08-01
+  // audit, and until now NOTHING asserted them. Both had the same failure shape:
+  // the API IGNORES unknown body fields rather than rejecting them, so the wrong
+  // name produced a 200 and a generation that quietly did not do what was asked.
+  // A silent-discard bug cannot be caught by "did the call succeed" — it has to
+  // be pinned on the body itself, which is what these two do.
+  it('sends the end frame as end_image_url, the name the endpoint validates', async () => {
     let captured!: RequestInit;
     global.fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       captured = init ?? {};
@@ -254,60 +243,24 @@ describe('HiggsfieldProvider', () => {
     }) as unknown as typeof fetch;
 
     await provider.generate({
-      modelId: 'higgsfield-marketing-studio',
-      mode: 't2v',
-      prompt: 'product reveal',
-      durationSec: 15,
-      resolution: '1080p',
-      extras: {
-        providerKind: 'higgsfield',
-        marketingStudioTemplate: 'unboxing',
-        marketingStudioProductUrl: 'https://shop.example/p/42',
-      },
-    });
-
-    const body = JSON.parse(captured.body as string) as Record<string, unknown>;
-    expect(body['template']).toBe('unboxing');
-    expect(body['product_url']).toBe('https://shop.example/p/42');
-  });
-
-  it('generate routes Cinema Studio with full lens dictionary', async () => {
-    let captured!: RequestInit;
-    global.fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      captured = init ?? {};
-      return new Response(JSON.stringify({ request_id: 'r', status_url: 'u', cancel_url: 'c' }), {
-        status: 200,
-      });
-    }) as unknown as typeof fetch;
-
-    await provider.generate({
-      modelId: 'higgsfield-cinema-studio-3.5',
+      modelId: 'higgsfield-dop',
       mode: 'i2v',
-      prompt: 'noir alley',
-      durationSec: 8,
-      resolution: '1080p',
-      firstFrameImagePath: '/tmp/alley.png',
-      extras: {
-        providerKind: 'higgsfield',
-        cinemaStudioParams: {
-          focalLengthMm: 35,
-          apertureFStop: 1.8,
-          sensorSize: 'super35',
-          colorGrading: 'noir',
-          lensId: 'arri-master-prime-35mm',
-        },
-      },
+      prompt: 'dolly in past the doorway',
+      durationSec: 5,
+      resolution: '720p',
+      firstFrameImagePath: 'https://cdn.example.com/first.png',
+      lastFrameImagePath: 'https://cdn.example.com/last.png',
     });
 
     const body = JSON.parse(captured.body as string) as Record<string, unknown>;
-    expect(body['focal_length_mm']).toBe(35);
-    expect(body['aperture_fstop']).toBe(1.8);
-    expect(body['sensor_size']).toBe('super35');
-    expect(body['color_grading']).toBe('noir');
-    expect(body['lens_id']).toBe('arri-master-prime-35mm');
+    expect(body['end_image_url']).toBe('https://cdn.example.com/last.png');
+    // `last_frame_url` is not a field on ANY Higgsfield endpoint. Sending it was
+    // indistinguishable from sending nothing: the request succeeded and the clip
+    // was generated from the first frame alone.
+    expect(body).not.toHaveProperty('last_frame_url');
   });
 
-  it('generate routes Recast with target character path', async () => {
+  it('sends a trained Soul-ID as custom_reference_id, not soul_id', async () => {
     let captured!: RequestInit;
     global.fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       captured = init ?? {};
@@ -317,17 +270,23 @@ describe('HiggsfieldProvider', () => {
     }) as unknown as typeof fetch;
 
     await provider.generate({
-      modelId: 'higgsfield-recast',
-      mode: 'targeted-edit',
-      prompt: 'swap the protagonist',
-      durationSec: 10,
-      resolution: '720p',
-      extras: { providerKind: 'higgsfield', recastTargetCharacterPath: '/tmp/newchar.png' },
+      modelId: 'higgsfield-soul-standard',
+      mode: 't2v',
+      prompt: 'portrait, natural window light',
+      durationSec: 5,
+      resolution: '1080p',
+      extras: { providerKind: 'higgsfield', soulId: 'soul-abc-123' },
     });
 
     const body = JSON.parse(captured.body as string) as Record<string, unknown>;
-    expect(body['target_character_url'] ?? body['target_character']).toBe('/tmp/newchar.png');
+    expect(body['custom_reference_id']).toBe('soul-abc-123');
+    // Training a Soul-ID costs 40 credits. Under the old name the platform
+    // discarded it, so every one ever trained was paid for and never applied.
+    expect(body).not.toHaveProperty('soul_id');
   });
+
+
+
 
   it('generate retries once with fallback headers on 401 and sets MEDIA_FORGE_HF_AUTH_FALLBACK_USED', async () => {
     // Deviation Rule 2: D-5 auth resilience is critical functionality but the

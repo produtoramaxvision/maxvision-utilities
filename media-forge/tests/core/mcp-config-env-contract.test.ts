@@ -13,7 +13,7 @@
 // nothing enforces that except this test.
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '../..');
@@ -49,8 +49,24 @@ describe('.mcp.json env contract', () => {
     // for a user who had set it correctly.
     'MUAPI_API_KEY',
     'OPENAI_API_KEY',
-    'HIGGSFIELD_API_KEY',
+    // Embedding + vector store for semantic search. Read by the runtime, absent
+    // from the env block until 2026-07-31 — the same shape of defect as MuAPI's.
+    'VOYAGE_API_KEY',
+    'PGVECTOR_URL',
   ] as const;
+
+  // Read by the runtime but NOT credentials. Kept out of REQUIRED_CREDENTIALS so
+  // the "must be a ${ENV} interpolation, never a literal secret" assertion below
+  // keeps meaning what it says.
+  //
+  // HIGGSFIELD_API_KEY is the pointed case: no auth code reads it.
+  // `higgsfield-headers.ts` reads HF_API_KEY/HF_API_SECRET. This name appears
+  // only in server.ts as the "is Higgsfield configured?" boot heuristic, so
+  // someone who sets ONLY this name passes boot validation and then fails on the
+  // first call with `Missing required environment variable(s): HF_API_KEY,
+  // HF_API_SECRET`. Forwarded so the heuristic still works for an operator who
+  // set it; named here so nobody reads it as a working credential.
+  const REQUIRED_NON_CREDENTIALS = ['HIGGSFIELD_API_KEY'] as const;
 
   // Not credentials — switches and path overrides. Same whitelist, same
   // consequence when omitted: `MEDIA_FORGE_WAN2GP_ENABLED=true` set by the user
@@ -69,7 +85,32 @@ describe('.mcp.json env contract', () => {
     // they cannot be set from outside.
     'MEDIA_FORGE_CODEX_BIN',
     'MEDIA_FORGE_HF_BIN',
+    // Required AT BOOT whenever Higgsfield auth is present:
+    // validateHiggsfieldPricingAtBoot() throws and server.ts calls process.exit(2)
+    // when it is unset. It was absent from the env block while HF_API_KEY was
+    // forwarded, so — if the block is a whitelist, which is this file's premise —
+    // no Higgsfield operator could start the server at all.
+    'MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT',
+    'MEDIA_FORGE_HF_SPEAK_AUDIO_MODE',
+    'MEDIA_FORGE_HF_WEBHOOK_ENABLE',
+    'MEDIA_FORGE_LOG_LEVEL',
+    'MEDIA_FORGE_LOG_FORMAT',
+    'MEDIA_FORGE_OUTPUTS_DIR',
+    'MEDIA_FORGE_CONFIG_HOME',
+    'MEDIA_FORGE_ARTIFACT_TTL_SECONDS',
+    'MEDIA_FORGE_SKIP_OCR_WHEN_NO_TEXT_INTENT',
+    'MEDIA_FORGE_MAX_OBJECTS_PER_CATEGORY',
+    // Codex CLI keeps its OAuth credentials under CODEX_HOME. Without it the
+    // spawned CLI looks in the default location, which is not necessarily the
+    // one the operator authenticated.
+    'CODEX_HOME',
   ] as const;
+
+  for (const name of REQUIRED_NON_CREDENTIALS) {
+    it(`forwards ${name} to the media-forge server`, () => {
+      expect(mediaForgeEnv[name]).toBeDefined();
+    });
+  }
 
   for (const name of REQUIRED_SETTINGS) {
     it(`forwards ${name} to the media-forge server`, () => {
@@ -117,5 +158,64 @@ describe('.mcp.json env contract', () => {
     // be enforced against an incomplete record of spend. README documents it as a
     // manual, temporary opt-in; it must not be active in the shipped config.
     expect(Object.keys(config.mcpServers)).not.toContain('higgsfield');
+  });
+
+  // The lists above are hand-maintained, so they only catch what someone
+  // remembered to add. This sweeps src/ instead and fails on anything new.
+  //
+  // It was written after a sweep found 18 variables read by the runtime and
+  // absent from the env block, including MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT —
+  // which server.ts requires at boot and exits(2) without.
+  it('every env var read under src/ is forwarded or explicitly excluded', () => {
+    // Deliberately not forwarded. Each entry needs a reason, not just a name.
+    const EXCLUDED: Record<string, string> = {
+      // Provided by the OS. `"HOME": "${HOME}"` would set it to the empty string
+      // on a Windows host, where HOME is frequently unset.
+      HOME: 'set by the operating system',
+      CLAUDE_CODE_SESSION_ID: 'set by Claude Code in the spawned server environment',
+      // The standalone HTTP service (src/http), not this stdio MCP server.
+      MEDIA_FORGE_HTTP_PORT: 'HTTP service mode only',
+      MEDIA_FORGE_INTERNAL_URL: 'HTTP service mode only',
+      // Not operator config: the process writes it to itself when the Higgsfield
+      // auth fallback scheme succeeds (higgsfield.ts:142, :261) and reads it back
+      // to stop retrying. Forwarding it would let an outside value pre-declare a
+      // fallback that never happened.
+      MEDIA_FORGE_HF_AUTH_FALLBACK_USED: 'internal in-process flag, written by the runtime',
+      // Test-runner detection for the guard that stops `pnpm test` spawning the
+      // real Higgsfield CLI. Set by vitest / the harness, never by an operator.
+      VITEST: 'set by the test runner',
+      NODE_ENV: 'set by the toolchain',
+      // The escape hatch for that guard. DELIBERATELY not forwarded and
+      // deliberately absent from .env.example: forwarding it would let an
+      // outside value re-enable real, billable CLI submits from inside a test
+      // run — which is exactly how 350 credits were spent on 2026-08-01.
+      MEDIA_FORGE_ALLOW_REAL_CLI_IN_TESTS:
+        'test-only escape hatch; forwarding it would re-arm billable submits under test',
+    };
+
+    const files: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = resolve(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith('.ts')) files.push(full);
+      }
+    };
+    walk(resolve(REPO_ROOT, 'src'));
+
+    const read = new Set<string>();
+    for (const file of files) {
+      const source = readFileSync(file, 'utf8');
+      for (const m of source.matchAll(/process\.env\[['"]([A-Z0-9_]{3,})['"]\]/g)) {
+        read.add(m[1]!);
+      }
+    }
+
+    const missing = [...read].filter((name) => !(name in mediaForgeEnv) && !(name in EXCLUDED));
+    expect(
+      missing,
+      `read under src/ but neither forwarded in .mcp.json nor listed in EXCLUDED. ` +
+        `Add it to the env block, or to EXCLUDED with the reason it must not be forwarded.`,
+    ).toEqual([]);
   });
 });

@@ -2,25 +2,15 @@ import type { Provider, VideoMode, VideoModelSpec } from '../../core/models.js';
 
 /**
  * Provider-specific extras union — each provider extends with its own typed extras
- * object. P13 shipped `GoogleVeoExtras`. P14 adds `HiggsfieldExtras` covering Soul ID,
- * DoP camera verbs, Cinema Studio lens params, Speak audio, Marketing Studio template,
- * multi-reference images, Recast target character, Virality Predictor toggle, and the
- * aggregator proxy (Higgsfield-as-proxy-to-Veo/Kling/Seedance/Sora). P15 adds
- * KlingExtras, P16 adds BytedanceSeedanceExtras.
+ * object. P13 shipped `GoogleVeoExtras`. `HiggsfieldExtras` covers Soul ID, DoP
+ * camera verbs, Speak audio, the CLI job-type parameter passthrough and the
+ * aggregator proxy. P15 adds KlingExtras, P16 adds BytedanceSeedanceExtras.
  *
  * Discriminated by `providerKind`; never collapse to Record<string, unknown>.
  */
 export interface GoogleVeoExtras {
   readonly providerKind: 'google';
   // Veo-specific extras are absent in P13/P14 — Veo controls live on base request fields.
-}
-
-export interface HiggsfieldCinemaStudioParams {
-  readonly focalLengthMm?: number;
-  readonly apertureFStop?: number;
-  readonly sensorSize?: 'full-frame' | 'super35' | 'apsc' | 'm43' | 'imax';
-  readonly colorGrading?: 'teal-orange' | 'bleach-bypass' | 'noir' | 'pastel' | 'vibrant' | string;
-  readonly lensId?: string;
 }
 
 export interface HiggsfieldExtras {
@@ -32,35 +22,29 @@ export interface HiggsfieldExtras {
   /** DoP / WAN Camera Control verbs prepended to the prompt (dolly_in, crash_zoom, ...). */
   readonly dopCameraVerbs?: ReadonlyArray<string>;
 
-  /** Cinema Studio 3.5 lens / focal length / aperture / sensor / grading dictionary. */
-  readonly cinemaStudioParams?: HiggsfieldCinemaStudioParams;
-
   /** Speak lip-sync source audio (local path resolved to data URL or Higgsfield upload). */
   readonly speakAudioPath?: string;
 
-  /** Marketing Studio template id — one of the 9 UGC templates. */
-  readonly marketingStudioTemplate?:
-    | 'ugc'
-    | 'unboxing'
-    | 'tv-spot'
-    | 'hyper-motion'
-    | 'product-review'
-    | 'asmr'
-    | 'lifestyle'
-    | 'testimonial'
-    | 'reel';
-
-  /** Marketing Studio product reference URL. */
-  readonly marketingStudioProductUrl?: string;
-
-  /** Multi-Reference composition for style consistency (Soul 2.0 + Cinema Studio). */
-  readonly multiReferenceImages?: ReadonlyArray<string>;
-
-  /** Recast Studio — character to swap into existing video. */
-  readonly recastTargetCharacterPath?: string;
-
-  /** Score the asset for predicted virality before approval (returns score on completion). */
-  readonly viralityPredictor?: boolean;
+  /**
+   * Job-type-specific parameters passed straight through to the CLI as
+   * `--name value`, repeating the flag for each element of an array.
+   *
+   * Replaces `cinemaStudioParams`, `marketingStudioTemplate`,
+   * `marketingStudioProductUrl`, `multiReferenceImages` and
+   * `recastTargetCharacterPath`. Those five modelled a Cloud API that answers 404
+   * for the products they belonged to, and every field they carried
+   * (focal_length_mm, aperture_fstop, sensor_size, lens_id, template,
+   * product_url, multi_reference_urls, target_character_url) was probed against
+   * every endpoint that DOES answer and named by none of them — they were being
+   * serialised into request bodies and silently discarded.
+   *
+   * The real products live on the CLI transport, where each job type publishes
+   * its own parameter list (`higgsfield model get <job_type>`). Rather than grow
+   * a typed field per job type — which is how the last set drifted out of
+   * existence unnoticed — the caller passes the platform's own parameter names
+   * and the schema layer validates them against the enums the platform reports.
+   */
+  readonly cliParams?: Readonly<Record<string, string | number | boolean | ReadonlyArray<string>>>;
 
   /**
    * Aggregator proxy — Higgsfield can invoke Veo / Kling / Seedance / Sora on the caller's
@@ -228,8 +212,15 @@ export interface VideoGenerationRequest {
   readonly mode: VideoMode;
   readonly prompt: string;
   readonly durationSec: number;
-  readonly resolution: '720p' | '1080p' | '2k' | '4k';
-  readonly aspectRatio?: '16:9' | '9:16' | '1:1' | '21:9' | '4:3' | '3:4';
+  /**
+   * '480p' added 2026-08-01. It was already in the registry — seedance_2_0,
+   * seedance_2_0_mini and both Higgsfield Studio job types list it, and
+   * seedance_2_0_mini serves ONLY 480p/720p — but the request type stopped at
+   * 720p, so the cheapest tier of those models was unreachable through this
+   * interface while the router happily offered it.
+   */
+  readonly resolution: '480p' | '720p' | '1080p' | '2k' | '4k';
+  readonly aspectRatio?: '16:9' | '9:16' | '1:1' | '21:9' | '4:3' | '3:4' | 'auto';
   readonly fps?: number;
   readonly referenceImagePaths?: ReadonlyArray<string>;
   readonly firstFrameImagePath?: string;

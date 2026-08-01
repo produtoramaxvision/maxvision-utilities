@@ -5,7 +5,7 @@
  *
  * Covers:
  *   1. isSeedanceEnabled() helper — parsing logic (default / false / true / edge cases)
- *   2. Runtime tool registration via buildServer() — 49 when enabled, 45 when disabled
+ *   2. Runtime tool registration via buildServer() — 70 when enabled, 66 when disabled
  *   3. getAdaptedProviders() — 'bytedance' present/absent from routing set
  *
  * Each test restores process.env to its original state via finally blocks so
@@ -181,19 +181,19 @@ describe('MEDIA_FORGE_SEEDANCE_ENABLED feature flag', () => {
   // -------------------------------------------------------------------------
 
   describe('buildServer() — tool count', () => {
-    it('registers 54 tools when flag is unset (default enabled)', () => {
+    it('registers 73 tools when flag is unset (default enabled)', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', undefined, () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(72);
+        expect(names).toHaveLength(73);
       });
     });
 
-    it('registers 54 tools when flag is explicitly "true"', () => {
+    it('registers 73 tools when flag is explicitly "true"', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', 'true', () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(72);
+        expect(names).toHaveLength(73);
       });
     });
 
@@ -208,11 +208,11 @@ describe('MEDIA_FORGE_SEEDANCE_ENABLED feature flag', () => {
       });
     });
 
-    it('registers 68 tools when MEDIA_FORGE_SEEDANCE_ENABLED=false', () => {
+    it('registers 69 tools when MEDIA_FORGE_SEEDANCE_ENABLED=false', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', 'false', () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(68);
+        expect(names).toHaveLength(69);
       });
     });
 
@@ -227,19 +227,19 @@ describe('MEDIA_FORGE_SEEDANCE_ENABLED feature flag', () => {
       });
     });
 
-    it('registers 68 tools when MEDIA_FORGE_SEEDANCE_ENABLED=0 (alternative false value)', () => {
+    it('registers 69 tools when MEDIA_FORGE_SEEDANCE_ENABLED=0 (alternative false value)', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', '0', () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(68);
+        expect(names).toHaveLength(69);
       });
     });
 
-    it('registers 54 tools when MEDIA_FORGE_SEEDANCE_ENABLED is empty string (treated as enabled)', () => {
+    it('registers 73 tools when MEDIA_FORGE_SEEDANCE_ENABLED is empty string (treated as enabled)', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', '', () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(72);
+        expect(names).toHaveLength(73);
       });
     });
 
@@ -300,32 +300,34 @@ describe('MEDIA_FORGE_SEEDANCE_ENABLED feature flag', () => {
       expect(r.provider).toBe('bytedance');
     });
 
-    it('excludes bytedance when MEDIA_FORGE_SEEDANCE_ENABLED=false — targeted-edit falls back to higgsfield', async () => {
-      // With flag=false, bytedance is removed from getAdaptedProviders().
-      // targeted-edit falls back to higgsfield-recast as the next-cheapest provider.
+    // These two used to assert a fallback to higgsfield-recast. There is none:
+    // `/higgsfield-ai/recast/standard` answers 404 model_not_found, verified live,
+    // and the registry now marks it `unavailable` so the router excludes it.
+    // Seedance is the ONLY provider that serves targeted-edit, so switching it off
+    // leaves the mode with no route at all — which the router must say rather than
+    // hand back a model whose every call 404s.
+    it('leaves targeted-edit with no route when MEDIA_FORGE_SEEDANCE_ENABLED=false', async () => {
       process.env['MEDIA_FORGE_SEEDANCE_ENABLED'] = 'false';
-      const r = await handleVideoRoute({
-        mode: 'targeted-edit',
-        prompt: 'swap protagonist costume',
-        durationSec: 10,
-        resolution: '720p',
-      });
-      expect(r.provider).not.toBe('bytedance');
+      await expect(
+        handleVideoRoute({
+          mode: 'targeted-edit',
+          prompt: 'swap protagonist costume',
+          durationSec: 10,
+          resolution: '720p',
+        }),
+      ).rejects.toThrow(/no provider supports mode='targeted-edit'/);
     });
 
-    it('excludes bytedance from targeted-edit routing when MEDIA_FORGE_SEEDANCE_ENABLED=false', async () => {
-      // Same as "falls back to higgsfield" test — explicit alias for spec clarity.
-      // targeted-edit: bytedance excluded → higgsfield-recast is next cheapest.
+    it('never falls back to a dead Higgsfield endpoint for targeted-edit', async () => {
       process.env['MEDIA_FORGE_SEEDANCE_ENABLED'] = 'false';
-      const r = await handleVideoRoute({
-        mode: 'targeted-edit',
-        prompt: 'replace background',
-        durationSec: 10,
-        resolution: '720p',
-      });
-      expect(r.provider).not.toBe('bytedance');
-      // Higgsfield-recast is the fallback when Seedance is excluded
-      expect(r.provider).toBe('higgsfield');
+      await expect(
+        handleVideoRoute({
+          mode: 'targeted-edit',
+          prompt: 'replace background',
+          durationSec: 10,
+          resolution: '720p',
+        }),
+      ).rejects.toThrow();
     });
 
     it('multi-shot mode routes away from bytedance when MEDIA_FORGE_SEEDANCE_ENABLED=false', async () => {

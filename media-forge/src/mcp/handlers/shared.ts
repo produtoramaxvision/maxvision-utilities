@@ -1,7 +1,12 @@
 import { join } from 'node:path';
 import type { Provider } from '../../core/models.js';
 import { isSeedanceEnabled } from '../../core/feature-flags.js';
-import { isHiggsfieldCliEnabled } from '../../video/providers/higgsfield-cli.js';
+import {
+  isHiggsfieldCliEnabled,
+  HiggsfieldCliProvider,
+  defaultRunner,
+  type CliRunner,
+} from '../../video/providers/higgsfield-cli.js';
 import type { WebhookRouter } from '../../video/providers/webhook-router.js';
 import { HiggsfieldProvider } from '../../video/providers/higgsfield.js';
 
@@ -43,9 +48,12 @@ export function getAdaptedProviders(): ReadonlySet<Provider> {
  *
  * Checked on 2026-07-31, and the two catalogues do not intersect at all:
  *
- *   registry `higgsfield` specs   higgsfield-soul2, -dop, -speak, -recast,
- *                                 -cinema-studio-3.5, -marketing-studio …
+ *   registry `higgsfield` specs   higgsfield-soul2, -dop, -dop-turbo, -speak …
  *                                 Higgsfield's OWN products, modes t2v/i2v
+ *                                 (-recast, -cinema-studio-3.5 and
+ *                                 -marketing-studio were in this list until
+ *                                 2026-08-01; the first has no surface at all
+ *                                 and the other two moved to the CLI transport)
  *   `higgsfield model list --video`  veo3_1, kling3_0, seedance_2_0, wan2_7 …
  *                                 third-party models it RESELLS, plus utilities
  *   `higgsfield model list --image`  text2image_soul_v2, soul_cast,
@@ -143,4 +151,65 @@ export function higgsfieldProvider(): HiggsfieldProvider {
  *  current dbPath / env. Tests with their own tmp dbPath MUST call this in beforeEach. */
 export function _resetHiggsfieldProviderForTests(): void {
   _hfProvider = undefined;
+}
+
+// ---------------------------------------------------------------------------
+// higgsfieldCliProvider — the CLI transport, which nothing in src/ constructed.
+//
+// `HiggsfieldCliProvider` is fully implemented (preflight, fetchCostCredits,
+// generate, pollStatus, download, ledger hooks) and covered by a live gate, but
+// a repo-wide search for `new HiggsfieldCliProvider` found only its own class
+// declaration. Meanwhile MEDIA_FORGE_HF_CLI_ENABLED=true adds 'higgsfield-cli'
+// to getAdaptedProviders() above, which makes kling3_0 / kling3_0_turbo /
+// seedance_2_0 / seedance_2_0_mini pass isSpecRoutable — so the flag promised
+// routes that nothing could execute.
+//
+// This closes the construction half. The submit TOOLS that call it land with the
+// Marketing Studio / UGC work; until then the flag stays default-off and the
+// only consumer is that work.
+// ---------------------------------------------------------------------------
+let _hfCliProvider: HiggsfieldCliProvider | undefined;
+
+export function higgsfieldCliProvider(): HiggsfieldCliProvider {
+  if (_hfCliProvider) return _hfCliProvider;
+  // dbPath is what makes poll and download reachable: it is where the local
+  // job id is paired with the one `higgsfield generate get` understands.
+  _hfCliProvider = new HiggsfieldCliProvider({ dbPath: defaultDbPath() });
+  return _hfCliProvider;
+}
+
+/** Test utility — mirrors _resetHiggsfieldProviderForTests for the CLI transport. */
+export function _resetHiggsfieldCliProviderForTests(): void {
+  _hfCliProvider = undefined;
+}
+
+/**
+ * Test utility — installs a provider built with a fake CLI runner.
+ *
+ * The HTTP provider can be tested by stubbing global.fetch, but this transport
+ * spawns a binary, so the seam has to be the runner and the runner is a
+ * constructor argument. Without a setter a test can only reach the singleton by
+ * mutating the instance it already returned, which is both fragile and a lie
+ * about how the object is built.
+ */
+export function _setHiggsfieldCliProviderForTests(p: HiggsfieldCliProvider): void {
+  _hfCliProvider = p;
+}
+
+/**
+ * The CLI runner to hand the Soul-ID handlers, or undefined when the CLI is off.
+ *
+ * `handleSoulIdTrain` has always accepted an optional runner and thrown a clear
+ * "enable MEDIA_FORGE_HF_CLI_ENABLED" message without one — but register.ts never
+ * passed one, from any code path, so `media_higgsfield_soul_id_train` threw
+ * UNCONDITIONALLY. The flag was not the gate; there was no gate, only a dead
+ * tool. `handleSoulIdList` degraded to local-cache-only forever for the same
+ * reason, which is worse than throwing: it answered, and the answer was
+ * silently partial.
+ *
+ * Gated at call time so tests can toggle the env var per-test, matching
+ * getAdaptedProviders above.
+ */
+export function higgsfieldCliRunnerIfEnabled(): CliRunner | undefined {
+  return isHiggsfieldCliEnabled() ? defaultRunner : undefined;
 }

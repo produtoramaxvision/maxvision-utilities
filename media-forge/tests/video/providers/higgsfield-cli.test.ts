@@ -28,7 +28,7 @@ import {
   validateHiggsfieldPricingAtBoot,
   _resetValidatedPricingForTests,
 } from '../../../src/core/higgsfield-pricing.js';
-import { PROVIDERS } from '../../../src/core/models.js';
+import { PROVIDERS, VIDEO_MODELS } from '../../../src/core/models.js';
 import { ValidationError } from '../../../src/core/errors.js';
 import type { VideoGenerationRequest, VideoLedgerHooks } from '../../../src/video/providers/base.js';
 
@@ -141,6 +141,40 @@ describe('buildCliArgs — flag mapping', () => {
     expect(args).toEqual(
       expect.arrayContaining(['--duration', '5', '--resolution', '1080p', '--aspect-ratio', '16:9']),
     );
+  });
+
+  // kling3_0 declares `mode: std|pro|4k` and no `resolution` param. Emitting the
+  // default flag made the CLI answer `Error: Unknown params: resolution`, so
+  // every request naming a resolution failed — at cost estimation and at
+  // generation. Measured 2026-08-01 against the installed binary; the prices
+  // reached through --mode match this spec's multipliers exactly (10 / 12.5 / 30
+  // credits for 5s), so only the flag was ever wrong.
+  it('emits --mode instead of --resolution for kling3_0', () => {
+    const args = buildCliArgs(baseReq({ modelId: 'kling3_0', resolution: '1080p' }));
+    expect(args).not.toContain('--resolution');
+    expect(args).toEqual(expect.arrayContaining(['--mode', 'pro']));
+  });
+
+  it('maps every kling3_0 resolution the registry offers to a --mode value', () => {
+    const spec = VIDEO_MODELS['kling3_0']!;
+    for (const resolution of spec.resolutions) {
+      const args = buildCliArgs(baseReq({ modelId: 'kling3_0', resolution }));
+      const idx = args.indexOf('--mode');
+      expect(idx, `no --mode emitted for ${resolution}`).toBeGreaterThanOrEqual(0);
+      expect(args[idx + 1]).toBe(spec.cliResolutionParam!.values[resolution]);
+    }
+  });
+
+  it('refuses a resolution the job type has no value for, instead of guessing', () => {
+    expect(() => buildCliArgs(baseReq({ modelId: 'kling3_0', resolution: '480p' }))).toThrow(
+      ValidationError,
+    );
+  });
+
+  it('keeps --resolution for job types that declare one', () => {
+    const args = buildCliArgs(baseReq({ modelId: 'seedance_2_0', resolution: '1080p' }));
+    expect(args).toEqual(expect.arrayContaining(['--resolution', '1080p']));
+    expect(args).not.toContain('--mode');
   });
 
   it('maps firstFrameImagePath to --start-image and lastFrameImagePath to --end-image', () => {
@@ -530,6 +564,64 @@ describe('HiggsfieldCliProvider.pollStatus() mapping', () => {
     const result = await provider.pollStatus('job-1');
     expect(result.state).toBe('failed');
     expect(result.errorMessage).toMatch(/generate get failed/);
+  });
+
+  // The payload below is a REAL `higgsfield generate get` response, copied from a
+  // completed job on 2026-08-01. The parser previously read `results[].url`,
+  // which does not exist in it — so every finished job came back with no asset
+  // and `download()` threw "has no downloadable asset (state: completed)".
+  //
+  // It could not surface earlier: it needs a job that actually completed, and
+  // every test until now fed the runner a shape nobody had checked against the
+  // binary. Pinning the real shape here is the point of the test.
+  it('reads the asset from result_url, which is where the CLI puts it', async () => {
+    const runner = queueRunner([
+      ok(
+        JSON.stringify({
+          created_at: '2026-08-01T11:48:15.079608Z',
+          display_name: 'Cinematic Studio Video 3.5',
+          id: '4c5a61cd-efb9-40c6-b5d4-050f37010e94',
+          job_type: 'cinematic_studio_video_3_5',
+          min_result_url: null,
+          params: { duration: 4, resolution: '720p' },
+          result_url: 'https://d8j0ntlcm91z4.cloudfront.net/user_x/hf_20260801.mp4',
+          status: 'completed',
+          thumbnail_url: 'https://cdn.higgsfield.ai/user_x/hf_20260801.jpg',
+        }),
+      ),
+    ]);
+    const provider = new HiggsfieldCliProvider({ runner });
+    const result = await provider.pollStatus('job-1');
+
+    expect(result.state).toBe('completed');
+    expect(result.assetUrls, 'a completed job must yield its asset').toEqual([
+      'https://d8j0ntlcm91z4.cloudfront.net/user_x/hf_20260801.mp4',
+    ]);
+  });
+
+  it('still reads a results[] array, in case a multi-asset job type appears', async () => {
+    const runner = queueRunner([
+      ok(JSON.stringify({ status: 'completed', results: [{ url: 'https://x/a.mp4' }] })),
+    ]);
+    const provider = new HiggsfieldCliProvider({ runner });
+    expect((await provider.pollStatus('job-1')).assetUrls).toEqual(['https://x/a.mp4']);
+  });
+});
+
+// D10 — our job id is not the CLI's, and `generate get` only knows the CLI's.
+describe('HiggsfieldCliProvider job-id translation', () => {
+  it('passes an unmapped id straight through, so a caller holding the CLI id can still poll', async () => {
+    const seen: string[][] = [];
+    const provider = new HiggsfieldCliProvider({
+      runner: async (args) => {
+        seen.push([...args]);
+        return { stdout: JSON.stringify({ status: 'completed' }), stderr: '', exitCode: 0 };
+      },
+    });
+    await provider.pollStatus('cli-native-id');
+    // No dbPath, so nothing to translate with — the id must reach the CLI intact
+    // rather than being dropped or rejected.
+    expect(seen[0]).toEqual(['generate', 'get', 'cli-native-id', '--json']);
   });
 });
 

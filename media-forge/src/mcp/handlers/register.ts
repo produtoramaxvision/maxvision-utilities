@@ -87,7 +87,16 @@ import {
 } from '../../core/cost-tracker.js';
 import { isSeedanceEnabled } from '../../core/feature-flags.js';
 import { logger } from '../../core/logger.js';
-import { defaultDbPath, handleVideoWebhookStatus } from './shared.js';
+import {
+  defaultDbPath,
+  handleVideoWebhookStatus,
+  higgsfieldCliRunnerIfEnabled,
+} from './shared.js';
+import {
+  handleHiggsfieldMarketingAssets,
+  handleHiggsfieldProductPhotoshoot,
+  handleHiggsfieldMarketplaceCards,
+} from './higgsfield-ugc.js';
 import { handleVideoCostEstimate, handleVideoCostReport, handleVideoRoute } from './video.js';
 import {
   handleHiggsfieldSoulId,
@@ -95,8 +104,6 @@ import {
   handleHiggsfieldCinemaStudio,
   handleHiggsfieldSpeak,
   handleHiggsfieldMarketingStudio,
-  handleHiggsfieldRecast,
-  handleHiggsfieldViralityPredictor,
   handleHiggsfieldGenerate,
   handleHiggsfieldPoll,
   handleHiggsfieldDownload,
@@ -1592,29 +1599,33 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
     );
   }
 
-  // ---- Higgsfield Recast (1 — P14 Task 13 character swap in existing video) ----
 
+
+  // ---- Marketing Studio UGC surface (3 — CLI transport, 2026-08-01) ----
   {
-    const t = getTool('media_higgsfield_recast');
+    const t = getTool('media_higgsfield_ms_assets');
     regIfAllowed(
       t.name,
-      { title: 'Higgsfield Recast', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => {
-        const r = await handleHiggsfieldRecast(input, videoGuardOpts);
-        if (r.jobId) setJobTenant({ dbPath: defaultDbPath(), jobId: r.jobId, tenantId: deps.tenantId ?? 'default' });
-        return asResult(r);
-      }),
+      { title: 'Marketing Studio assets', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldMarketingAssets(input) as unknown as Record<string, unknown>)),
     );
   }
 
-  // ---- Higgsfield Virality Predictor (1 — P14 Task 14 score asset viral/audience/hook) ----
-
   {
-    const t = getTool('media_higgsfield_virality_predictor');
+    const t = getTool('media_higgsfield_product_photoshoot');
     regIfAllowed(
       t.name,
-      { title: 'Higgsfield Virality Predictor', description: t.description, inputSchema: t.inputSchema as never },
-      wrap(t.name, async (input) => asResult(await handleHiggsfieldViralityPredictor(input))),
+      { title: 'Product Photoshoot', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldProductPhotoshoot(input) as unknown as Record<string, unknown>)),
+    );
+  }
+
+  {
+    const t = getTool('media_higgsfield_marketplace_cards');
+    regIfAllowed(
+      t.name,
+      { title: 'Marketplace Cards', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldMarketplaceCards(input) as unknown as Record<string, unknown>)),
     );
   }
 
@@ -2203,7 +2214,13 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Train Soul-ID', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const result = await handleSoulIdTrain(input, { dbPath: defaultDbPath() });
+        // The runner is what makes this tool exist. Without it handleSoulIdTrain
+        // throws every time, and it was never supplied from anywhere.
+        const runner = higgsfieldCliRunnerIfEnabled();
+        const result = await handleSoulIdTrain(input, {
+          dbPath: defaultDbPath(),
+          ...(runner ? { runner } : {}),
+        });
         return asResult(result as unknown as Record<string, unknown>);
       }),
     );
@@ -2215,7 +2232,13 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'List Soul-IDs', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => {
-        const result = await handleSoulIdList(input, { dbPath: defaultDbPath() });
+        // Same omission, quieter symptom: without a runner this reported the
+        // local cache as if it were the whole answer, with no remote comparison.
+        const runner = higgsfieldCliRunnerIfEnabled();
+        const result = await handleSoulIdList(input, {
+          dbPath: defaultDbPath(),
+          ...(runner ? { runner } : {}),
+        });
         return asResult(result as unknown as Record<string, unknown>);
       }),
     );
