@@ -10,6 +10,8 @@
  * Download: GET <video_url> (returned in poll response)
  */
 
+import { resolveReferenceAuthority } from '../reference-authority.js';
+
 const ARK_BASE =
   'https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks';
 
@@ -61,6 +63,17 @@ export interface SubmitArkOptions {
   /** Resolution enum per A0.6 (480p supported on fast tier; 1080p Standard-only). */
   readonly resolution: '480p' | '720p' | '1080p';
   readonly aspectRatio?: '21:9' | '16:9' | '4:3' | '1:1' | '3:4' | '9:16';
+  /**
+   * The frame the clip must OPEN on. Kept separate from `imageUrls` because ARK
+   * gives it a different role (`first_frame`) and documents the frame scenarios
+   * as mutually exclusive with multimodal references — merging them, which is
+   * what this adapter used to do, silently demotes a hard frame constraint to a
+   * loose style hint.
+   */
+  readonly firstFrameUrl?: string;
+  /** The frame the clip must CLOSE on. Requires a first frame. */
+  readonly lastFrameUrl?: string;
+  /** Loose multimodal references. Cannot be combined with the frames above. */
   readonly imageUrls?: ReadonlyArray<string>;
   readonly videoUrls?: ReadonlyArray<string>;
   readonly audioUrls?: ReadonlyArray<string>;
@@ -213,14 +226,28 @@ export async function submitArkTask(opts: SubmitArkOptions): Promise<SubmitArkRe
   // items are described relative to the text that precedes them.
   const content: Array<Record<string, unknown>> = [{ type: 'text', text: opts.prompt }];
 
-  for (const url of opts.imageUrls ?? []) {
-    content.push({ type: 'image_url', image_url: { url }, role: 'reference_image' });
-  }
-  for (const url of opts.videoUrls ?? []) {
-    content.push({ type: 'video_url', video_url: { url }, role: 'reference_video' });
-  }
-  for (const url of opts.audioUrls ?? []) {
-    content.push({ type: 'audio_url', audio_url: { url }, role: 'reference_audio' });
+  // T12: exactly one role per asset, and the three ARK scenarios never mixed.
+  // Throws on an ambiguous set rather than picking — the resolver's whole reason
+  // to exist is that authority must never be inferred from media type or order.
+  const { assignments } = resolveReferenceAuthority({
+    firstFrameUrl: opts.firstFrameUrl,
+    lastFrameUrl: opts.lastFrameUrl,
+    referenceImageUrls: opts.imageUrls,
+    referenceVideoUrls: opts.videoUrls,
+    referenceAudioUrls: opts.audioUrls,
+  });
+
+  for (const { url, role } of assignments) {
+    if (role === 'reference_video') {
+      content.push({ type: 'video_url', video_url: { url }, role });
+    } else if (role === 'reference_audio') {
+      content.push({ type: 'audio_url', audio_url: { url }, role });
+    } else {
+      // first_frame, last_frame and reference_image are all image_url items;
+      // only the role separates them, which is precisely the distinction that
+      // was being lost.
+      content.push({ type: 'image_url', image_url: { url }, role });
+    }
   }
 
   const body: Record<string, unknown> = {
