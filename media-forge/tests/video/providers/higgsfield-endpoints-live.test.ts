@@ -1,10 +1,16 @@
 // Live gate: every Higgsfield endpoint and field name this repo ships, asked of
 // the platform directly.
 //
-// A POST with an empty (or image-less) body cannot start a generation — it fails
-// schema validation first — so the whole file costs 0 credits and answers three
+// Every request here is unsubmittable BY CONSTRUCTION — the body is empty, missing
+// a required field, or carries a wrong-typed one — so it fails schema validation
+// before anything can be queued. The whole file costs 0 credits and answers three
 // questions no unit test can: does this path exist, what does it require, and
 // what are its enums.
+//
+// "0 credits" must never rest on the platform continuing to REFUSE a valid-looking
+// request. A cap that gets raised, or a value that gets clamped instead of rejected,
+// would turn such a probe into a paid generation. Keep every body structurally
+// invalid, not merely out of range.
 //
 // It exists because the shipped map was wrong in ways nothing local could catch.
 // On 2026-08-01, with a freshly minted API key: six of ten endpoints answered
@@ -192,6 +198,22 @@ describeIfLive('Higgsfield endpoint map vs the platform catalogue', () => {
   }, 60_000);
 
   it('Speak caps duration at the registry maximum', async () => {
+    // The media fields are present but carry the WRONG TYPE (number, not string).
+    //
+    // This is the only shape that keeps the assertion honest AND keeps the cost at
+    // zero by construction. The earlier version sent well-formed URLs and relied on
+    // the platform rejecting the over-cap duration: the moment Higgsfield raises the
+    // cap or clamps instead of refusing, that body becomes a complete, valid Speak
+    // request and this "free" gate starts paying for generations.
+    //
+    // Dropping a required field instead would be worse in the other direction — the
+    // 422 would name the missing field, the test would collapse into a copy of
+    // "Speak answers on the shipped path", and the cap assertion (which is what pins
+    // maxDurationSec at 15) would silently stop testing anything.
+    //
+    // A type error cannot be clamped or defaulted away by any schema, and Pydantic
+    // reports every field error in one response, so the duration error still shows up
+    // alongside it.
     const res = await fetch(
       `https://platform.higgsfield.ai${HIGGSFIELD_ENDPOINTS['higgsfield-speak']!}`,
       {
@@ -202,14 +224,17 @@ describeIfLive('Higgsfield endpoint map vs the platform catalogue', () => {
           ...buildPrimaryHeaders(),
         },
         body: JSON.stringify({
-          image_url: 'https://example.com/a.png',
-          audio_url: 'https://example.com/a.wav',
+          image_url: 1,
+          audio_url: 1,
           prompt: 'duration bound check',
           duration: VIDEO_MODELS['higgsfield-speak']!.maxDurationSec + 1,
         }),
       },
     );
     expect(res.status, 'a duration above the registry cap was accepted').toBe(422);
-    expect(JSON.stringify(await res.json())).toContain('duration');
+    expect(
+      JSON.stringify(await res.json()),
+      'the platform stopped reporting a duration error for a value above the registry cap',
+    ).toContain('duration');
   }, 60_000);
 });

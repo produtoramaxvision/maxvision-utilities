@@ -28,8 +28,40 @@ import { HiggsfieldCliProvider } from '../../../src/video/providers/higgsfield-c
 import { VIDEO_MODELS } from '../../../src/core/models.js';
 import type { VideoGenerationRequest } from '../../../src/video/providers/base.js';
 
-const SHOULD_RUN = process.env['MEDIA_FORGE_RUN_LIVE_TESTS'] === 'true';
-const describeIfLive = SHOULD_RUN ? describe : describe.skip;
+/**
+ * Three conditions, not one — and the last two SKIP rather than fail.
+ *
+ * The flag alone used to gate this file, which made it the odd one out: with
+ * MEDIA_FORGE_RUN_LIVE_TESTS=true on a machine that has no `higgsfield` binary
+ * or no OAuth session, every assertion ERRORED. That reads as "the registry
+ * rates are wrong" when the truth is "this machine cannot ask the question".
+ *
+ * A missing tool is not a failing test. The flag is the operator's intent and
+ * stays a hard gate; the binary and the session are environment facts, and their
+ * absence skips with a reason printed once.
+ *
+ * `preflight()` is the provider's own check and reports the two separately
+ * (install vs `higgsfield auth login`), so the skip reason names the actual
+ * remedy instead of a generic "unavailable".
+ */
+const FLAG_ON = process.env['MEDIA_FORGE_RUN_LIVE_TESTS'] === 'true';
+
+let unavailableReason: string | undefined;
+if (FLAG_ON) {
+  try {
+    await new HiggsfieldCliProvider().preflight();
+  } catch (err) {
+    unavailableReason = err instanceof Error ? err.message : String(err);
+  }
+} else {
+  unavailableReason = 'MEDIA_FORGE_RUN_LIVE_TESTS is not "true"';
+}
+
+if (FLAG_ON && unavailableReason !== undefined) {
+  console.warn(`[higgsfield-cli-cost-live] skipped — ${unavailableReason}`);
+}
+
+const describeIfLive = unavailableReason === undefined ? describe : describe.skip;
 
 /** The baseline every credits-per-second rate in the registry is expressed against. */
 const BASELINE_RESOLUTION = '720p';
