@@ -86,6 +86,90 @@ unidades (~125s de Kling 3.0 Turbo 720p).
 
 ---
 
+## P2 — Métodos `recordActualCostUSD` órfãos em 4 providers
+
+**Achado pelo Codex em 2026-08-01, verificado por mim.** `GoogleVeoProvider`,
+`HiggsfieldProvider`, `KlingProvider` e `HiggsfieldCliProvider` declaram
+`recordActualCostUSD` e **nenhum tem chamador de produção** — a busca por
+chamadores sob `src/` não acha nenhum. O do `higgsfield-cli` é no-op documentado.
+
+`MuapiProvider` é a exceção: chamado pelo `opt-in-video.ts` (fechado hoje).
+
+**Por que importa:** o método está no contrato compartilhado `VideoProvider`, ou
+seja, a interface anuncia uma capacidade de liquidação que o fluxo de produção
+desses quatro nunca invoca. Quem ler a interface conclui que existe liquidação.
+
+**Por que não fechei agora:** a liquidação real desses providers acontece por
+caminhos diferentes (webhook, poll, download-capture), e decidir se o método deve
+ser **removido do contrato** ou **ligado** em cada um é obra acoplada a dinheiro —
+exige plano e review, não enxerto no fim de uma auditoria.
+
+**Esforço:** M. **Depende de:** decisão sobre o contrato `VideoProvider`.
+
+---
+
+## P3 — Sonda de áudio do Higgsfield Speak não discrimina o que promete
+
+**Achado pelo Codex em 2026-08-01, verificado.**
+`tests/video/providers/higgsfield-speak-audio-empirical.test.ts` tem uma única
+asserção: `expect(res.status).toBeLessThan(500)`. Qualquer 400/401/403/404/422
+passa — inclusive rejeição do `audio_url`, do endpoint ou da autenticação.
+
+O comentário é honesto ("accepts ANY non-5xx outcome... not to assert success") e
+o arquivo só roda com `MEDIA_FORGE_RUN_LIVE_TESTS=true`, então **não** entra no
+verde normal. O risco é de leitura: o nome diz "empirical" e mora em `tests/`,
+então dá a impressão de que a forma do corpo foi verificada — e a produção
+(`higgsfield.ts:509`) chama a decisão de `PRELIMINAR_URL`, admitindo que não foi.
+
+**Correção proposta:** fazer a sonda classificar o resultado (erro-de-áudio vs
+erro-de-outra-coisa) e falhar quando não conseguir discriminar, que é o que o
+próprio cabeçalho descreve. Exige credencial HF ao vivo para valer.
+
+---
+
+## (fechado) OPS8 — escotilha de Windows CI sobreviveu à causa
+
+**FECHADO em 2026-08-01.** O passo `Test` era `continue-on-error` no Windows,
+com a justificativa de que o runner não bootstrapa `embedded-postgres` e que
+"não tem fix runner-side". Verificado nas quatro runs mais recentes
+(`b203d16`, `051a4f4`, `5127059`, `2d4e890`): o passo reporta **success** em
+todas, e a suíte passa numa máquina Windows também.
+
+Escotilha removida. Uma que perdeu a causa só consegue esconder regressão
+**futura**, na plataforma em que este projeto é desenvolvido, atrás de um check
+verde.
+
+---
+
+## (fechado) OPS4 — Docker actions em Node 20
+
+**FECHADO em 2026-08-01.** `docker/setup-qemu-action`, `setup-buildx-action` e
+`login-action` em v4 (runtime Node 24), `gitleaks-action` em v3, `actions/checkout`
+em v7. Cada bump conferido contra as release notes do próprio projeto.
+
+---
+
+## OPS5 — Worktrees órfãos no disco (precisa da sua decisão)
+
+**Estado em 2026-08-01:** `git worktree prune` não remove nada — os dois
+diretórios **não têm `.git`**, deixaram de ser worktrees e viraram árvores de
+arquivo soltas.
+
+| Diretório | Tamanho | Último arquivo |
+|---|---|---|
+| `.claude/worktrees/agent-a439055b5f204c475` | 346 MB | 2026-06-02 |
+| `.claude/worktrees/lane-f-g` | 138 MB | 2026-06-02 |
+
+Gitignored, congelados há dois meses. **Não removidos**: sem metadados git não dá
+para provar que não há trabalho não commitado dentro, e são 484 MB de disco do
+usuário. Comando, quando decidir:
+
+```bash
+rm -rf .claude/worktrees/agent-a439055b5f204c475 .claude/worktrees/lane-f-g
+```
+
+---
+
 ## P3 — Smartcut: corte preciso em keyframe sem reencode total
 
 **O quê:** cortar vídeo no keyframe e reencodar apenas os fragmentos das bordas,

@@ -25,6 +25,8 @@ import {
   KlingBillingReconcileInput,
   type KlingBillingReconcileInputT,
   KlingBillingAuditInput,
+  KlingResourcePacksInput,
+  type KlingResourcePacksInputT,
   type KlingBillingAuditInputT,
   KlingDownloadInput,
   type KlingDownloadInputT,
@@ -657,6 +659,52 @@ export async function handleKlingBillingReconcile(
     ...(input.limit !== undefined ? { limit: input.limit } : {}),
     ...(opts.fetchImpl !== undefined ? { fetchImpl: opts.fetchImpl } : {}),
   });
+}
+
+/**
+ * Reads the account's prepaid quota.
+ *
+ * Exists because `fetchAccountCosts` shipped tested with no caller — a tool, or
+ * the code is not a feature. `remainingIsDelayed` is returned verbatim rather
+ * than folded into a boolean "has quota": the lag is a property of the number
+ * and hiding it would let a caller treat a stale figure as live.
+ */
+export async function handleKlingResourcePacks(
+  rawInput: unknown,
+  opts: KlingHandlerExecOpts = {},
+): Promise<{
+  packs: ReadonlyArray<{
+    name: string;
+    totalQuantity: number;
+    remainingQuantity: number;
+    status: string;
+  }>;
+  totalRemaining: number;
+  remainingIsDelayed: true;
+}> {
+  const input: KlingResourcePacksInputT = KlingResourcePacksInput.parse(rawInput);
+  const provider = new KlingProvider({
+    dbPath: defaultDbPath(),
+    env: process.env as never,
+    fetchImpl: opts.fetchImpl,
+  });
+
+  const result = await provider.fetchResourcePacks({
+    startTimeMs: input.startTimeMs,
+    endTimeMs: input.endTimeMs,
+    ...(opts.fetchImpl !== undefined ? { fetchImpl: opts.fetchImpl } : {}),
+  });
+
+  return {
+    packs: result.packs.map((p) => ({
+      name: p.name,
+      totalQuantity: p.totalQuantity,
+      remainingQuantity: p.remainingQuantity,
+      status: p.status,
+    })),
+    totalRemaining: result.packs.reduce((sum, p) => sum + p.remainingQuantity, 0),
+    remainingIsDelayed: result.remainingIsDelayed,
+  };
 }
 
 export async function handleKlingBillingAudit(

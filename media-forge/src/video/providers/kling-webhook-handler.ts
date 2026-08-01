@@ -175,10 +175,31 @@ export function createKlingWebhookHandler(opts: CreateKlingWebhookHandlerOpts): 
     // zero so the terminal status flips no matter what.
     const spec = VIDEO_MODELS[row.model];
     let actualUsd = 0;
+    // Which of the three sources the number came from. Recorded because they are
+    // NOT equally trustworthy and the row cannot tell them apart afterwards: a
+    // settled figure derived from the provider's own duration, an estimate
+    // standing in for a duration Kling omitted, and a zero standing in for
+    // nothing known at all all look identical in `actual_usd`.
+    let costBasis: 'measured' | 'estimate' | 'unknown' = 'unknown';
     if (spec && spec.pricing.unit === 'usd-per-second' && totalDurationSec > 0) {
       actualUsd = spec.pricing.rate * totalDurationSec;
+      costBasis = 'measured';
     } else if (typeof row.est_usd === 'number' && Number.isFinite(row.est_usd)) {
       actualUsd = row.est_usd;
+      costBasis = 'estimate';
+    }
+
+    // Warned, not silent. `handleKlingDownload` already does this on the sibling
+    // manual path ("Cost ledger may underreport"); the webhook path did not, so
+    // the same drift arrived with no trace. Closing the row is still correct —
+    // a permanently pending job poisons the rest of the UTC day's cap — but an
+    // operator has to be able to find the rows that were closed on a guess.
+    if (costBasis !== 'measured') {
+      process.stderr.write(
+        `[kling-webhook] job ${internalJobId} settled on a ${costBasis} basis, not on ` +
+          `Kling's reported duration (payload omitted it). Recording actualUsd=${actualUsd}. ` +
+          `Cost ledger may ${costBasis === 'unknown' ? 'under' : 'mis'}report this job.\n`,
+      );
     }
     // SEAM CLOSED (2026-06-21): persist actual_credits on the webhook-first path,
     // identical to the live download-capture path (mcp/handlers). Before this, a
@@ -186,9 +207,15 @@ export function createKlingWebhookHandler(opts: CreateKlingWebhookHandlerOpts): 
     // video_jobs.actual_credits = NULL → if the live capture was then lost AND the
     // reservation was swept, credit-core's oracle read {status:'completed'} with no
     // actualCredits and captured the ESTIMATE, not the real cost. Now both paths
-    // compute credits the same way (videoActualCredits), so the oracle always
-    // returns the real cost. Money-safe before (first-settle-wins, no overdraft);
-    // this removes the estimate-vs-real drift on the rare nested-failure path.
+    // compute credits the same way (videoActualCredits).
+    //
+    // CORRECTED (2026-08-01): this comment used to end "so the oracle always
+    // returns the real cost." That is only true when `costBasis === 'measured'`.
+    // When Kling omits the per-video duration the number IS the estimate, and
+    // when there is no estimate either it is zero — the claim was stronger than
+    // the code. Both paths now agree on the FORMULA; whether the input to that
+    // formula is a measurement is what `costBasis` records and the warning above
+    // surfaces.
     recordActualCost({
       dbPath: opts.dbPath,
       jobId: internalJobId,

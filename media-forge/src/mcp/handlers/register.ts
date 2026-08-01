@@ -114,6 +114,7 @@ import {
   handleKlingDownload,
   handleKlingBillingReconcile,
   handleKlingBillingAudit,
+  handleKlingResourcePacks,
 } from './kling.js';
 import {
   handleMuapiModels,
@@ -204,8 +205,21 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
   const reg = looseRegister(server);
 
   // F-C: tier gating — pula o registro de tools fora do gate do tier.
-  // undefined/missing tier = 'pro' (backward compat para stdio + testes existentes).
+  //
+  // undefined/missing tier = 'pro'. Correct for stdio, where the person running
+  // the process IS the operator and there is no tenant to gate against, and for
+  // the existing tests. The hosted path never relies on it: `HttpAuthContext.tier`
+  // is required, `app-internal.ts` passes `ctx.tier`, and `FlatKeyStore` only
+  // returns a pro record for a key already in MEDIA_FORGE_API_KEYS.
+  //
+  // Logged anyway. The failure this makes visible is a FUTURE one: a new server
+  // construction path that forgets to thread tier would silently register every
+  // paid tool, and a silent grant of paid surface is not something to discover
+  // from a bill. Cheap trace now beats an audit later.
   const effectiveTier = deps.tier ?? 'pro';
+  if (deps.tier === undefined) {
+    logger.debug('registerAllTools: no tier supplied, defaulting to pro (stdio/self-host path)');
+  }
   function regIfAllowed(name: string, cfg: Parameters<LooseRegisterTool>[1], cb: Parameters<LooseRegisterTool>[2]): void {
     if (!isToolAllowed(effectiveTier, name)) return;
     reg(name, cfg, cb);
@@ -1860,6 +1874,15 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Kling Billing Audit', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleKlingBillingAudit(input))),
+    );
+  }
+
+  {
+    const t = getTool('media_kling_resource_packs');
+    regIfAllowed(
+      t.name,
+      { title: 'Kling Resource Packs', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleKlingResourcePacks(input))),
     );
   }
 
