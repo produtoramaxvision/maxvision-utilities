@@ -462,7 +462,8 @@ Added in refs-integration + P13–P16. Full parameter reference via `media_help`
 
 - **Reference library (4):** `media_refs_search`, `media_refs_compose_moodboard`, `media_refs_presign`, `media_refs_index`.
 - **Video routing & cost (4):** `media_video_route`, `media_video_cost_estimate`, `media_video_cost_report`, `media_video_webhook_status`.
-- **Higgsfield (9):** `media_higgsfield_generate` / `_soul_id` / `_dop` / `_cinema_studio` / `_speak` / `_marketing_studio` / `_recast` / `_poll` / `_download`.
+- **Higgsfield (11):** `media_higgsfield_generate` / `_soul_id` / `_soul_id_train` / `_soul_id_list` / `_dop` / `_cinema_studio` / `_speak` / `_marketing_studio` / `_ms_assets` / `_poll` / `_download`, plus `_product_photoshoot` and `_marketplace_cards`.
+  Two transports: `_dop`, `_speak`, `_generate` and `_soul_id` go over the Cloud API (HTTP); `_cinema_studio`, `_marketing_studio`, `_ms_assets`, `_product_photoshoot` and `_marketplace_cards` go over the `higgsfield` CLI, because the Cloud API answers `404 model_not_found` for those products. The CLI bills the SUBSCRIPTION pool, the HTTP path bills API credits — separate balances, separate rates.
   `_virality_predictor` was removed on 2026-08-01: its endpoint answers `404 model_not_found` on every URL shape and it exists on no Higgsfield surface.
 - **Kling 3.0 (10):** `media_kling_motion_brush` / `_element_create` / `_element_list` / `_element_delete` / `_elements` / `_lip_sync` / `_omni_multishot` / `_video_extend` / `_poll` / `_download`.
 - **Seedance 2.0 (4, feature-flagged):** `media_seedance_text_to_video` / `_image_to_video` / `_multishot` / `_reference_fusion`.

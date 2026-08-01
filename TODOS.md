@@ -8,6 +8,113 @@ Criado em 2026-07-29 pelo `/maxvision:plan-ceo-review` sobre
 
 ---
 
+## (fechado) Auditoria Higgsfield de ponta a ponta — 2026-08-01
+
+Seis commits em `homolog`: `3aa7351`, `c38198b`, `499c47b`, `b303404`, `4aaff77`,
+`6215d5d`. Gate final: typecheck e lint limpos, **2589 testes**, portões ao vivo
+verdes (23/23).
+
+### INCIDENTE — 350 créditos gastos pela suíte de testes
+
+Ao repontar os handlers de Cinema Studio e Marketing Studio para o transporte
+CLI, eles passaram a chamar `higgsfieldCliProvider()`, que faz `spawn` do binário
+real contra a sessão OAuth logada. Duas suítes (`higgsfield-billing-submit`,
+`video-ledger-no-double-reserve`) invocavam esses handlers com apenas um stub de
+`global.fetch` — correto para o transporte que eles usavam até aquele momento,
+inútil para um binário. O `pnpm test` submeteu **seis gerações reais**:
+
+    3x Marketing Studio Video      -120, -120, -50
+    3x Cinematic Studio 3.5 Video   -20,  -20, -20
+
+Saldo 610 → 260. Nada falhou: a CLI aceitou todos os submits e a suíte ficou
+verde em volta deles. Um teste que esquece de stubar um transporte é
+indistinguível de um que não esquece.
+
+**Correção estrutural, não convenção.** `defaultRunner` agora recusa, sob vitest,
+qualquer comando que possa criar ou cobrar (`generate create`,
+`generate workflow`, `soul-id create`, `upload`), liberando só leituras
+(`auth token`, `generate cost|get|list`, `model`, `workflow`, `account`) e
+`--enhance-only`. Escape hatch: `MEDIA_FORGE_ALLOW_REAL_CLI_IN_TESTS=true`,
+deliberadamente ausente do `.env.example` e fixado como nunca-encaminhado no
+teste de contrato do `.mcp.json`. Regressão coberta em
+`tests/video/providers/higgsfield-cli-test-guard.test.ts`. Verificado: uma suíte
+completa deixa o saldo em 260 e a contagem de jobs em 6.
+
+### Defeitos fechados
+
+| # | Defeito | Como estava | Como está |
+|---|---|---|---|
+| P1 | Modelos de imagem roteáveis como vídeo | `handleVideoRoute` filtrava modo/provider/duração/resolução, nunca a saída. Provado: `routed a video request to higgsfield-soul-standard, which returns an image` | `outputType` **obrigatório** no `VideoModelSpec`, filtrado antes do cost sort |
+| P1 | Divergência de preço Kling 3.0 | Comparava eixos diferentes: `kling3_0` não tem `resolution`, só `mode` | Não é divergência. `generate cost` é a autoridade |
+| P2 | Campo do último frame | Enviava `last_frame_url`, que não existe em endpoint nenhum — toda chamada first-last-frame rodava só com o primeiro frame | **`end_image_url`**, medido |
+| — | Soul-ID nunca aplicado | Enviava `soul_id`; o campo real é `custom_reference_id`. Um Soul-ID treinado (40 créditos) nunca chegou a nenhuma geração | Corrigido |
+| — | `dop/*` não aceita `aspect_ratio`, `resolution` nem `duration` | Os três eram enviados e descartados em silêncio | `HIGGSFIELD_ACCEPTED_BODY_FIELDS` + aviso no descarte |
+| D1 | `HiggsfieldCliProvider` nunca instanciado | Flag tornava 4 specs roteáveis sem caminho de submit | Singleton + tools de submit + mapeamento de job id nativo |
+| D2 | `virality_predictor` | 404 em três formas de URL, sem guarda de custo, sem ledger, sem registry | Removido de toda a superfície |
+| D3 | `soul_id_train` lançava sempre | `register.ts` nunca passava `runner` | `higgsfieldCliRunnerIfEnabled()` |
+| — | CLI não gravava `recordJob` | Reservava crédito e não deixava linha em `video_jobs` | Grava |
+| — | `creditsToUsd` NaN fora do boot | Lia só o binding validado no boot | Fallback para a mesma env var |
+| D9 | Versão nos docs | `architecture.md` dizia 0.1.1 contra `package.json` 0.2.14 | Sincronizado |
+
+### Registry: 10 specs HTTP viraram 5
+
+Removidos após sondagem ao vivo: `soul-pro` ("pro" não é tier — o segmento é
+MODO), `speak2` e `recast` (404 em toda forma, ausentes em qualquer superfície).
+`soul2` corrigido para `/higgsfield-ai/soul/v2/standard`.
+
+`cinema-studio-3.5` e `marketing-studio` também 404 na Cloud API, mas os
+**produtos são reais**: repontados para specs `higgsfield-cli`
+(`cinematic_studio_video_3_5`, `marketing_studio_video`), **5 créditos/segundo**
+a 720p, 480p 0.7x, 1080p 2.0x — medido ao vivo. Nomes das tools MCP inalterados.
+
+`maxDurationSec: 15` nesses dois é **teto conservador, NÃO medido**:
+`generate cost` aceita 600 e só multiplica — é função de preço, não validador — e
+a plataforma não publica limite.
+
+### Superfície UGC — antes zero cobertura
+
+3 tools novas + 8 skills. Verificado ao vivo, 0 créditos: 40 avatares, 9 hooks,
+14 cenários, 42 formatos de anúncio.
+
+- `media_higgsfield_ms_assets` — catálogo (8 grupos num parâmetro `kind`, não 8 tools)
+- `media_higgsfield_product_photoshoot` — 10 modos, `enhanceOnly` default
+- `media_higgsfield_marketplace_cards` — 4 escopos, `enhanceOnly` default
+- skills `mf-ugc-brief`, `-decode`, `-hooks`, `-script`, `-produce`,
+  `mf-product-photo`, `mf-marketplace-cards`, `mf-cinematic-studio`
+
+### Técnica que destravou tudo: sondagem por tipo errado
+
+Enviar o campo candidato com o **tipo errado** e ler o 422 — campo conhecido
+responde com erro de tipo citando o nome, campo desconhecido some da resposta. O
+corpo nunca valida, então nada é enfileirado e a varredura custa **0 créditos**.
+Foi assim que `end_image_url`, `custom_reference_id` e a ausência de
+`duration`/`resolution` no `dop/*` apareceram.
+
+Necessária porque **esta API ignora campo desconhecido em vez de recusar** — foi
+assim que `duration_seconds` passou meses sendo descartado.
+
+### Pendências que sobram
+
+- **Preços HTTP (`base_credits`) continuam NÃO VERIFICADOS.** Saldo da conta de
+  API é 0; nenhuma geração cobrada fechou o ciclo. A doc oficial não publica
+  preço (confirmado nas 3 libs do context7 e nas 8 páginas do `llms.txt`).
+  `soul2` está marcado `UNVERIFIED` no `notes`.
+- **Teto real de duração** dos dois estúdios: só aparece num `generate create`
+  cobrado.
+- **Liquidação por job na CLI**: continua NÃO REFUTADO. As 6 transações de
+  `spend` do incidente têm `display_name` mas nenhuma referência a job id — o que
+  é evidência a favor de "não dá para atribuir", agora com dados reais.
+- **`MEDIA_FORGE_HF_CLI_ENABLED`** segue default-off. Ligá-la torna 6 specs
+  roteáveis; os dois estúdios têm tool própria e não dependem da flag.
+- **Pastas auditadas e NÃO vendorizadas:** `Downloads/ugc-media-forge` (4 skills,
+  zero licença, uma CC BY-SA 4.0 confirmada, e as duas melhores orquestram o
+  **Topview Canvas**, plataforma concorrente) e `Downloads/agregar-media-forge`
+  (OpenMontage, **AGPLv3** com LICENSE ausente + componente **CC BY-NC-SA**
+  NonCommercial + Remotion proprietário). Serviram de levantamento de requisitos;
+  nenhum arquivo copiado. As 8 skills são reescrita nativa, MIT, apontando para a
+  Higgsfield em vez do canvas do concorrente.
+
+
 ## (referência) O Higgsfield tem 5 superfícies, não 2 — levantado em 2026-08-01
 
 Investigado com sessão de browser autenticada na conta real, mais

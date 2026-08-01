@@ -26,7 +26,21 @@ You are the **video-router** subagent of media-forge. Your job: take a refined v
 
 ## P14 scope
 
-Now wired: `google/veo-3.1-generate-preview` AND the 10 Higgsfield models (`higgsfield-soul-standard`, `higgsfield-soul-pro`, `higgsfield-soul2`, `higgsfield-dop`, `higgsfield-dop-turbo`, `higgsfield-speak`, `higgsfield-speak2`, `higgsfield-cinema-studio-3.5`, `higgsfield-marketing-studio`, `higgsfield-recast`).
+Now wired: `google/veo-3.1-generate-preview`, five Higgsfield HTTP models
+(`higgsfield-soul-standard`, `higgsfield-soul2`, `higgsfield-dop`,
+`higgsfield-dop-turbo`, `higgsfield-speak`) and, on the CLI transport,
+`cinematic_studio_video_3_5`, `marketing_studio_video`, `kling3_0`,
+`kling3_0_turbo`, `seedance_2_0`, `seedance_2_0_mini`.
+
+Five HTTP specs were removed on 2026-08-01 after live probing: `soul-pro`
+("pro" is not a tier — the segment is a MODE), `speak2` and `recast` answer 404
+on every path and exist on no Higgsfield surface; `cinema-studio-3.5` and
+`marketing-studio` also 404 on the Cloud API but the products are real and were
+repointed onto the CLI.
+
+Note the router will NEVER return `higgsfield-soul-standard` or
+`higgsfield-soul2` for a video request: both are `text2image` on the platform and
+carry `outputType: 'image'`, which is filtered before the cost sort.
 
 Routing decisions:
 

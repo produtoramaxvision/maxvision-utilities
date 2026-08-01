@@ -4,6 +4,91 @@ All notable changes to `media-forge` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.15] - 2026-08-01
+
+Higgsfield end-to-end audit. Every claim below was verified against the live
+platform, not against documentation.
+
+> **Version note.** This release REMOVES two MCP tools and changes the inputs of
+> two more, which semver would put in a minor bump. It ships as a patch because
+> the project's versioning policy is single-step patch bumps from the last
+> deployed version. The breaking changes are listed first so nobody has to infer
+> them from the number.
+
+### Removed — BREAKING
+
+- `media_higgsfield_recast` and `media_higgsfield_virality_predictor`. Both
+  answer `404 model_not_found` on every URL shape tried and exist on no
+  Higgsfield surface — the CLI has no equivalent (`dubbing`/`voice_change` are a
+  different product). `virality_predictor` also bypassed the cost guard and the
+  ledger entirely with a raw fetch to a hardcoded URL.
+- Registry specs `higgsfield-soul-pro` ("pro" is not a tier — the path segment
+  is a MODE, `reference|character|standard`), `higgsfield-speak2`,
+  `higgsfield-recast`.
+
+### Changed — BREAKING
+
+- `media_higgsfield_cinema_studio` and `media_higgsfield_marketing_studio` keep
+  their names but take different inputs and run over the CLI transport. Their
+  Cloud API endpoints 404; the products are real and resolve as job types
+  `cinematic_studio_video_3_5` and `marketing_studio_video`. Old inputs
+  (`template`, `productUrl`, `focalLengthMm`, `apertureFStop`, `sensorSize`,
+  `lensId`) were invented for the dead endpoints and never validated by anything.
+  New inputs mirror `higgsfield model get`: named creative presets and
+  account-resolved ids.
+- `higgsfield-soul2` now points at `/higgsfield-ai/soul/v2/standard`.
+- `VideoModelSpec.outputType` is required.
+- `VideoGenerationRequest.resolution` accepts `480p`.
+
+### Added
+
+- `media_higgsfield_ms_assets` — Marketing Studio catalogue: avatars, hooks,
+  settings, ad-formats, ad-references, brand-kits, products, web-products.
+  Read-only, one tool with a `kind` parameter rather than eight.
+- `media_higgsfield_product_photoshoot` — 10 modes, backend prompt enhancement.
+- `media_higgsfield_marketplace_cards` — 4 scopes, main/secondary/A+ chaining.
+  Both image tools default to `enhanceOnly`, which returns the assembled prompts
+  without generating.
+- Eight skills: `mf-ugc-brief`, `mf-ugc-decode`, `mf-ugc-hooks`, `mf-ugc-script`,
+  `mf-ugc-produce`, `mf-product-photo`, `mf-marketplace-cards`,
+  `mf-cinematic-studio`.
+- `HIGGSFIELD_ACCEPTED_BODY_FIELDS` — the fields each endpoint actually
+  validates. This API ignores unknown fields rather than rejecting them, so
+  anything not on the list is dropped with a warning instead of being silently
+  discarded by the platform.
+- A test-runner guard on the CLI runner. Under vitest it refuses any subcommand
+  that can create or bill, allowing reads and `--enhance-only`.
+
+### Fixed
+
+- The video router could select an image-output model. Higgsfield's Soul family
+  is `text2image` on the platform but shipped as `modes: ['t2v','i2v']`, and no
+  filter looked at what came back. `outputType` is now filtered before the cost
+  sort.
+- `last_frame_url` → `end_image_url`. The old name is a field on no Higgsfield
+  endpoint, so every first-last-frame request had been generating from the first
+  frame alone.
+- `soul_id` → `custom_reference_id`. A trained Soul-ID (40 credits) was never
+  applied to the generation it was trained for.
+- `dop/*` accepts no `aspect_ratio`, `resolution` or `duration`; all three were
+  being sent and discarded.
+- `media_higgsfield_soul_id_train` threw on every call — `register.ts` never
+  supplied the runner the handler requires. `media_higgsfield_soul_id_list`
+  reported the local cache as the whole answer for the same reason.
+- The CLI provider never wrote a `video_jobs` row, so a reservation could never
+  be reconciled against a job. It also priced at NaN outside the MCP server boot
+  path.
+- `pollStatus` and `download` on the CLI transport now translate the local job id
+  to the one `higgsfield generate get` understands.
+- Dead endpoints are excluded by the router, from a single source shared with the
+  live gate. The truth previously lived only in a test file.
+
+### Security
+
+- Test suites can no longer spend credits through the CLI. Added after a
+  `pnpm test` run submitted six real generations and spent 350 subscription
+  credits; the incident and its evidence are recorded in `TODOS.md`.
+
 ## [0.2.14] - 2026-08-01
 
 ### Fixed
