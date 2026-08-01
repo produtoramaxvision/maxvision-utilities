@@ -8,6 +8,82 @@ Criado em 2026-07-29 pelo `/maxvision:plan-ceo-review` sobre
 
 ---
 
+## (referência) O Higgsfield tem 5 superfícies, não 2 — levantado em 2026-08-01
+
+Investigado com sessão de browser autenticada na conta real, mais
+`docs.higgsfield.ai/docs/llms.txt` (o índice oficial completo).
+
+**A doc oficial da API inteira tem 8 páginas e documenta 4 endpoints:**
+
+```
+/higgsfield-ai/dop/standard
+/higgsfield-ai/soul/standard
+/kling-video/v2.1/pro/image-to-video
+/bytedance/seedance/v1/pro/image-to-video   <- e este responde 404 na sondagem
+```
+
+Não existe página listando modelos. `GET /models` (13 itens) é a lista mais
+completa que a plataforma publica, e ainda assim é parcial — `/v1/*`, `/soul-id`
+e `/kling-video/...` respondem sem estar nela.
+
+**As superfícies, e a frase oficial que prova que não se misturam.** Da página de
+preços de `higgsfield.ai`, nota de rodapé:
+
+> "Unlimited models and Free Generations on plans are accessible only via
+> higgsfield.ai and are **not accessible on MCP/CLI, Canvas or Supercomputer**."
+
+| Superfície | Catálogo | Créditos |
+|---|---|---|
+| `higgsfield.ai` (web) | maior — Cinema Studio, Marketing Studio, Lipsync Studio, Canvas | assinatura |
+| **Cloud API** (`platform.` / `cloud.higgsfield.ai`) | 13 em `GET /models` + `/v1/*` + revendas | **comprados**, 16 = $1 |
+| **MCP/CLI** (OAuth) | 26 vídeo + 28 imagem + 18 workflows | assinatura |
+| Canvas | — | assinatura |
+| Supercomputer | — | assinatura |
+
+**Isso explica os 404 sem precisar de hipótese.** Recast, Cinema Studio,
+Marketing Studio e Virality Predictor são recursos do **app web**, não modelos da
+API. As specs correspondentes foram escritas a partir de **nomes de produto** do
+site, não da API — e a única superfície que o `HiggsfieldProvider` fala é a API.
+
+**Preço do crédito: as duas taxas agora são exatas.**
+
+| Pool | Origem | USD/crédito |
+|---|---|---|
+| API | diálogo de top-up: "16 credits = $1" | **0,0625** |
+| Assinatura (CLI) | plano **Pro, $29/mês, "Fixed amount of 600 credits/mo"** | **0,048333** |
+
+Planos: Free · Basic $9 · **Pro $29 (atual)** · Max $59–79. Confirmado no
+comparativo da própria conta ("Manage Plan" no card do Pro).
+
+**Tabela oficial de créditos do consumo, e ela NÃO bate com `generate cost`:**
+
+| Modelo (página) | Página | `higgsfield generate cost` |
+|---|---|---|
+| Kling 3.0 720p | 7 cr/5s | **10** |
+| Kling 3.0 1080p | 8 cr/5s | **12,5** |
+| Kling 3.0 4K | 30 cr/5s | 30 ✔ |
+| Seedance 2.0 720p | 22 cr/5s | 22,5 |
+| Seedance 2.0 1080p | 45 cr/5s | 45 ✔ |
+| Seedance 2.0 4K | 110 cr/5s | 110 ✔ |
+| Seedance 2.0 Fast 720p | 17 cr/5s | 12,5 (`seedance_2_0_mini`) |
+| DoP Standard 720p | 7 cr/**3s** | — |
+| Higgsfield Speak 2.0 720p | 14 cr/5s | — (não é job type da CLI) |
+| Higgsfield Soul 2.0 | 0,12 cr/imagem | — |
+| Higgsfield Soul | 0,25 cr/imagem | — |
+
+`generate cost` é a resposta da plataforma **para aquele job_type exato** e
+continua sendo a autoridade para a CLI; a página tem unidades de duração
+diferentes por modelo (3s, 4s, 5s, 6s, 8s) e pode estar defasada. A divergência
+do Kling 3.0 não está explicada.
+
+Também na página e ausentes do nosso registry: `Seedance 2.0 Fast`, `Kling Omni
+3` (Image Reference e FLF), `Kling 3.0 Motion Control`, `Sora 2` (Pro/Max),
+`Wan 2.6`, `Minimax Hailuo 2.3`, `Nano Banana Pro`. **Recast e Virality Predictor
+não aparecem em superfície nenhuma** — nem na página de preços, nem na CLI, nem
+na API.
+
+---
+
 ## (parcial) P1 — Endpoints e nomes de campo do Higgsfield HTTP: 3 corrigidos, 6 mortos
 
 **RETRATAÇÃO, no mesmo dia.** A versão anterior desta entrada declarou o
