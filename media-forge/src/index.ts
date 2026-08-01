@@ -14,4 +14,4 @@
  * `tests/unit/version-consistency.test.ts` fails when the JSON files disagree
  * with it. A bump is one edit here plus the JSON files that test names.
  */
-export const MEDIA_FORGE_VERSION = '0.2.13' as const;
+export const MEDIA_FORGE_VERSION = '0.2.14' as const;
