@@ -8,6 +8,74 @@ Criado em 2026-07-29 pelo `/maxvision:plan-ceo-review` sobre
 
 ---
 
+## P1 — 6 dos 10 endpoints do Higgsfield HTTP não existem
+
+**Medido em 2026-08-01** contra a API real, com chave recém-criada no dashboard,
+custo zero (todo `POST {}` falha na validação antes de enfileirar trabalho).
+
+`GET /models` é o catálogo autoritativo — devolve slug, `operation_type`,
+`output_type` e `base_credits`. **13 modelos.** Contra ele, o mapa de
+`HIGGSFIELD_ENDPOINTS`:
+
+| Nossa spec | Caminho que enviamos | Resposta real |
+|---|---|---|
+| `higgsfield-soul-standard` | `/higgsfield-ai/soul/standard` | **200 no catálogo** |
+| `higgsfield-dop` | `/higgsfield-ai/dop/standard` | **200 no catálogo** |
+| `higgsfield-dop-turbo` | `/higgsfield-ai/dop/turbo` | **200 no catálogo** |
+| `higgsfield-soul-pro` | `/higgsfield-ai/soul/pro` | `422` — `mode` deve ser `reference \| character \| standard` |
+| `higgsfield-soul2` | `/higgsfield-ai/soul2/standard` | `404 model_not_found` (catálogo: `soul/v2/standard`) |
+| `higgsfield-speak` | `/higgsfield-ai/speak/standard` | `404 model_not_found` |
+| `higgsfield-speak2` | `/higgsfield-ai/speak2/standard` | `404 model_not_found` |
+| `higgsfield-cinema-studio-3.5` | `/higgsfield-ai/cinema-studio/3.5` | `404 model_not_found` |
+| `higgsfield-marketing-studio` | `/higgsfield-ai/marketing-studio/standard` | `404 model_not_found` |
+| `higgsfield-recast` | `/higgsfield-ai/recast/standard` | `404 model_not_found` |
+
+`soul/pro` revela a gramática da URL: o segmento é **modo**, não tier —
+`/higgsfield-ai/soul/{reference|character|standard}` respondem `422 prompt
+required`, ou seja, existem.
+
+**Três classes de defeito, tratadas diferente de propósito:**
+
+1. **Slug errado, modelo existe** — `soul2/standard` → `soul/v2/standard`.
+   Mecânico, mas ver a classe 3 antes de corrigir.
+2. **Modelo não existe na API** — speak, speak2, cinema-studio,
+   marketing-studio, recast, soul/pro. São **ferramentas MCP registradas que
+   nunca podem dar certo**. Apagar é decisão de escopo do usuário, não conserto.
+3. **Erro de categoria.** `soul/standard`, `soul/v2/standard`, `soul/character`
+   e `soul/reference` são `operation_type: text2image`, `output_type: image` —
+   e estão em `VIDEO_MODELS` com `modes: ['t2v','i2v']` e `maxDurationSec: 8`.
+   Mover modelo de imagem para fora de `VIDEO_MODELS` mexe em roteador, schemas
+   e caminho de custo. Registrado, não operado.
+
+**Os preços também estão errados nos que existem** (`base_credits` do catálogo
+vs `pricing.rate` do registry):
+
+| Slug | `base_credits` | Nossa taxa |
+|---|---|---|
+| `soul/standard` | 1,0 | 25 |
+| `soul/v2/standard` | 0,0 | 70 |
+| `dop/standard` | 9,0 | 40 |
+| `dop/turbo` | 6,5 | 18 |
+
+**Não corrigi os números.** `base_credits` tem "base" no nome e o saldo da conta
+de API é 0, então não dá para verificar se é preço final por geração ou base que
+escala com duração/resolução. Trocar 40 por 9 sem saber a semântica seria
+substituir um número errado por outro. Fica medido e registrado.
+
+**Modelos que existem e não oferecemos:** `dop/lite` (2,0), os três
+`dop/*/first-last-frame` (mesmo preço do tier), `popcorn/auto` (1,4720),
+`soul/character` (1,0), `soul/cinema` (0,0), `soul/reference` (1,0), `soul-id`
+(40,0).
+
+**Portão construído:** `tests/video/providers/higgsfield-endpoints-live.test.ts`
+fixa a verdade de hoje — os 4 alcançáveis têm que continuar alcançáveis, os 6
+ausentes têm que continuar ausentes, e o contrato do Speak é reafirmado a cada
+execução. Fica vermelho no dia em que o Higgsfield publicar o Speak nessa
+superfície ou aposentar o DoP Turbo. Precisa de `HF_API_KEY`/`HF_API_SECRET` e
+`MEDIA_FORGE_RUN_LIVE_TESTS=true`. **3 passed ao vivo, 0 créditos.**
+
+---
+
 ## P1 — O contrato documentado do Speak não é o que o código envia
 
 **Levantado em 2026-07-31**, pesquisando a doc oficial. Não corrigido de propósito
@@ -98,37 +166,65 @@ diferente. Isso é decisão de escopo, não conserto.
 submete com o modo padrão `URL`. Ou seja: a primeira chamada de um usuário gasta
 crédito contra um formato que ninguém verificou.
 
-**BLOQUEIO REAL, medido em 2026-08-01: não há credencial para sondar.** O usuário
-autorizou a sonda; ela não pode rodar. `HF_API_KEY` e `HF_API_SECRET` não existem
-no shell nem em nenhum `.env` (o local tem só `GOOGLE_API_KEY` e
-`KLING_API_KEY`), e o token OAuth da CLI **não** serve para a API HTTP:
+**SONDA EXECUTADA em 2026-08-01**, com chave de API criada no dashboard. Custo
+zero: os dois `POST` falham na validação antes de qualquer trabalho ser
+enfileirado.
 
 ```
-GET /requests/<uuid>/status
-  Authorization: Bearer <token da CLI>  -> HTTP 401
-  Authorization: Key <token da CLI>     -> HTTP 401
-  (sem auth)                            -> HTTP 401
+POST /higgsfield-ai/speak/standard   {}              -> 404 {"detail":"model_not_found"}
+POST /v1/speak/higgsfield            {"params":{}}   -> 422 params.input_image / input_audio / prompt required
 ```
 
-401 idêntico ao caso sem autenticação: o token é rejeitado, não é outra coisa. A
-CLI usa OAuth 2.0 PKCE (`higgsfield auth login`), domínio de auth diferente do par
-key/secret da plataforma.
+**O caminho que o código envia não existe.** Foi deduzido dos vizinhos e nunca
+respondeu.
 
-Consequência boa: `inconclusive-auth-or-routing` é exatamente o veredicto que a
-sonda reescrita reportaria aqui. O conserto anterior está funcionando — isso é
-comportamento verificado, não hipótese.
+Contrato completo, obtido por sondagem incremental (todas 422, custo zero):
 
-**Como fechar, quando houver credencial:**
-1. Gerar par API key/secret no painel de `platform.higgsfield.ai`, exportar
-   `HF_API_KEY` e `HF_API_SECRET`.
-2. `POST /v1/speak/higgsfield` com `{params:{}}` deliberadamente incompleto e ler
-   o 4xx — erro de schema nomeia os campos exigidos, e o mesmo teste no caminho
-   atual (`/higgsfield-ai/speak/standard`) diz se ele existe.
-3. Se confirmar: trocar caminho e corpo do `higgsfield-speak`/`-speak2` (embrulho
-   `params`, `input_image`/`input_audio` tipados, `quality`, `duration`), validar
-   WAV na entrada e apagar `MEDIA_FORGE_HF_SPEAK_AUDIO_MODE`, que existe só para
-   escolher entre URL e upload — pergunta que o contrato já respondeu. **Não é
-   migração de superfície**: mesma base, mesmo polling, mesma auth.
+```
+POST /v1/speak/higgsfield
+{ "params": {
+    "input_image": { "type": …, "image_url": … },   // ambos obrigatórios
+    "input_audio": { "type": …, "audio_url": … },   // ambos obrigatórios
+    "prompt":   string,                              // obrigatório
+    "quality":  "high" | "mid",                      // opcional (SpeakWanQuality)
+    "duration": 5 | 10 | 15                          // opcional
+} }
+```
+
+Erro literal que fixa os enums:
+`Input should be <SpeakWanQuality.HIGH: 'high'> or <SpeakWanQuality.MID: 'mid'>`
+e `Input should be 5, 10 or 15`.
+
+Bate campo a campo com `dist/v2/types.d.ts`. **`audio_url` é URL simples** — a
+pergunta do P14 está respondida com evidência da própria API, não da doc.
+
+**Consequência para o registry:** `maxDurationSec` de 30 (`higgsfield-speak`) e
+60 (`-speak2`) estão errados. A API aceita **no máximo 15**. E não existe
+`speak2` em superfície nenhuma.
+
+**Os dois esquemas de auth funcionam.** `GET /requests/<uuid>/status` com a chave
+nova respondeu `404` (id inexistente) — não `401` — nas duas formas:
+
+```
+hf-api-key + hf-secret        -> HTTP 404
+Authorization: Key K:S        -> HTTP 404
+```
+
+Isso encerra a ambiguidade aberta em 2026-05-27 ("REST form also/not also
+accepted"): **as duas são aceitas**. A ordem primário/fallback deixa de ser risco
+e vira preferência.
+
+**O que falta para fechar, e é decisão de escopo:** trocar caminho e corpo de
+`higgsfield-speak` (embrulho `params`, objetos tipados, `quality`, `duration`),
+recortar `maxDurationSec` para 15, apagar `higgsfield-speak2` (não existe) e
+apagar `MEDIA_FORGE_HF_SPEAK_AUDIO_MODE`, que só existia para escolher entre URL
+e upload — pergunta agora respondida. **Não é migração de superfície:** mesma
+base, mesma auth, mesmo polling.
+
+**Ressalva que não dá para resolver com o que se sabe hoje:** o Speak responde em
+`/v1/speak/higgsfield` e **não aparece em `GET /models`**. Duas superfícies vivas,
+só uma catalogada. Não há evidência de que `/v1/*` seja legado nem de que seja
+suportado — e apostar em qualquer um dos dois lados muda o que se constrói.
 
 ---
 
@@ -291,12 +387,33 @@ não "provado".
 medir em crédito não depende de decisão nenhuma; expressar em USD depende de
 `MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT`. `recordActualCost` só aceita USD hoje.
 
-**Sobre a taxa:** a doc de `higgsfield-pricing.ts` lista Plus 0,039 / Ultra 0,0316
-/ Business 0,0266. A conta reporta plano `"pro"`, que **não** é nenhum desses
-nomes, e a concessão foi de 600 créditos, que não bate com nenhum pool publicado
-(Starter 200 / Plus 1000 / Ultra 3000, segundo fontes de terceiros — a página
-oficial de preços não entregou tabela). A taxa correta é o que **você** paga
-dividido pelos créditos concedidos: 600 na concessão de 2026-07-28.
+**Sobre a taxa — RESOLVIDO PARA A API em 2026-08-01, e a resposta expõe um limite
+do modelo.** O diálogo de top-up do `cloud.higgsfield.ai/credits` publica o preço
+do crédito de API, da própria conta:
+
+| Pacote | Preço | USD por crédito |
+|---|---|---|
+| 500 créditos | $30,00 | 0,0600 |
+| 800 créditos | $50,00 | 0,0625 |
+| 1.600 créditos | $100,00 | 0,0625 |
+| 4.000 créditos | $250,00 | 0,0625 |
+| avulso | "16 credits = $1" | **0,0625** |
+
+**`MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT = 0.0625`** para o caminho HTTP. Dentro
+da faixa `[0.001, 1.0]`.
+
+**São duas contas, não uma.** O saldo da conta de **API** é **0 crédito** —
+nenhum pacote comprado, nenhum método de pagamento salvo, nenhuma transação. Os
+**610 créditos** de `higgsfield account status` são da assinatura de consumo
+(plano `"pro"`), que alimenta a **CLI**. Mesma identidade de login, pools
+separados. Hoje a API não gera nada por falta de saldo — mesma situação do Kling
+(`packs: 0`).
+
+**O limite do modelo:** `USD_PER_CREDIT` é **uma constante global**, consumida
+tanto pelas specs `higgsfield` (API, 0,0625) quanto pelas `higgsfield-cli`
+(assinatura ÷ créditos concedidos). Duas taxas verdadeiras e diferentes para uma
+variável só. Declarar 0,0625 torna o custo da API exato e o da CLI aproximado.
+Separar exige uma segunda variável e é decisão de escopo, não conserto.
 
 ---
 

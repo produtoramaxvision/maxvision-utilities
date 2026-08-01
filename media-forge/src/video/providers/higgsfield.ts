@@ -33,6 +33,31 @@ export interface HiggsfieldProviderOptions {
 
 const BASE_URL = 'https://platform.higgsfield.ai';
 
+/**
+ * modelId -> platform path. Exported so a live test can check each one against
+ * the platform's own catalogue (`GET /models`) instead of trusting this file.
+ *
+ * It is not trustworthy on its own. Probed against the real API on 2026-08-01
+ * with a freshly minted key, six of these ten answered `404 model_not_found`
+ * and `soul/pro` answered `422` complaining the path segment must be
+ * `reference | character | standard` — "pro" is not a tier here, the segment is
+ * a MODE. See tests/video/providers/higgsfield-endpoints-live.test.ts, which
+ * pins today's truth so the day one of them appears (or one of the four working
+ * ones disappears) the gate turns red.
+ */
+export const HIGGSFIELD_ENDPOINTS: Readonly<Record<string, string>> = {
+  'higgsfield-soul-standard': '/higgsfield-ai/soul/standard',
+  'higgsfield-soul-pro': '/higgsfield-ai/soul/pro',
+  'higgsfield-soul2': '/higgsfield-ai/soul2/standard',
+  'higgsfield-dop': '/higgsfield-ai/dop/standard',
+  'higgsfield-dop-turbo': '/higgsfield-ai/dop/turbo',
+  'higgsfield-speak': '/higgsfield-ai/speak/standard',
+  'higgsfield-speak2': '/higgsfield-ai/speak2/standard',
+  'higgsfield-cinema-studio-3.5': '/higgsfield-ai/cinema-studio/3.5',
+  'higgsfield-marketing-studio': '/higgsfield-ai/marketing-studio/standard',
+  'higgsfield-recast': '/higgsfield-ai/recast/standard',
+};
+
 // One-shot warning latch for the broken HF_WEBHOOK_ENABLE path (Codex P2 PR#13).
 let _warnedHfWebhookBroken = false;
 
@@ -417,30 +442,11 @@ export class HiggsfieldProvider implements VideoProvider {
   }
 
   private endpointForModel(modelId: string): string {
-    switch (modelId) {
-      case 'higgsfield-soul-standard':
-        return '/higgsfield-ai/soul/standard';
-      case 'higgsfield-soul-pro':
-        return '/higgsfield-ai/soul/pro';
-      case 'higgsfield-soul2':
-        return '/higgsfield-ai/soul2/standard';
-      case 'higgsfield-dop':
-        return '/higgsfield-ai/dop/standard';
-      case 'higgsfield-dop-turbo':
-        return '/higgsfield-ai/dop/turbo';
-      case 'higgsfield-speak':
-        return '/higgsfield-ai/speak/standard';
-      case 'higgsfield-speak2':
-        return '/higgsfield-ai/speak2/standard';
-      case 'higgsfield-cinema-studio-3.5':
-        return '/higgsfield-ai/cinema-studio/3.5';
-      case 'higgsfield-marketing-studio':
-        return '/higgsfield-ai/marketing-studio/standard';
-      case 'higgsfield-recast':
-        return '/higgsfield-ai/recast/standard';
-      default:
-        throw new Error(`no endpoint mapped for higgsfield model: ${modelId}`);
+    const endpoint = HIGGSFIELD_ENDPOINTS[modelId];
+    if (endpoint === undefined) {
+      throw new Error(`no endpoint mapped for higgsfield model: ${modelId}`);
     }
+    return endpoint;
   }
 
   private buildUrlWithWebhook(endpoint: string, _jobId: string): string {
