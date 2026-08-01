@@ -48,13 +48,21 @@ jobs:
 
       - name: Test
         # The Windows GitHub runner cannot bootstrap embedded-postgres (pg_ctl
-        # fails to start a cluster), so the pg-backed integration suites throw at
-        # collection ("Test Files: no tests" -> unhandled error) and there is no
-        # runner-side fix. Typecheck/Lint/Build above already give authoritative
-        # Windows signal (and our dev box is Windows). So the test step is
-        # non-blocking on Windows ONLY; Ubuntu remains the authoritative test
-        # gate. Do not "fix" this by making pg work on Windows — it can't.
-        continue-on-error: ${{ matrix.os == 'windows-latest' }}
+        # HISTORY: this step used to be continue-on-error on Windows, because
+        # the windows-latest runner could not bootstrap embedded-postgres
+        # (pg_ctl failed) and the pg-backed suites threw at collection. The
+        # comment concluded "Do not fix this by making pg work on Windows — it
+        # can't."
+        #
+        # It can, and does. Checked 2026-08-01 across the four most recent CI
+        # runs (b203d16, 051a4f4, 5127059, 2d4e890): the Windows "Test" step
+        # reports success in every one, and the full suite passes on a Windows
+        # dev box too. The escape hatch outlived its cause.
+        #
+        # Removed, because a stale escape hatch is worse than none: it can only
+        # hide a FUTURE Windows regression, on the platform this project is
+        # developed on, and hide it behind a green check. If Windows turns out
+        # to be flaky, that is now visible instead of swallowed.
         run: pnpm test
 
       - name: Build

@@ -678,6 +678,13 @@ export type KlingBillingReconcileInputT = z.infer<typeof KlingBillingReconcileIn
 export const KlingBillingAuditInput = KlingBillingWindowInput;
 export type KlingBillingAuditInputT = z.infer<typeof KlingBillingAuditInput>;
 
+/**
+ * Same window shape as the audit tools. `/account/costs` is a read: it spends
+ * nothing and needs no job to have run.
+ */
+export const KlingResourcePacksInput = KlingBillingWindowInput;
+export type KlingResourcePacksInputT = z.infer<typeof KlingResourcePacksInput>;
+
 // ---------------------------------------------------------------------------
 // Seedance 2.0 (ByteDance) MCP tool schemas — P16 Task 7 (A0.5 surface: 4 tools).
 // A0.1: tiers are Fast + Standard only (NO Pro). Standard exclusively supports 1080p.
@@ -1361,6 +1368,12 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
     description:
       "Audit what Kling charged the ACCOUNT in a window, from the deduction endpoints. Reports the currency actually billed (the /tasks billing feed has none, so the USD assumption is only checkable here) and names charges with no local ledger row — the signature of a submit that succeeded before its ledger write failed, or of the same API key used from another machine. Read-only: never writes and never repairs. Requires KLING_API_KEY.",
     inputSchema: KlingBillingAuditInput,
+  },
+  {
+    name: 'media_kling_resource_packs',
+    description:
+      "List the Kling account's prepaid resource packs and how much of each remains. This is the call that answers \"do I have quota to generate?\" — with zero packs every paid Kling submit is refused, and that failure otherwise looks like a provider error. Read-only and free. Kling states the remaining figure LAGS real usage, so it is reported as delayed rather than as a live balance; treating it as live means submitting against quota already spent. Requires KLING_API_KEY (API 2.0 surface).",
+    inputSchema: KlingResourcePacksInput,
   },
 
   // ---- Seedance 2.0 (ByteDance) — P16 Task 7 (4 tools: t2v/i2v/multishot/reference-fusion) ----

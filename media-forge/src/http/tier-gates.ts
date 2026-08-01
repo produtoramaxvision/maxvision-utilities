@@ -81,6 +81,7 @@ const KLING_TOOLS = new Set([
   'media_kling_download',
   'media_kling_billing_reconcile',
   'media_kling_billing_audit',
+  'media_kling_resource_packs',
 ]);
 
 // Opt-in providers. Direct-access only — they are deliberately absent from the

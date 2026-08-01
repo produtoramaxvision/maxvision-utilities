@@ -47,6 +47,16 @@ describe('version consistency', () => {
     );
   });
 
+  // The doc carries a hand-written version line, which is the same unguarded
+  // shape that froze plugin.json at 0.1.1 through four releases. Guarded now:
+  // it drifted to 0.2.11 within one release of being set.
+  it('docs/specification.md states the current version', () => {
+    const raw = readFileSync(join(repoRoot, 'docs/specification.md'), 'utf-8');
+    const match = /^\*\*Version:\*\* (.+)$/m.exec(raw);
+    expect(match, 'docs/specification.md has no "**Version:**" line to check').not.toBeNull();
+    expect(match![1]!.trim()).toBe(MEDIA_FORGE_VERSION);
+  });
+
   it('is a plain semver triple — an installer resolves a directory by this string', () => {
     expect(MEDIA_FORGE_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });

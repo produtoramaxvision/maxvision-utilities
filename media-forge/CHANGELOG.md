@@ -4,6 +4,49 @@ All notable changes to `media-forge` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.13] - 2026-08-01
+
+Findings from an independent Codex cross-audit, each verified in the code before
+acting.
+
+### Fixed
+
+- **The Kling webhook settled on a guess without saying so.** When Kling omitted
+  the per-video duration and no estimate existed, `actual_usd` was recorded as
+  **0** for a job that was billed — and a measured figure, an estimate and that
+  zero were indistinguishable in the row. Closing the row is still correct (a
+  permanently pending job poisons the day's cap), but a non-measured settle now
+  records its basis and warns on stderr, matching what `handleKlingDownload`
+  already did on the sibling path. The comment claiming the oracle "always
+  returns the real cost" is corrected — that held only when the duration was
+  present.
+- **Windows CI stopped being authoritative and nobody noticed it could be again.**
+  The test step was `continue-on-error` on Windows because the runner once could
+  not start embedded-postgres. It can now: verified success across the four most
+  recent runs. Removed, because a stale escape hatch can only hide a future
+  regression on the platform this is developed on.
+- **`docs/specification.md` carried a stale version**, drifting within one release
+  of being set by hand — the same unguarded shape that froze `plugin.json` for
+  four releases. The version-consistency test now reads it.
+
+### Added
+
+- **`media_kling_resource_packs`** — reads the account's prepaid packs and
+  remaining quota. `fetchAccountCosts` had shipped tested with no caller, so the
+  one question a Kling user needs answered before submitting ("do I have quota?")
+  required writing a script. Zero packs means every paid submit is refused, which
+  otherwise looks like a provider error. The remaining figure is reported as
+  delayed, per Kling, rather than as a live balance.
+
+### Notes
+
+- Two verified findings are filed rather than closed, because closing them well
+  is its own change: `recordActualCostUSD` is an orphaned method on four
+  providers while sitting on the shared `VideoProvider` contract, and the
+  Higgsfield Speak audio probe asserts only `status < 500` so any 4xx passes.
+- The `deps.tier ?? 'pro'` default was checked and is not reachable from an
+  authenticated path; it serves stdio. Left in place, now logged.
+
 ## [0.2.12] - 2026-08-01
 
 Closes the last of the open work items, and finds one nobody had filed.

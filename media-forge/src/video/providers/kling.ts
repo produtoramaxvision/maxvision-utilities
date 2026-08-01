@@ -25,7 +25,12 @@ import {
   parseV2SubmitResponse,
   parseV2TaskResponse,
 } from './kling-v2.js';
-import { fetchTaskBillingPage, compareEstimateToActual } from './kling-billing.js';
+import {
+  fetchTaskBillingPage,
+  compareEstimateToActual,
+  fetchAccountCosts,
+  type KlingResourcePack,
+} from './kling-billing.js';
 import {
   auditDeductions,
   findOrphanCharges,
@@ -688,6 +693,50 @@ export class KlingProvider implements VideoProvider {
     }
 
     return { ...audit, orphans };
+  }
+
+  /**
+   * The account's prepaid resource packs, and how much of each is left.
+   *
+   * `fetchAccountCosts` shipped tested with NO production caller — the same
+   * orphan class this branch keeps finding. It answers the one question a Kling
+   * user actually needs before submitting anything ("do I have quota?"), and
+   * with no entry point the answer was only reachable by writing a script.
+   *
+   * `remainingIsDelayed` is passed straight through and never softened: Kling
+   * states the remaining figure lags real usage, so a caller that treats it as
+   * live would submit against quota already spent.
+   */
+  async fetchResourcePacks(args: {
+    readonly startTimeMs: number;
+    readonly endTimeMs: number;
+    readonly fetchImpl?: typeof fetch;
+  }): Promise<{ packs: ReadonlyArray<KlingResourcePack>; remainingIsDelayed: true }> {
+    const apiKey = this.env.KLING_API_KEY;
+    if (apiKey === undefined || apiKey.length === 0) {
+      throw new Error(
+        'Kling resource-pack lookup needs KLING_API_KEY — /account/costs is part of the ' +
+          'API 2.0 surface, which accepts API-key auth only.',
+      );
+    }
+
+    const result = await fetchAccountCosts(
+      { startTimeMs: args.startTimeMs, endTimeMs: args.endTimeMs },
+      { apiKey, ...(args.fetchImpl !== undefined ? { fetchImpl: args.fetchImpl } : {}) },
+    );
+
+    // Zero packs means every paid submit will be refused. Logged rather than
+    // left in a return value, because it explains a whole class of later
+    // failures that otherwise look like provider errors.
+    const totalRemaining = result.packs.reduce((sum, p) => sum + p.remainingQuantity, 0);
+    if (result.packs.length === 0 || totalRemaining <= 0) {
+      logger.warn('kling: no prepaid quota remaining — paid generations will be refused', {
+        packs: result.packs.length,
+        totalRemaining,
+      });
+    }
+
+    return result;
   }
 
   /** Local job row for a Kling native task id, if this install submitted it. */

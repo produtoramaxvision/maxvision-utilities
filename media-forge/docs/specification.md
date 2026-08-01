@@ -1,6 +1,6 @@
 # media-forge — Specification
 
-**Version:** 0.2.11
+**Version:** 0.2.13
 **Source:** Distilled from design spec (2026-05-21) + implementation reality (P0-P16 complete: baseline + refs-integration + multi-provider video).
 
 ---
@@ -89,9 +89,9 @@ Beyond the locked Google models, video generation is routed across four provider
 
 ---
 
-## 3. MCP Tool Registry (71 tools)
+## 3. MCP Tool Registry (72 tools)
 
-The MCP server exposes 71 tools (67 with `MEDIA_FORGE_SEEDANCE_ENABLED=false`), registered from the `MCP_TOOLS` array in `src/mcp/schemas.ts` and dispatched in `src/mcp/handlers.ts`.
+The MCP server exposes 72 tools (68 with `MEDIA_FORGE_SEEDANCE_ENABLED=false`), registered from the `MCP_TOOLS` array in `src/mcp/schemas.ts` and dispatched in `src/mcp/handlers.ts`.
 
 ### Image tools (6)
 
@@ -162,7 +162,7 @@ The MCP server exposes 71 tools (67 with `MEDIA_FORGE_SEEDANCE_ENABLED=false`), 
 | `media_higgsfield_poll` | Poll a Higgsfield request by id. |
 | `media_higgsfield_download` | Download a completed Higgsfield asset. |
 
-### Kling 3.0 tools (10) — P15
+### Kling 3.0 tools (11) — P15
 
 | Tool name | Description |
 |---|---|
@@ -176,6 +176,7 @@ The MCP server exposes 71 tools (67 with `MEDIA_FORGE_SEEDANCE_ENABLED=false`), 
 | `media_kling_video_extend` | Kling video extension. |
 | `media_kling_poll` | Poll a Kling task by id. |
 | `media_kling_download` | Download a completed Kling asset. |
+| `media_kling_resource_packs` | List the account's prepaid packs and remaining quota (delayed figure, per Kling). |
 
 ### Seedance 2.0 tools (4) — P16 (feature-flagged)
 
@@ -186,7 +187,7 @@ The MCP server exposes 71 tools (67 with `MEDIA_FORGE_SEEDANCE_ENABLED=false`), 
 | `media_seedance_multishot` | Multi-shot T2V with timestamp segmentation (≤15s, ≤4 shots). |
 | `media_seedance_reference_fusion` | Reference-to-video with `@Image/@Video/@Audio` mention syntax. |
 
-> Seedance tools register only when `MEDIA_FORGE_SEEDANCE_ENABLED` is not disabled (default on). With it off, the registry is 67 tools.
+> Seedance tools register only when `MEDIA_FORGE_SEEDANCE_ENABLED` is not disabled (default on). With it off, the registry is 68 tools.
 
 ### Narrative executor tools (3)
 
