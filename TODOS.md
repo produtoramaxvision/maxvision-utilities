@@ -100,6 +100,105 @@ Destinos: `ms_avatar_create` (1 imagem, vídeo, permanente) ou `soul_id_train`
 
 ---
 
+## (aberto — decisão do dono, 2026-08-02) Dois custos não medidos por escolha
+
+O dono pediu explicitamente para **não gastar crédito** para medir. Ambos ficam
+abertos com o status exato, não com um palpite.
+
+### 1. `media_higgsfield_ms_avatar_create` — custo desconhecido
+
+`marketing-studio avatars create` **não tem `--cost-only`**, e `ms avatars` tem
+só `create` e `list` — **não existe delete**. Uma sonda descartável deixaria
+avatar-lixo permanente na conta. Por isso a tool roteia por `runWriteJson`
+(tratada como gasto até alguém medir) e a descrição diz que o custo é
+desconhecido, em vez de herdar o "grátis" dos irmãos (`upload create` e
+`brand-kits fetch`, ambos medidos em 0).
+
+**Como fechar:** na primeira criação real, ler `higgsfield account status --json`
+antes e depois. Uma execução resolve.
+
+### 2. `media_higgsfield_soul_id_train` — 40 créditos
+
+Esse número é **conhecido**, não estimado. Fica aberto porque gastá-lo depende de
+autorização, não porque falte informação.
+
+---
+
+## (fechado 2026-08-02) Codex image — superfície completa, e um campo morto
+
+### O campo morto
+
+`CodexImageRequest` declarava `referenceImagePaths` e **nenhum dos dois arg
+builders lia**. Um caller podia passar referências, receber sucesso, e ficar com
+uma imagem que as ignorou — mesma classe de `last_frame_url` e `soul_id`, e
+invisível pelo mesmo motivo: o caminho feliz responde 200. Removido e substituído
+pelo caminho real.
+
+### O caminho real de referência
+
+O CLI tem dois subcomandos e não são intercambiáveis (confirmado por `--dry-run`,
+que imprime o payload exato e não precisa de chave nem rede):
+
+| op | endpoint | aceita imagem? |
+|---|---|---|
+| `generate` | `/v1/images/generations` | **não** |
+| `edit` | `/v1/images/edits` | **sim** — `image` é array, `--image` repete; `--mask` opcional |
+
+### O que passou a ser exposto
+
+`media_image_codex` foi de 4 parâmetros para **26**: `op`, `imagePaths`,
+`maskPath`, `quality`, `n`, `outputFormat`, `outputCompression`, `moderation`,
+`augment`, `downscaleMaxDim`, `downscaleSuffix` e as **11 fatias de briefing**
+(`useCase`, `scene`, `subject`, `style`, `composition`, `lighting`, `palette`,
+`materials`, `text`, `constraints`, `negative`).
+
+As fatias não são enfeite sobre `prompt` — o CLI monta um briefing rotulado no
+servidor. Medido:
+
+```
+"prompt": "Use case: avatar\nPrimary request: portrait\nSubject: a woman\n
+           Style/medium: editorial\nLighting/mood: window left\n
+           Color palette: muted red\nConstraints: no logos\nAvoid: no text"
+```
+
+`CODEX_IMAGE_SIZES` ganhou `auto` e `2048x2048`, que estavam na lista oficial e
+faltavam por lacuna de transcrição.
+
+### Três flags deliberadamente NÃO expostas
+
+| flag | motivo, verbatim da doc |
+|---|---|
+| `--input-fidelity` | "Do not pass --input-fidelity with gpt-image-2; this model always uses high fidelity for image inputs" |
+| `--background` | "Do not use --background transparent with gpt-image-2" |
+| `--model` | `gpt-image-1.5` é excluído deste repo; alpha vai por Nano Banana Pro ou Imagen 4 Ultra |
+
+### `quality` deixou de ser fixo
+
+Era travado em `high` com o argumento de que "um botão mais barato e pior convida
+o roteador a escolhê-lo". Revertido: a referência do CLI nomeia `low` para
+"fast drafts, thumbnails, and quick iterations". Conferido antes de destravar —
+nada fora de `codex-image.ts` lê `CODEX_IMAGE_QUALITY`, e o caminho de custo
+precifica **por imagem**, não por tier. `high` continua o default.
+
+### Modo builtin **recusa**, não ignora
+
+O caminho OAuth entrega uma string de instrução a um agente; não há flag para
+carregar máscara, formato ou moderação. `assertOptionsSupportedByMode` recusa
+nomeando **todas** as opções não suportadas de uma vez e cita
+`MEDIA_FORGE_CODEX_IMAGE_MODE=cli`. Descartar em silêncio devolveria imagem que
+ignorou o pedido — exatamente o que o campo morto fazia.
+
+### Nano Banana Pro: dois caminhos, duas contas
+
+`media_generate_image` usa `@google/genai` — **Google**, `GOOGLE_API_KEY`, Gemini
+ou Vertex. A CLI da Higgsfield **também** publica `nano_banana_pro` como job type
+(além de `nano_banana`, `nano_banana_flash`, `nano_banana_2_lite` e três
+variantes Pro). Mesma família, fornecedor diferente, saldo diferente. As tools de
+imagem deste plugin usam o caminho Google; nada roteia imagem pela cópia da
+Higgsfield hoje.
+
+---
+
 ## (aberto) `pnpm typecheck` não cobre `tests/` — 204 erros invisíveis
 
 Descoberto em 2026-08-01 enquanto eu fechava o item 11, por uma chamada minha que

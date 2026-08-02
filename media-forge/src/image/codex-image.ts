@@ -60,19 +60,95 @@ import { logger } from '../core/logger.js';
 /** The only model this adapter uses. gpt-image-1.5 is excluded by decision. */
 export const CODEX_IMAGE_MODEL = 'gpt-image-2';
 
-/** Forced. Lower tiers are not exposed — see the header. */
+/** Default, no longer forced. See CODEX_IMAGE_QUALITIES. */
 export const CODEX_IMAGE_QUALITY = 'high';
 
 export const CODEX_IMAGE_SIZES = [
+  'auto',
   '1024x1024',
   '1536x1024',
   '1024x1536',
+  '2048x2048',
   '2048x1152',
   '3840x2160',
   '2160x3840',
 ] as const;
 
 export type CodexImageSize = (typeof CODEX_IMAGE_SIZES)[number];
+
+/**
+ * Quality tiers, as `references/cli.md` documents them.
+ *
+ * `high` stays the DEFAULT — the original decision that the point of a third
+ * image source is quality still holds. What changed is that the lower tiers are
+ * now reachable when the caller asks for them, because "fast drafts, thumbnails,
+ * and quick iterations" is the CLI's own stated use for `low` and refusing it
+ * made the adapter worse at the one job it is cheapest at.
+ *
+ * Checked before unpinning: nothing outside this file reads
+ * CODEX_IMAGE_QUALITY, and the cost path prices per IMAGE, not per tier, so a
+ * cheaper tier cannot skew routing the way the original comment feared.
+ */
+export const CODEX_IMAGE_QUALITIES = ['low', 'medium', 'high', 'auto'] as const;
+export type CodexImageQuality = (typeof CODEX_IMAGE_QUALITIES)[number];
+
+export const CODEX_IMAGE_OUTPUT_FORMATS = ['png', 'jpeg', 'webp'] as const;
+export type CodexImageOutputFormat = (typeof CODEX_IMAGE_OUTPUT_FORMATS)[number];
+
+export const CODEX_IMAGE_MODERATIONS = ['auto', 'low'] as const;
+export type CodexImageModeration = (typeof CODEX_IMAGE_MODERATIONS)[number];
+
+/**
+ * The CLI's structured prompt slots.
+ *
+ * Not cosmetic: `image_gen.py` assembles them into a labelled brief server-side.
+ * Verified by dry-run 2026-08-02 — passing --use-case/--subject/--style/
+ * --lighting/--palette/--constraints/--negative produced
+ *
+ *   "Use case: avatar
+Primary request: portrait
+Subject: a woman
+
+ *    Style/medium: editorial
+Lighting/mood: window left
+
+ *    Color palette: muted red
+Constraints: no logos
+Avoid: no text"
+ *
+ * A caller who folds all of that into `prompt` by hand gets a different string
+ * than the one the CLI would have built, which is why these are exposed rather
+ * than documented as "just write it in the prompt".
+ */
+export const CODEX_PROMPT_SLOTS = [
+  'useCase',
+  'scene',
+  'subject',
+  'style',
+  'composition',
+  'lighting',
+  'palette',
+  'materials',
+  'text',
+  'constraints',
+  'negative',
+] as const;
+export type CodexPromptSlot = (typeof CODEX_PROMPT_SLOTS)[number];
+
+/** CLI flag name for each slot. */
+const PROMPT_SLOT_FLAGS: Readonly<Record<CodexPromptSlot, string>> = {
+  useCase: '--use-case',
+  scene: '--scene',
+  subject: '--subject',
+  style: '--style',
+  composition: '--composition',
+  lighting: '--lighting',
+  palette: '--palette',
+  materials: '--materials',
+  text: '--text',
+  constraints: '--constraints',
+  negative: '--negative',
+};
 
 export type CodexImageMode = 'builtin' | 'cli';
 
@@ -260,7 +336,83 @@ export interface CodexImageRequest {
   /** Directory the final image must end up in. */
   readonly outputDir: string;
   readonly fileName?: string;
-  readonly referenceImagePaths?: ReadonlyArray<string>;
+
+  /**
+   * `generate` (default) or `edit`.
+   *
+   * `edit` posts to /v1/images/edits and is the ONLY reference-image path this
+   * CLI has — `generate` takes no image input at all. Verified by dry-run:
+   * `edit --image x.png` prints `"endpoint": "/v1/images/edits"` with `image`
+   * as an array, so it is repeatable.
+   *
+   * This field replaces a `referenceImagePaths` that used to sit on this
+   * interface and was read by NEITHER argument builder. A caller could set it,
+   * get a successful generation back, and receive an image that ignored the
+   * reference entirely — the same silent-discard shape as Higgsfield's
+   * `last_frame_url` and `soul_id`, and invisible for the same reason: the
+   * happy path still returns.
+   */
+  readonly op?: 'generate' | 'edit';
+  /** Required when op is 'edit'. Repeatable. */
+  readonly imagePaths?: ReadonlyArray<string>;
+  /** `edit` only. Transparent areas mark what may be changed. */
+  readonly maskPath?: string;
+
+  readonly quality?: CodexImageQuality;
+  /** Variants OF ONE PROMPT. Distinct assets need distinct calls — the skill is explicit. */
+  readonly n?: number;
+  readonly outputFormat?: CodexImageOutputFormat;
+  /** jpeg/webp only. */
+  readonly outputCompression?: number;
+  readonly moderation?: CodexImageModeration;
+  /** Let the CLI expand a thin prompt, or forbid it from touching a finished one. */
+  readonly augment?: boolean;
+  readonly downscaleMaxDim?: number;
+  readonly downscaleSuffix?: string;
+
+  /** The CLI's labelled brief slots — see CODEX_PROMPT_SLOTS. */
+  readonly promptSlots?: Partial<Record<CodexPromptSlot, string>>;
+}
+
+/**
+ * Options the CLI implements and the built-in agent path cannot express.
+ *
+ * `builtin` hands an instruction string to an agent; there is no flag to carry
+ * an output format, a moderation setting or a mask through it. Dropping them
+ * silently would hand back an image that ignored what was asked — the exact
+ * failure the dead `referenceImagePaths` field used to produce. So they are
+ * refused by name, with the remedy in the message.
+ */
+export function assertOptionsSupportedByMode(
+  req: CodexImageRequest,
+  mode: CodexImageMode,
+): void {
+  if (mode === 'cli') return;
+
+  const unsupported: string[] = [];
+  if (req.op === 'edit') unsupported.push('op="edit"');
+  if (req.imagePaths?.length) unsupported.push('imagePaths');
+  if (req.maskPath !== undefined) unsupported.push('maskPath');
+  if (req.outputFormat !== undefined && req.outputFormat !== 'png') unsupported.push('outputFormat');
+  if (req.outputCompression !== undefined) unsupported.push('outputCompression');
+  if (req.moderation !== undefined) unsupported.push('moderation');
+  if (req.augment !== undefined) unsupported.push('augment');
+  if (req.downscaleMaxDim !== undefined) unsupported.push('downscaleMaxDim');
+  if (req.downscaleSuffix !== undefined) unsupported.push('downscaleSuffix');
+  for (const slot of CODEX_PROMPT_SLOTS) {
+    if (req.promptSlots?.[slot] !== undefined) unsupported.push(`promptSlots.${slot}`);
+  }
+
+  if (unsupported.length > 0) {
+    throw new ValidationError(
+      `${unsupported.join(', ')} ${unsupported.length === 1 ? 'is' : 'are'} implemented by the ` +
+        `Codex image CLI and cannot be expressed on the built-in path, which hands an ` +
+        `instruction string to an agent rather than calling an endpoint. Set ` +
+        `MEDIA_FORGE_CODEX_IMAGE_MODE=cli (with OPENAI_API_KEY and ` +
+        `MEDIA_FORGE_CODEX_IMAGE_USD_PER_IMAGE), or drop the option. It is refused rather ` +
+        `than ignored because an image that quietly disregarded it looks like a success.`,
+    );
+  }
 }
 
 /**
@@ -272,18 +424,49 @@ export function buildCliArgs(req: CodexImageRequest, scriptPath: string): string
   const out = `${req.outputDir}/${req.fileName ?? 'image.png'}`;
   const args = [
     scriptPath,
-    'generate',
+    req.op ?? 'generate',
     '--prompt',
     req.prompt,
     '--size',
     req.size ?? '1024x1024',
     '--quality',
-    CODEX_IMAGE_QUALITY,
+    req.quality ?? CODEX_IMAGE_QUALITY,
+    // --model is pinned, never taken from the request. gpt-image-1.5 is the one
+    // model this repo excludes, and it is also the only one that would accept
+    // `--background transparent` — so a caller-supplied model is the single
+    // parameter that could reopen a closed decision. Alpha routes to Nano Banana
+    // Pro or Imagen 4 Ultra, which do it natively.
     '--model',
     CODEX_IMAGE_MODEL,
     '--out',
     out,
   ];
+
+  for (const p of req.imagePaths ?? []) args.push('--image', p);
+  if (req.maskPath !== undefined) args.push('--mask', req.maskPath);
+  if (req.n !== undefined) args.push('--n', String(req.n));
+  if (req.outputFormat !== undefined) args.push('--output-format', req.outputFormat);
+  if (req.outputCompression !== undefined) {
+    args.push('--output-compression', String(req.outputCompression));
+  }
+  if (req.moderation !== undefined) args.push('--moderation', req.moderation);
+  if (req.augment !== undefined) args.push(req.augment ? '--augment' : '--no-augment');
+  if (req.downscaleMaxDim !== undefined) {
+    args.push('--downscale-max-dim', String(req.downscaleMaxDim));
+  }
+  if (req.downscaleSuffix !== undefined) args.push('--downscale-suffix', req.downscaleSuffix);
+
+  for (const slot of CODEX_PROMPT_SLOTS) {
+    const value = req.promptSlots?.[slot];
+    if (value !== undefined) args.push(PROMPT_SLOT_FLAGS[slot], value);
+  }
+
+  // DELIBERATELY NOT SENT, both on the CLI's own instruction:
+  //   --input-fidelity   "Do not pass --input-fidelity with gpt-image-2; this
+  //                       model always uses high fidelity for image inputs."
+  //   --background       "Do not use --background transparent with gpt-image-2."
+  // Neither is exposed on the input schema either, so there is nothing here to
+  // forward — named so the next reader does not add them back as a feature.
   return args;
 }
 
@@ -382,6 +565,7 @@ export class CodexImageProvider {
 
     const mode = opts.mode ?? resolveCodexImageMode();
     assertModeAllowed(mode, opts.isMultiTenant ?? false);
+    assertOptionsSupportedByMode(req, mode);
 
     // Priced before the call so an unset cli rate fails before spending.
     const estimateUsd = codexImageRateUsd(mode);

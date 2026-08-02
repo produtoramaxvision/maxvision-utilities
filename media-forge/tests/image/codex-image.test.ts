@@ -20,6 +20,9 @@ import {
   CODEX_IMAGE_MODEL,
   CODEX_IMAGE_QUALITY,
   CODEX_IMAGE_SIZES,
+  CODEX_IMAGE_QUALITIES,
+  CODEX_PROMPT_SLOTS,
+  assertOptionsSupportedByMode,
   type CliResult,
   type CliRunner,
   type CodexImageRequest,
@@ -201,15 +204,21 @@ describe('buildCliArgs()', () => {
     expect(args[qualityIdx + 1]).toBe('high');
   });
 
-  it('forces quality to "high" even when a caller tacks an unsupported quality field onto the request', () => {
-    // CodexImageRequest exposes no `quality` field at all — this proves
-    // buildCliArgs never reads one, rather than merely defaulting one when
-    // absent. low/medium are deliberately not exposed (see the file header).
-    const tampered = { ...baseReq(), quality: 'low' } as CodexImageRequest & { quality: string };
-    const args = buildCliArgs(tampered, SCRIPT_PATH);
-    const qualityIdx = args.indexOf('--quality');
-    expect(args[qualityIdx + 1]).toBe('high');
-    expect(args).not.toContain('low');
+  it('defaults quality to "high" but honours a caller who asks for a draft', () => {
+    // This assertion USED to pin the opposite: quality was forced to high and
+    // low/medium were unreachable, on the reasoning that "a cheaper-but-worse
+    // knob invites the router to pick it". Reversed deliberately — the CLI's own
+    // reference names `low` as the tier for "fast drafts, thumbnails, and quick
+    // iterations", and refusing it made the adapter worst at its cheapest job.
+    //
+    // Checked before reversing: nothing outside src/image/codex-image.ts reads
+    // CODEX_IMAGE_QUALITY, and the cost path prices per IMAGE rather than per
+    // tier, so a cheaper tier cannot skew routing the way that comment feared.
+    const defaulted = buildCliArgs(baseReq(), SCRIPT_PATH);
+    expect(defaulted[defaulted.indexOf('--quality') + 1]).toBe('high');
+
+    const draft = buildCliArgs(baseReq({ quality: 'low' }), SCRIPT_PATH);
+    expect(draft[draft.indexOf('--quality') + 1]).toBe('low');
   });
 
   it('model is gpt-image-2 — CODEX_IMAGE_MODEL — and never gpt-image-1.5, which is excluded by decision', () => {
@@ -353,19 +362,25 @@ describe('extractImagePath()', () => {
 });
 
 describe('CODEX_IMAGE_SIZES / CODEX_IMAGE_QUALITY', () => {
-  it('CODEX_IMAGE_SIZES matches the six documented sizes', () => {
+  it('CODEX_IMAGE_SIZES matches the sizes references/cli.md lists as popular', () => {
+    // Two were missing and are now present: 'auto' (the CLI's own default) and
+    // '2048x2048'. Both appear in the "Popular gpt-image-2 sizes" list; omitting
+    // them was a transcription gap, not a decision.
     expect(CODEX_IMAGE_SIZES).toEqual([
+      'auto',
       '1024x1024',
       '1536x1024',
       '1024x1536',
+      '2048x2048',
       '2048x1152',
       '3840x2160',
       '2160x3840',
     ]);
   });
 
-  it('CODEX_IMAGE_QUALITY is "high"', () => {
+  it('CODEX_IMAGE_QUALITY is "high" — now the default rather than the only value', () => {
     expect(CODEX_IMAGE_QUALITY).toBe('high');
+    expect(CODEX_IMAGE_QUALITIES).toEqual(['low', 'medium', 'high', 'auto']);
   });
 });
 
@@ -473,5 +488,133 @@ describe('builtin mode — prompt-injection containment', () => {
     const args = buildBuiltinArgs({ prompt: injection, outputDir: '/tmp/out' });
     const instruction = args[args.length - 1] as string;
     expect(instruction).toContain(injection);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The full option surface.
+//
+// Every flag asserted here was read off the installed CLI on 2026-08-02 with
+// `--help` and confirmed with `--dry-run`, which prints the exact API payload
+// and needs neither key nor network. Nothing is transcribed from a docs cache.
+// ---------------------------------------------------------------------------
+describe('buildCliArgs() — the options the CLI actually implements', () => {
+  it('op="edit" targets the edits subcommand and repeats --image', () => {
+    // Dry-run proof: `edit --image x.png` prints
+    //   { "endpoint": "/v1/images/edits", "image": ["...x.png"], ... }
+    // so `image` is an array and the flag repeats.
+    const args = buildCliArgs(
+      baseReq({ op: 'edit', imagePaths: ['a.png', 'b.png'], maskPath: 'm.png' }),
+      SCRIPT_PATH,
+    );
+
+    expect(args[1]).toBe('edit');
+    expect(args.filter((a) => a === '--image')).toHaveLength(2);
+    expect(args).toEqual(expect.arrayContaining(['--mask', 'm.png']));
+  });
+
+  it('generate stays the default subcommand', () => {
+    expect(buildCliArgs(baseReq(), SCRIPT_PATH)[1]).toBe('generate');
+  });
+
+  it('forwards n, output format, compression and moderation', () => {
+    const args = buildCliArgs(
+      baseReq({ n: 3, outputFormat: 'webp', outputCompression: 80, moderation: 'low' }),
+      SCRIPT_PATH,
+    );
+
+    expect(args).toEqual(expect.arrayContaining(['--n', '3']));
+    expect(args).toEqual(expect.arrayContaining(['--output-format', 'webp']));
+    expect(args).toEqual(expect.arrayContaining(['--output-compression', '80']));
+    expect(args).toEqual(expect.arrayContaining(['--moderation', 'low']));
+  });
+
+  it('maps augment to the right one of two mutually exclusive flags', () => {
+    expect(buildCliArgs(baseReq({ augment: true }), SCRIPT_PATH)).toContain('--augment');
+    expect(buildCliArgs(baseReq({ augment: false }), SCRIPT_PATH)).toContain('--no-augment');
+    // Unset leaves the CLI's own default in charge rather than picking one.
+    const neither = buildCliArgs(baseReq(), SCRIPT_PATH);
+    expect(neither).not.toContain('--augment');
+    expect(neither).not.toContain('--no-augment');
+  });
+
+  it('forwards every one of the eleven labelled brief slots', () => {
+    // The CLI assembles these server-side into "Use case: … / Primary request: …
+    // / Subject: … / Style/medium: …", which is why they are separate parameters
+    // rather than advice to write it all into `prompt`.
+    const slots = Object.fromEntries(CODEX_PROMPT_SLOTS.map((s) => [s, `v-${s}`]));
+    const args = buildCliArgs(baseReq({ promptSlots: slots }), SCRIPT_PATH);
+
+    for (const slot of CODEX_PROMPT_SLOTS) {
+      expect(args, `${slot} was dropped`).toContain(`v-${slot}`);
+    }
+    expect(args).toEqual(expect.arrayContaining(['--use-case', 'v-useCase']));
+    expect(args).toEqual(expect.arrayContaining(['--negative', 'v-negative']));
+  });
+
+  it('never sends --input-fidelity or --background, which the CLI forbids for gpt-image-2', () => {
+    // references/cli.md, verbatim: "Do not pass --input-fidelity with
+    // gpt-image-2; this model always uses high fidelity for image inputs" and
+    // "Do not use --background transparent with gpt-image-2".
+    const args = buildCliArgs(
+      baseReq({ op: 'edit', imagePaths: ['a.png'], quality: 'high' }),
+      SCRIPT_PATH,
+    );
+    expect(args).not.toContain('--input-fidelity');
+    expect(args).not.toContain('--background');
+  });
+});
+
+describe('assertOptionsSupportedByMode() — refuse, never silently drop', () => {
+  it('lets everything through on the cli path', () => {
+    expect(() =>
+      assertOptionsSupportedByMode(
+        { ...baseReq(), op: 'edit', imagePaths: ['a.png'], moderation: 'low' },
+        'cli',
+      ),
+    ).not.toThrow();
+  });
+
+  it('refuses a CLI-only option on the builtin path, naming it and the remedy', () => {
+    // The builtin path hands an instruction string to an agent; there is no flag
+    // to carry a mask or a moderation setting through it. Dropping them quietly
+    // returns an image that ignored the request and looks like a success — the
+    // same shape as the dead referenceImagePaths field this replaced.
+    expect(() =>
+      assertOptionsSupportedByMode({ ...baseReq(), moderation: 'low' }, 'builtin'),
+    ).toThrow(/moderation/);
+    expect(() =>
+      assertOptionsSupportedByMode({ ...baseReq(), moderation: 'low' }, 'builtin'),
+    ).toThrow(/MEDIA_FORGE_CODEX_IMAGE_MODE=cli/);
+  });
+
+  it('refuses edit and its inputs on the builtin path', () => {
+    expect(() =>
+      assertOptionsSupportedByMode(
+        { ...baseReq(), op: 'edit', imagePaths: ['a.png'] },
+        'builtin',
+      ),
+    ).toThrow(/op="edit"/);
+  });
+
+  it('allows what builtin CAN express — prompt, size, quality, n', () => {
+    expect(() =>
+      assertOptionsSupportedByMode({ ...baseReq(), quality: 'low', n: 2 }, 'builtin'),
+    ).not.toThrow();
+  });
+
+  it('names every unsupported option at once rather than one per round trip', () => {
+    let message = '';
+    try {
+      assertOptionsSupportedByMode(
+        { ...baseReq(), moderation: 'low', augment: true, promptSlots: { style: 'x' } },
+        'builtin',
+      );
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    expect(message).toContain('moderation');
+    expect(message).toContain('augment');
+    expect(message).toContain('promptSlots.style');
   });
 });

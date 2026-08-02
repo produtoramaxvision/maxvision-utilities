@@ -26,31 +26,49 @@ produce five different women, and nobody notices until the third ad.
 
 So the pipeline is built around the consistency step, not around the prompt.
 
-## The step that decides everything: gpt-image-2 cannot do this alone
+## The step that decides everything: carrying one face across N renders
 
-`media_image_codex` runs **gpt-image-2**, and its input is `prompt`, `size`,
-`outputDir`, `fileName`. **There is no reference-image parameter.** Every call
-starts from nothing. So N calls give N different people, no matter how detailed
-the prompt is.
+`media_image_codex` runs **gpt-image-2** through the Codex CLI, which has two
+subcommands and they are not interchangeable:
+
+- **`op: "generate"`** — takes a prompt and no image input at all. Every call
+  starts from nothing, so N calls give N different people no matter how detailed
+  the prompt is.
+- **`op: "edit"`** — posts to `/v1/images/edits`, takes `imagePaths` (repeatable)
+  and an optional `maskPath`. **This is the CLI's only reference-image path.**
 
 `media_generate_image` runs **Nano Banana Pro** and takes up to **14
-`referenceImages`**. That is the identity carrier.
+`referenceImages`** on the ordinary generate call — no mode switch needed.
 
-Which means the split is not a preference:
+So there are two working routes for the variation step, with a real difference:
 
-| Step | Tool | Why that one |
+| Route | Shape | Best at |
 |---|---|---|
-| The **anchor** — one canonical frontal portrait | `media_image_codex` **or** `media_generate_image` | Either can invent a face |
-| Every **variation** of that same face | `media_generate_image` with the anchor in `referenceImages` | Only this one can be shown who the person is |
+| `media_generate_image` + `referenceImages` | generate, guided by refs | New poses and framings around a known face |
+| `media_image_codex` + `op: "edit"` | edit an existing frame | Changing one thing in a frame you already like — wardrobe, background, lighting — while preserving the rest |
 
-Use `media_image_codex` for the anchor when the account is on the OAuth path
-(no `OPENAI_API_KEY`), where it costs nothing beyond the ChatGPT plan. With
-`OPENAI_API_KEY` set it is metered and needs
-`MEDIA_FORGE_CODEX_IMAGE_USD_PER_IMAGE`.
+Use edit when you want the anchor *modified*; use Nano Banana Pro when you want
+a *different shot* of the same person.
 
-`gpt-image-2` also has **no transparency** — it does not support transparent
+> **Correction (2026-08-02).** An earlier version of this page said gpt-image-2
+> takes no references at all. That was true of how the adapter was wired, not of
+> the CLI: `CodexImageRequest` carried a `referenceImagePaths` field that
+> **neither argument builder read**, so a caller could set it, get a successful
+> generation back, and receive an image that ignored it — the same silent-discard
+> shape as Higgsfield's `last_frame_url`. The field is gone and `op: "edit"` is
+> wired in its place.
+
+`gpt-image-2` still has **no transparency** — it does not support transparent
 backgrounds, and gpt-image-1.5 is excluded from this repo. If the avatar needs
 real alpha, the anchor has to come from Nano Banana Pro or Imagen 4 Ultra.
+
+### Two Nano Banana Pros, two bills
+
+`media_generate_image` goes to **Google** (`@google/genai`, `GOOGLE_API_KEY`,
+Gemini or Vertex). The Higgsfield CLI **also** publishes `nano_banana_pro` as a
+job type. Same model family, different vendor, different balance: Google bills
+your Google account, Higgsfield bills the subscription pool. This plugin's image
+tools use the Google path; nothing routes images through Higgsfield's copy today.
 
 ## Pipeline
 
@@ -80,8 +98,31 @@ is not a style choice — it is what makes the anchor usable as a reference for
 poses that are not neutral.
 
 ```
-media_image_codex { prompt: <identity>, size: "1024x1024", outputDir: "./outputs/avatar" }
+media_image_codex {
+  prompt: <identity>,
+  size: "1024x1024",
+  quality: "high",
+  outputDir: "./outputs/avatar",
+  subject: <who they are>,
+  style: <medium and treatment>,
+  lighting: <source and direction>,
+  negative: "text, watermark, logo"
+}
 ```
+
+The `subject` / `style` / `lighting` / `palette` / `composition` / `negative`
+slots are not decoration on top of `prompt`: the CLI assembles them server-side
+into a labelled brief ("Use case: … / Primary request: … / Subject: … /
+Style/medium: …"), so writing the same words into `prompt` by hand produces a
+different string than the one the tool would have built.
+
+Use `quality: "low"` while you are still deciding the face — the CLI's own
+reference names it for "fast drafts, thumbnails, and quick iterations" — then
+one `high` pass for the anchor you keep.
+
+**Those slots need CLI mode.** On the built-in OAuth path they are refused by
+name rather than ignored, because an image that quietly disregarded the brief
+looks exactly like a success.
 
 Look at it before continuing. Everything downstream inherits this face, and the
 cheapest moment to reject it is now.

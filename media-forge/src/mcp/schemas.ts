@@ -49,7 +49,7 @@ import { VIDEO_MODELS, PROVIDERS } from '../core/models.js';
 import { NarrativePlanInput, NarrativeAssembleInput } from './handlers/narrative.js';
 // T17 / T6: same reasoning — the input schemas live beside the handler that acts
 // on them, and are re-exported into MCP_TOOLS so discovery stays one list.
-import { CodexImageInput, SoulIdTrainInput } from './handlers/optional-providers.js';
+import { CodexImageInput, _CodexImageBase, SoulIdTrainInput } from './handlers/optional-providers.js';
 
 /** No parameters — reconciliation reads both sides and reports. */
 export const SoulIdListInput = z.object({}).strict();
@@ -1959,8 +1959,12 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
   {
     name: 'media_image_codex',
     description:
-      'Generate one image through the Codex CLI at quality "high" with gpt-image-2. TWO credential paths, auto-detected: with no OPENAI_API_KEY it uses the built-in image_gen tool riding your local `codex login` OAuth session, which costs nothing beyond your ChatGPT plan; with OPENAI_API_KEY set it uses the bundled CLI against the OpenAI Images API, which is METERED and requires MEDIA_FORGE_CODEX_IMAGE_USD_PER_IMAGE to be configured. The OAuth path is refused under multi-tenant hosting, where one machine-wide session cannot serve separate tenants. No native transparency: gpt-image-2 does not support transparent backgrounds and gpt-image-1.5 is excluded — use Nano Banana Pro or Imagen 4 Ultra when you need real alpha.',
-    inputSchema: CodexImageInput,
+      'Generate or EDIT an image through the Codex CLI with gpt-image-2. op="generate" (default) takes no image input at all; op="edit" posts to /v1/images/edits and is the only path that accepts reference images plus an optional mask. Full option set: quality (low/medium/high/auto, default high), n variants of one prompt, outputFormat png/jpeg/webp with compression, moderation, augment, downscale, and eleven labelled brief slots (useCase, scene, subject, style, composition, lighting, palette, materials, text, constraints, negative) that the CLI assembles server-side. TWO credential paths, auto-detected: with no OPENAI_API_KEY it uses the built-in image_gen tool riding your local `codex login` OAuth session, which costs nothing beyond your ChatGPT plan but supports only prompt/size/quality/n — every other option is REFUSED by name rather than ignored; with OPENAI_API_KEY set it uses the bundled CLI against the OpenAI Images API, which is METERED, supports everything, and requires MEDIA_FORGE_CODEX_IMAGE_USD_PER_IMAGE. The OAuth path is refused under multi-tenant hosting, where one machine-wide session cannot serve separate tenants. No native transparency: gpt-image-2 does not support transparent backgrounds and gpt-image-1.5 is excluded — use Nano Banana Pro or Imagen 4 Ultra when you need real alpha.',
+    // DEBT-008: tools/list needs a plain ZodObject; the cross-field rules
+    // (edit requires imagePaths, png rejects compression) make the exported
+    // schema a ZodEffects, so runtime validation uses the refined one.
+    inputSchema: _CodexImageBase,
+    validationSchema: CodexImageInput,
   },
   {
     name: 'media_higgsfield_soul_id_train',
