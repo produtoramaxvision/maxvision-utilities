@@ -129,7 +129,29 @@ export const PRICING_UNITS = [
 ] as const;
 export type PricingUnit = (typeof PRICING_UNITS)[number];
 
-export const PRICING_SOURCES = ['fixed-public-rate', 'volatile-by-tier', 'user-override'] as const;
+export const PRICING_SOURCES = [
+  'fixed-public-rate',
+  'volatile-by-tier',
+  'user-override',
+  /**
+   * The rate is a carried-forward number nobody has confirmed against a charge.
+   *
+   * Distinct from `volatile-by-tier`, which says "correct, but depends on your
+   * plan". This says "we do not know that it is correct at any plan".
+   *
+   * The five Higgsfield HTTP specs are the case it was added for. Their rates
+   * (25/70/40/18/35) predate the Cloud API account; `GET /models` reports
+   * `base_credits` of 1.0 / 0.0 / 9.0 / 6.5 for the four it lists, and does not
+   * list speak at all. 0.0 cannot be a final price and 25 vs 1.0 is not a tier
+   * difference, so at least one side is wrong — and the API balance is 0, so no
+   * billed generation has ever settled it.
+   *
+   * Two of those specs already said "UNVERIFIED" in `notes`, which is prose: the
+   * cost guard could not read it and the router could not warn on it. This makes
+   * the same fact machine-readable, and `buildRationale` prints it.
+   */
+  'unverified',
+] as const;
 export type PricingSource = (typeof PRICING_SOURCES)[number];
 
 /**
@@ -277,7 +299,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
     pricing: {
       unit: 'credits-per-video',
       rate: 25,
-      source: 'volatile-by-tier',
+      source: 'unverified',
       updatedAt: '2026-05-27',
       notes: 'Higgsfield Soul standard — 50+ aesthetic presets. Plus plan: ~$0.039/credit.',
     },
@@ -295,7 +317,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
     pricing: {
       unit: 'credits-per-video',
       rate: 70,
-      source: 'volatile-by-tier',
+      source: 'unverified',
       updatedAt: '2026-05-27',
       notes:
         'Higgsfield Soul 2.0 — improved coherence, character consistency via custom_reference_id. ' +
@@ -316,7 +338,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
     pricing: {
       unit: 'credits-per-video',
       rate: 40,
-      source: 'volatile-by-tier',
+      source: 'unverified',
       updatedAt: '2026-05-27',
       notes: 'Director of Photography — 20+ WAN Camera Control presets as verbs in prompt.',
     },
@@ -334,7 +356,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
     pricing: {
       unit: 'credits-per-video',
       rate: 18,
-      source: 'volatile-by-tier',
+      source: 'unverified',
       updatedAt: '2026-05-27',
       notes: 'DoP turbo — faster, cheaper, slightly lower fidelity.',
     },
@@ -354,7 +376,7 @@ export const VIDEO_MODELS: Readonly<Record<string, VideoModelSpec>> = {
     pricing: {
       unit: 'credits-per-video',
       rate: 35,
-      source: 'volatile-by-tier',
+      source: 'unverified',
       updatedAt: '2026-05-27',
       notes:
         'Speak lip-sync — photo + audio → talking head. Body: image_url, audio_url, prompt ' +

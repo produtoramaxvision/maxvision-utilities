@@ -270,6 +270,7 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
 
   const rationale =
     buildRationale(picked, input, sorted.length, explicit !== undefined) +
+    describeUnverifiedPrice(picked) +
     describeAlternatePaths(alternatePaths);
 
   return {
@@ -372,5 +373,28 @@ function buildRationale(
     `Cheapest USD-equivalent candidate for mode ${input.mode}: ${picked.id} at ` +
     `$${normalizeCostUSDSafe(picked, input).toFixed(4)}/s. ` +
     `Use preferProvider to override.`
+  );
+}
+
+/**
+ * Says out loud that the price attached to a route was never confirmed.
+ *
+ * `source: 'unverified'` existed only as prose in `notes` before this: two of
+ * the five Higgsfield HTTP specs literally contained the word UNVERIFIED in a
+ * free-text field, where no caller could act on it. A cost estimate the caller
+ * cannot tell apart from a measured one is the failure mode — a rate carried
+ * forward from before the account existed reads exactly like kling's, which was
+ * checked against a published table.
+ *
+ * Appended to the rationale rather than thrown: the route is still the correct
+ * route, and the number is still the best one available. What changes is that
+ * the caller knows which kind of number it is.
+ */
+function describeUnverifiedPrice(picked: VideoModelSpec): string {
+  if (picked.pricing.source !== 'unverified') return '';
+  return (
+    ` NOTE: ${picked.id}'s rate (${picked.pricing.rate} ${picked.pricing.unit}) is UNVERIFIED —` +
+    ` carried forward, never confirmed against a charge. Treat the estimate as an order of` +
+    ` magnitude, not a quote.`
   );
 }

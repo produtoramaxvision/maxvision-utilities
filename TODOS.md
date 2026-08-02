@@ -26,18 +26,30 @@ fixture não há como detectar drift do catálogo offline nem em CI.
 
 **Esforço:** S. **Custo:** 0 créditos (tudo leitura).
 
-### 2. Item 12 — `source: 'unverified'` nos specs HTTP
+### 2. Item 12 — `source: 'unverified'` nos specs HTTP — **FECHADO em 2026-08-01**
 
-**O quê:** `PricingSource` só tem `fixed-public-rate` (8 usos) e
-`volatile-by-tier` (11). O plano recomendava marcar os specs HTTP como não
-verificados e fazer o guarda de custo avisar, em vez de fingir precisão.
+**O que era:** `PricingSource` só tinha `fixed-public-rate`, `volatile-by-tier` e
+`user-override`. Os preços HTTP eram os números antigos do registry
+(25/70/40/18/35) enquanto `GET /models` reporta `base_credits` 1.0/0.0/9.0/6.5 —
+e não lista `speak`. O registry não dizia que não sabia.
 
-**Por que importa:** os preços HTTP continuam sendo os números antigos do registry
-(25/70/40/18) enquanto `GET /models` reporta `base_credits` 1.0/0.0/9.0/6.5. Não
-sabemos qual é verdade — e o registry não diz que não sabe.
+**Como foi fechado:** `'unverified'` entrou em `PRICING_SOURCES` e marca os cinco
+specs HTTP. O valor distingue "correto, varia por plano" (`volatile-by-tier`) de
+"não sabemos se é correto em plano nenhum".
 
-**Bloqueado em:** saldo 0 na conta de API. Só uma geração cobrada fecha o ciclo.
-A marcação, porém, não depende de crédito nenhum.
+**A parte que importava:** dois desses specs já diziam "UNVERIFIED" — dentro do
+campo `notes`, texto livre que nenhum caller lê. Agora `describeUnverifiedPrice`
+em `handlers/video.ts` anexa o aviso à rationale da rota, com a taxa junto, para
+o leitor medir o tamanho da dúvida em vez de só saber que ela existe. Rotas com
+preço confirmado (kling) seguem silenciosas — aviso em toda rota treina o leitor
+a pular o aviso.
+
+`tests/mcp/video-route-unverified-price.test.ts` fixa as duas pontas: quais specs
+são marcados, e que a marcação chega na saída. Sem ele a marcação volta a ser
+decoração na primeira refatoração.
+
+**Continua bloqueado:** saber qual número é o certo. Só uma geração cobrada
+fecha, e o saldo da API é 0. A marcação nunca dependeu disso.
 
 ### 3. Item 14 — taxa única de USD por crédito — **FECHADO em 2026-08-01**
 

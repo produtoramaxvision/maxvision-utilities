@@ -38,7 +38,9 @@ describe('multi-provider registry', () => {
     const spec: VideoModelSpec = VIDEO_MODELS[VIDEO_MODEL_VEO_3_1_PRO];
     expect(['usd-per-second', 'usd-per-video', 'credits-per-video']).toContain(spec.pricing.unit);
     expect(typeof spec.pricing.rate).toBe('number');
-    expect(['fixed-public-rate', 'volatile-by-tier', 'user-override']).toContain(spec.pricing.source);
+    expect(['fixed-public-rate', 'volatile-by-tier', 'user-override', 'unverified']).toContain(
+      spec.pricing.source,
+    );
     expect(spec.pricing.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}/);
   });
 });
@@ -80,7 +82,12 @@ describe('P14 — Higgsfield models registered', () => {
       expect(spec!.provider).toBe('higgsfield');
       expect(spec!.pricing.unit).toBe('credits-per-video');
       expect(spec!.pricing.rate).toBeGreaterThan(0);
-      expect(spec!.pricing.source).toBe('volatile-by-tier');
+      // 'unverified', not 'volatile-by-tier'. The distinction is the point:
+      // volatile means "correct, varies by plan"; these rates predate the Cloud
+      // API account and `GET /models` disagrees with every one it lists
+      // (1.0 vs 25, 0.0 vs 70, 9.0 vs 40, 6.5 vs 18). The balance is 0, so no
+      // billed generation has ever settled which side is right.
+      expect(spec!.pricing.source).toBe('unverified');
       expect(spec!.pricing.updatedAt).toMatch(/^2026-05-/);
     });
   }
