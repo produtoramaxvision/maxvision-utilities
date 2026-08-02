@@ -184,6 +184,9 @@ describe('T15 part B — Higgsfield submit ledger (all 5 submit tools)', () => {
     process.env['HF_API_KEY'] = 'pk';
     process.env['HF_API_SECRET'] = 'sk';
     process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] = '0.039';
+    // Both transports run in this file, and they bill separate pools. The
+    // Studio tools below submit over the CLI, which prices from its own rate.
+    process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'] = '0.0483333';
     // Cinema Studio and Marketing Studio submit over the CLI, so a fetch stub
     // cannot stand in for them.
     _setHiggsfieldCliProviderForTests(
@@ -218,6 +221,7 @@ describe('T15 part B — Higgsfield submit ledger (all 5 submit tools)', () => {
     delete process.env['HF_API_KEY'];
     delete process.env['HF_API_SECRET'];
     delete process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
+    delete process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'];
     global.fetch = ORIG_FETCH;
     vi.restoreAllMocks();
   });

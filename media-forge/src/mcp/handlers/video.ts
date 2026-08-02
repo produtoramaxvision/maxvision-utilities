@@ -8,6 +8,7 @@ import {
 } from '../schemas.js';
 import { queryReport, type CostReport } from '../../core/cost-tracker.js';
 import { normalizeCostUSD } from '../../core/pricing.js';
+import { usdPerCreditFor } from '../../core/higgsfield-pricing.js';
 import type { Provider, VideoModelSpec } from '../../core/models.js';
 import { GoogleVeoProvider } from '../../video/providers/google-veo.js';
 import { VIDEO_MODELS } from '../../core/models.js';
@@ -283,9 +284,12 @@ export async function handleVideoRoute(rawInput: unknown): Promise<VideoRouteRes
 
 function normalizeCostUSDSafe(spec: VideoModelSpec, input: VideoRouteInputT): number {
   try {
-    const usdPerCredit = parseFloat(
-      process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] ?? 'NaN',
-    );
+    // Resolved per PROVIDER, not once globally. `higgsfield` (Cloud API top-up)
+    // and `higgsfield-cli` (monthly plan) are separate credit pools at separate
+    // prices; pricing both from the API rate made every CLI candidate look 29.3%
+    // more expensive than it bills, here in the RANKING — so the wrong route
+    // could win, not merely be reported wrong afterwards.
+    const usdPerCredit = usdPerCreditFor(spec.provider);
     const result = normalizeCostUSD(spec, {
       durationSec: input.durationSec,
       usdPerCredit,

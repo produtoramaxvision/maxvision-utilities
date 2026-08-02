@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   validateHiggsfieldPricingAtBoot,
   _resetValidatedPricingForTests,
+  usdPerCreditFor,
   USD_PER_CREDIT,
 } from '../../src/core/higgsfield-pricing.js';
 
@@ -53,5 +54,84 @@ describe('higgsfield-pricing (D-6)', () => {
   it('rejects missing env var', () => {
     delete process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
     expect(() => validateHiggsfieldPricingAtBoot()).toThrow(/MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Two pools, two rates.
+//
+// The Cloud API and the `higgsfield` CLI bill SEPARATE credit balances at
+// separate prices. One global rate priced both, and on 2026-08-01 an accidental
+// 350-credit CLI burst that cost $16.92 at the subscription rate would have been
+// reported as $21.88 — 29.3% high on every CLI job.
+// ---------------------------------------------------------------------------
+describe('usdPerCreditFor — API and CLI pools resolve independently', () => {
+  const API = 'MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT';
+  const CLI = 'MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT';
+  let prevApi: string | undefined;
+  let prevCli: string | undefined;
+
+  beforeEach(() => {
+    prevApi = process.env[API];
+    prevCli = process.env[CLI];
+    _resetValidatedPricingForTests();
+  });
+  afterEach(() => {
+    _resetValidatedPricingForTests();
+    if (prevApi === undefined) delete process.env[API];
+    else process.env[API] = prevApi;
+    if (prevCli === undefined) delete process.env[CLI];
+    else process.env[CLI] = prevCli;
+  });
+
+  it('prices the CLI pool at the subscription rate, not the API rate', () => {
+    process.env[API] = '0.0625';
+    process.env[CLI] = '0.0483333';
+    validateHiggsfieldPricingAtBoot();
+
+    expect(usdPerCreditFor('higgsfield')).toBeCloseTo(0.0625, 7);
+    expect(usdPerCreditFor('higgsfield-cli')).toBeCloseTo(0.0483333, 7);
+  });
+
+  it('reports the incident spend at the invoiced figure', () => {
+    // The exact numbers from the 2026-08-01 burst: 350 CLI credits, invoiced
+    // $16.92. At the API rate the same jobs report $21.88.
+    process.env[API] = '0.0625';
+    process.env[CLI] = '0.0483333';
+    validateHiggsfieldPricingAtBoot();
+
+    expect(350 * usdPerCreditFor('higgsfield-cli')).toBeCloseTo(16.92, 2);
+    expect(350 * usdPerCreditFor('higgsfield')).toBeCloseTo(21.88, 2);
+  });
+
+  it('leaves the CLI pool unpriced when its rate is unset — never borrows the API rate', () => {
+    // Silently substituting the API rate is the bug, not the fallback. NaN
+    // propagates to POSITIVE_INFINITY in the router, which is how every
+    // credit-priced spec with no declared rate already behaves.
+    process.env[API] = '0.0625';
+    delete process.env[CLI];
+    validateHiggsfieldPricingAtBoot();
+
+    expect(usdPerCreditFor('higgsfield')).toBeCloseTo(0.0625, 7);
+    expect(usdPerCreditFor('higgsfield-cli')).toBeNaN();
+  });
+
+  it('validates the CLI rate against the same envelope when present', () => {
+    process.env[API] = '0.0625';
+    for (const bad of ['0', '-0.5', 'abc', '5.0', '0.0001']) {
+      process.env[CLI] = bad;
+      expect(() => validateHiggsfieldPricingAtBoot(), `expected ${bad} invalid`).toThrow(
+        /MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT/,
+      );
+    }
+  });
+
+  it('creditsToUsd on the CLI transport uses the CLI rate', async () => {
+    process.env[API] = '0.0625';
+    process.env[CLI] = '0.0483333';
+    validateHiggsfieldPricingAtBoot();
+
+    const { creditsToUsd } = await import('../../src/video/providers/higgsfield-cli.js');
+    expect(creditsToUsd(350)).toBeCloseTo(16.92, 2);
   });
 });

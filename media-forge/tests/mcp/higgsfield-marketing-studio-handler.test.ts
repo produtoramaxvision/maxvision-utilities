@@ -53,9 +53,13 @@ describe('media_higgsfield_marketing_studio handler', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'mf-hf-ms-'));
     dbPath = join(tmpDir, 'cost.db');
     prevProjectDir = process.env['MEDIA_FORGE_PROJECT_DIR'];
-    prevRate = process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
+    prevRate = process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'];
     process.env['MEDIA_FORGE_PROJECT_DIR'] = tmpDir;
-    process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] = '0.048333';
+    // This handler submits through the CLI transport, so the rate that applies
+    // is the SUBSCRIPTION one. It used to be written into the API variable
+    // because only one existed — 0.048333 in a variable documented as the
+    // Cloud API top-up rate was the bug in miniature.
+    process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'] = '0.048333';
     const db = openDb(dbPath);
     runMigrations(db);
     _setHiggsfieldCliProviderForTests(fakeProvider(dbPath));
@@ -67,8 +71,8 @@ describe('media_higgsfield_marketing_studio handler', () => {
     _resetHiggsfieldCliProviderForTests();
     if (prevProjectDir === undefined) delete process.env['MEDIA_FORGE_PROJECT_DIR'];
     else process.env['MEDIA_FORGE_PROJECT_DIR'] = prevProjectDir;
-    if (prevRate === undefined) delete process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
-    else process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] = prevRate;
+    if (prevRate === undefined) delete process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'];
+    else process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'] = prevRate;
   });
 
   it('submits the real job type with account-resolved ids', async () => {

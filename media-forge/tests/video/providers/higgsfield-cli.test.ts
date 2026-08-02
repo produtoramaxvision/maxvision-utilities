@@ -313,14 +313,17 @@ describe('HiggsfieldCliProvider.estimateCostUSD() — must never fabricate a pri
   let prevRate: string | undefined;
 
   beforeEach(() => {
-    prevRate = process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
-    process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] = '0.039';
+    prevRate = process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'];
+    process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'] = '0.039';
+    // The boot validator still REQUIRES the API rate — it guards the other
+    // pool, and boot fails without it whether or not the CLI is in play.
+    process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] ??= '0.0625';
     validateHiggsfieldPricingAtBoot();
   });
 
   afterEach(() => {
-    if (prevRate === undefined) delete process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
-    else process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] = prevRate;
+    if (prevRate === undefined) delete process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'];
+    else process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'] = prevRate;
     _resetValidatedPricingForTests();
   });
 
@@ -347,17 +350,20 @@ describe('creditsToUsd()', () => {
   let prevRate: string | undefined;
 
   beforeEach(() => {
-    prevRate = process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
+    prevRate = process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'];
   });
 
   afterEach(() => {
-    if (prevRate === undefined) delete process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
-    else process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] = prevRate;
+    if (prevRate === undefined) delete process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'];
+    else process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'] = prevRate;
     _resetValidatedPricingForTests();
   });
 
   it('multiplies credits by the validated USD_PER_CREDIT rate', () => {
-    process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] = '0.039';
+    process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'] = '0.039';
+    // The boot validator still REQUIRES the API rate — it guards the other
+    // pool, and boot fails without it whether or not the CLI is in play.
+    process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] ??= '0.0625';
     validateHiggsfieldPricingAtBoot();
     expect(creditsToUsd(70)).toBeCloseTo(70 * 0.039, 10);
   });
@@ -367,14 +373,17 @@ describe('HiggsfieldCliProvider ledger hooks (A5 contract)', () => {
   let prevRate: string | undefined;
 
   beforeEach(() => {
-    prevRate = process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
-    process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] = '0.039';
+    prevRate = process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'];
+    process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'] = '0.039';
+    // The boot validator still REQUIRES the API rate — it guards the other
+    // pool, and boot fails without it whether or not the CLI is in play.
+    process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] ??= '0.0625';
     validateHiggsfieldPricingAtBoot();
   });
 
   afterEach(() => {
-    if (prevRate === undefined) delete process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
-    else process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] = prevRate;
+    if (prevRate === undefined) delete process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'];
+    else process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'] = prevRate;
     _resetValidatedPricingForTests();
   });
 

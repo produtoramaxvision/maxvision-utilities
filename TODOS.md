@@ -39,20 +39,38 @@ sabemos qual é verdade — e o registry não diz que não sabe.
 **Bloqueado em:** saldo 0 na conta de API. Só uma geração cobrada fecha o ciclo.
 A marcação, porém, não depende de crédito nenhum.
 
-### 3. Item 14 — taxa única de USD por crédito (agora quantificável)
+### 3. Item 14 — taxa única de USD por crédito — **FECHADO em 2026-08-01**
 
-**O quê:** `creditsToUsd` (`src/video/providers/higgsfield-cli.ts:829`) lê a global
-`MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT`, que o `.env` fixa em `0.0625` (taxa da
-API). A CLI cobra do pool de assinatura, cujo valor é `0.048333`.
+**O que era:** `creditsToUsd` lia a global `MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT`,
+fixada em `0.0625` (taxa da API). A CLI cobra do pool de assinatura, `0.0483333`
+no plano Pro ($29 ÷ 600). Os 350 créditos do incidente custaram **US$ 16,92**; o
+ledger registraria **US$ 21,88** — todo job da CLI superestimado em **29,3%**.
 
-**Deixou de ser abstrato.** Os 350 créditos do incidente custaram, de fato,
-**US$ 16,92**. O ledger do plugin registraria **US$ 21,88**. Todo job da CLI é
-superestimado em **29,3%**.
+**Como foi fechado:** `usdPerCreditFor(provider)` em `src/core/higgsfield-pricing.ts`
+resolve a taxa pelo provider do spec. O registry já declara `higgsfield` e
+`higgsfield-cli` como `Provider` distintos, então não há ambiguidade sobre qual
+pool um job debita — o que derruba a objeção do comentário antigo ("two rates for
+one provider's credit"): não é um provider, são dois.
 
-O comentário em `higgsfield-cli.ts:826` defende a variável única — "two rates for
-one provider's credit is how the cost report starts disagreeing with the invoice".
-Com números reais na mão, o argumento se inverte: é a taxa única que faz o
-relatório discordar da fatura. Decisão do dono, não recomendação fechada.
+Três sites passaram a resolver por pool:
+
+| site | pool |
+|---|---|
+| `higgsfield-cli.ts:creditsToUsd` | assinatura |
+| `handlers/video.ts:normalizeCostUSDSafe` (**router**) | por `spec.provider` |
+| `higgsfield.ts:resolveUsdPerCredit` | API (correto como estava, agora documentado) |
+
+O do router era o que mais importava: com a taxa errada ali, o **ranking** de
+custo escolhia rota errada, não só relatava errado depois.
+
+**Sem default.** `MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT` não cai de volta na
+taxa da API — isso é o bug voltando — nem tem `0.0483333` embutido, que é a
+aritmética do plano deste operador e não uma constante pública. Ausente, a CLI
+lança erro nomeando a variável (antes o NaN chegava no `recordJob` e aparecia
+como `NOT NULL constraint failed: video_jobs.est_usd`).
+
+**Pendente do dono:** adicionar `MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT=0.0483333`
+ao `media-forge/.env`. Sem isso os specs da CLI ficam sem preço.
 
 ### 4. Fase 5 parcial — três superfícies da CLI sem cobertura
 
@@ -63,7 +81,28 @@ Entregues: `marketing-studio <kind> list` (tool genérica por `kind`),
 |---|---|---|
 | `voices list/get` | **57** | TTS e voice-change |
 | `preset list/resolve` | 21 em `video-explainer` | tipos adicionais não inventariados |
-| `marketing-studio dtc-ads generate` | — | exige `--brand-kit-id`; a conta tem 0 brand-kits |
+| `marketing-studio dtc-ads generate` | — | **NÃO bloqueado** — ver retratação abaixo |
+
+**Retratação (2026-08-01):** eu havia registrado que `dtc-ads generate` exigia
+`--brand-kit-id` e portanto estava bloqueado pela conta ter 0 brand-kits. Errado.
+`--help` marca `(required)` apenas em `--prompt` e `--format-id`; `--brand-kit-id`
+é opcional ("brand kit id to apply"). Provado sem gastar nada:
+
+```
+$ higgsfield ms dtc-ads generate --prompt "test" \
+    --format-id 18e9f327-b667-40f1-84d1-f234c67a4929 --cost-only --json
+{ "credits": 0.5 }
+```
+
+O caminho responde preço sem brand kit. `dtc-ads` gera **imagem**, não vídeo, e
+custa 0,5 crédito na configuração default (`quality=low`, `resolution=1k`,
+`batch-size=1`).
+
+**Sobre brand kits, que também estava errado:** não existe criação por
+especificação. `higgsfield ms brand-kits` tem exatamente três subcomandos —
+`fetch --url`, `get`, `list`. A ÚNICA forma de criar é a Higgsfield raspar um
+**site público**. Um documento de identidade visual, por mais completo, não é
+ingerível: o insumo é uma URL.
 
 `upload` continua fora por decisão do plano: caminhos locais são auto-upload.
 

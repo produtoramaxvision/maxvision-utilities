@@ -43,7 +43,7 @@
 
 import { spawn } from 'node:child_process';
 import { VIDEO_MODELS, type Provider, type VideoModelSpec } from '../../core/models.js';
-import { USD_PER_CREDIT } from '../../core/higgsfield-pricing.js';
+import { usdPerCreditFor } from '../../core/higgsfield-pricing.js';
 import { logger } from '../../core/logger.js';
 import { ApiError, ValidationError } from '../../core/errors.js';
 import { resolveCliBinary } from '../../utils/cli-binary.js';
@@ -837,29 +837,34 @@ function cacheKey(req: VideoGenerationRequest): string {
 }
 
 /**
- * Higgsfield credit → USD.
+ * Higgsfield CLI credit → USD.
  *
- * Reuses the single conversion already defined for the API adapter rather than
- * introducing a second constant: two rates for one provider's credit is how the
- * cost report starts disagreeing with the invoice.
+ * Uses the SUBSCRIPTION rate, not the API rate. This transport spends the
+ * monthly plan bucket the OAuth login is attached to; the API top-up rate
+ * (0.0625) prices a different balance and reports this transport's jobs 29.3%
+ * high at a Pro plan. `usdPerCreditFor` resolves by provider — see the
+ * two-pools note in core/higgsfield-pricing.ts.
+ *
+ * A missing rate THROWS rather than returning NaN, matching estimateCostUSD's
+ * stance one screen up: a NaN reached `recordJob` and surfaced as
+ * `NOT NULL constraint failed: video_jobs.est_usd`, which names the column
+ * instead of the missing configuration. It is deliberately NOT filled in from
+ * the API rate: the plan divisor is the operator's, not a public constant.
  */
 export function creditsToUsd(credits: number): number {
-  // USD_PER_CREDIT is a boot-validated binding, NaN until validation runs, so it
-  // is read at call time rather than captured at module load.
-  //
-  // The env fallback matches HiggsfieldProvider.resolveUsdPerCredit and is not a
-  // silent default: it reads the SAME variable the boot validator reads, so
-  // nothing is priced at a number nobody configured. Without it this transport
-  // returned NaN outside the MCP server boot path — every direct call, and every
-  // test that sets the env var without booting, priced the job at NaN and the
-  // cost guard compared against it.
-  //
-  // A missing or unparseable rate still surfaces as NaN and fails loudly.
-  if (Number.isFinite(USD_PER_CREDIT)) return credits * USD_PER_CREDIT;
-  const fromEnv = Number.parseFloat(
-    process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] ?? 'NaN',
-  );
-  return credits * fromEnv;
+  const rate = usdPerCreditFor('higgsfield-cli');
+  if (!Number.isFinite(rate) || rate <= 0) {
+    throw new ApiError(
+      'MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT is unset or invalid, so this transport has ' +
+        'no rate to price its credits with. It bills the monthly plan bucket, NOT the Cloud ' +
+        'API top-up balance that MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT describes — reusing ' +
+        'that rate reported every CLI job 29.3% above the invoice. Set it to your plan price ' +
+        'divided by the plan credits (Pro: 29 / 600 = 0.0483333).',
+      'API',
+      { provider: 'higgsfield-cli' },
+    );
+  }
+  return credits * rate;
 }
 
 /**

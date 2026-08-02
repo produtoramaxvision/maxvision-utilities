@@ -91,6 +91,11 @@ describe('.mcp.json env contract', () => {
     // forwarded, so — if the block is a whitelist, which is this file's premise —
     // no Higgsfield operator could start the server at all.
     'MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT',
+    // The CLI transport's rate. Optional, but forwarded for the same reason as
+    // every other setting here: an operator who sets it and sees no effect has
+    // no way to tell that from the rate simply not mattering. Unforwarded, every
+    // `higgsfield-cli` spec prices as unpriced no matter what the host env says.
+    'MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT',
     'MEDIA_FORGE_HF_SPEAK_AUDIO_MODE',
     'MEDIA_FORGE_HF_WEBHOOK_ENABLE',
     'MEDIA_FORGE_LOG_LEVEL',

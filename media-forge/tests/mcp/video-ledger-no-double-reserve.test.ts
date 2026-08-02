@@ -261,6 +261,9 @@ describe('A5 — no submit site double-reserves (Kling + Higgsfield + Seedance, 
     process.env['HF_API_KEY'] = 'pk_test';
     process.env['HF_API_SECRET'] = 'sk_test';
     process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'] = '0.039';
+    // The two Studio submit sites go through the CLI transport, which prices
+    // from the subscription pool rather than the API top-up pool.
+    process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'] = '0.0483333';
     process.env['FAL_KEY'] = 'fal_test';
     process.env['BYTEPLUS_ARK_API_KEY'] = 'ark_test';
     _resetHiggsfieldProviderForTests();
@@ -316,6 +319,7 @@ describe('A5 — no submit site double-reserves (Kling + Higgsfield + Seedance, 
     delete process.env['HF_API_KEY'];
     delete process.env['HF_API_SECRET'];
     delete process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
+    delete process.env['MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT'];
     delete process.env['FAL_KEY'];
     delete process.env['BYTEPLUS_ARK_API_KEY'];
     global.fetch = ORIG_FETCH;

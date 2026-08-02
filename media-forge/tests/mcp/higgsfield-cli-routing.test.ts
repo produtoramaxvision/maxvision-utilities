@@ -17,7 +17,10 @@ import { handleVideoRoute } from '../../src/mcp/handlers.js';
 import { providerServesSpec, isSpecRoutable, getAdaptedProviders } from '../../src/mcp/handlers/shared.js';
 
 const HF_FLAG = 'MEDIA_FORGE_HF_CLI_ENABLED';
-const CREDIT_RATE = 'MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT';
+// The CLI transport bills the subscription pool, so the router prices its
+// specs from the CLI rate — not the Cloud API top-up rate. Pointing this
+// constant at the API variable would leave every CLI spec unpriced.
+const CREDIT_RATE = 'MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT';
 
 describe('higgsfield-cli routing', () => {
   let prevFlag: string | undefined;
@@ -104,7 +107,7 @@ describe('higgsfield-cli routing', () => {
 
   it('a CLI spec is never auto-selected without a declared credit rate', async () => {
     process.env[HF_FLAG] = 'true';
-    delete process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT'];
+    delete process.env[CREDIT_RATE];
 
     // No preferProvider: this is the open cost sort. Credits are a prepaid
     // bucket that expires; converting them to dollars on a rate nobody supplied

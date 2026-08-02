@@ -606,6 +606,11 @@ export class HiggsfieldProvider implements VideoProvider {
   // -------------------------------------------------------------------------
 
   private resolveUsdPerCredit(): number | undefined {
+    // Deliberately the API rate (USD_PER_CREDIT), not usdPerCreditFor(): this
+    // class IS the Cloud API transport, and the Cloud API bills the top-up
+    // balance. The CLI transport draws the subscription balance and resolves its
+    // own rate — see the two-pools note in core/higgsfield-pricing.ts.
+    //
     // D-6: read the validated module-level constant from src/core/higgsfield-pricing.ts
     // (boot-validated by src/mcp/server.ts in Task 7.5). The env-var fallback below stays
     // so unit tests can override per-test via `process.env['MEDIA_FORGE_HIGGSFIELD_USD_PER_CREDIT']`
