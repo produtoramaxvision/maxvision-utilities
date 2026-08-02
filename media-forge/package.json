@@ -56,6 +56,8 @@
     "test:evals": "cross-env MEDIA_FORGE_RUN_EVALS=true vitest run --config vitest.evals.config.ts",
     "test:coverage": "vitest run --coverage",
     "db:migrate": "node scripts/migrate.mjs",
+    "higgsfield:capture-catalogue": "node scripts/capture-higgsfield-cli-catalogue.mjs",
+    "higgsfield:gallery": "node scripts/build-marketing-studio-gallery.mjs",
     "db:create-key": "tsx scripts/create-key.mts",
     "hello": "tsx scripts/hello-smoke.ts",
     "validate:plugin": "claude plugin validate . --strict",

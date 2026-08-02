@@ -101,7 +101,23 @@ interface EnhancedImageResult {
   readonly raw: unknown;
 }
 
-function collectPrompts(parsed: unknown): string[] {
+/**
+ * Depth-first sweep for string values whose KEY matches a predicate.
+ *
+ * The CLI does not publish a response schema and its envelopes differ per
+ * subcommand — sometimes a bare array, sometimes `{items}`, sometimes a nested
+ * job object — so the extraction is by key rather than by path. A path would
+ * have to be re-derived for each subcommand and would break silently when one
+ * of them gained a wrapper.
+ *
+ * `collectPrompts` and `collectJobIds` were two copies of this walker differing
+ * only in the `if`, which is exactly the shape that drifts: a fix to one
+ * traversal never reaches the other.
+ */
+function collectStringsByKey(
+  parsed: unknown,
+  matches: (key: string, value: string) => boolean,
+): string[] {
   const out: string[] = [];
   const walk = (v: unknown): void => {
     if (Array.isArray(v)) {
@@ -110,7 +126,7 @@ function collectPrompts(parsed: unknown): string[] {
     }
     if (v !== null && typeof v === 'object') {
       for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-        if (k.includes('prompt') && typeof val === 'string' && val.length > 0) out.push(val);
+        if (typeof val === 'string' && matches(k, val)) out.push(val);
         else walk(val);
       }
     }
@@ -119,22 +135,12 @@ function collectPrompts(parsed: unknown): string[] {
   return out;
 }
 
+function collectPrompts(parsed: unknown): string[] {
+  return collectStringsByKey(parsed, (k, v) => k.includes('prompt') && v.length > 0);
+}
+
 function collectJobIds(parsed: unknown): string[] {
-  const out: string[] = [];
-  const walk = (v: unknown): void => {
-    if (Array.isArray(v)) {
-      for (const x of v) walk(x);
-      return;
-    }
-    if (v !== null && typeof v === 'object') {
-      for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-        if ((k === 'id' || k === 'job_id') && typeof val === 'string') out.push(val);
-        else walk(val);
-      }
-    }
-  };
-  walk(parsed);
-  return out;
+  return collectStringsByKey(parsed, (k) => k === 'id' || k === 'job_id');
 }
 
 export async function handleHiggsfieldProductPhotoshoot(
