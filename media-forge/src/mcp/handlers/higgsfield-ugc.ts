@@ -18,6 +18,12 @@ import {
   type HiggsfieldMarketingAssetsInputT,
   type HiggsfieldProductPhotoshootInputT,
   type HiggsfieldMarketplaceCardsInputT,
+  HiggsfieldVoicesInput,
+  HiggsfieldPresetsInput,
+  HiggsfieldDtcAdInput,
+  type HiggsfieldVoicesInputT,
+  type HiggsfieldPresetsInputT,
+  type HiggsfieldDtcAdInputT,
 } from '../schemas.js';
 import { higgsfieldCliProvider } from './shared.js';
 import { assertPromptWithinBudget } from '../../core/prompt-budget.js';
@@ -200,6 +206,163 @@ async function runEnhancedImageTool(
     submitted: !enhanceOnly,
     enhancedPrompts: collectPrompts(parsed),
     jobIds: enhanceOnly ? [] : collectJobIds(parsed),
+    raw: parsed,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Voices / Presets / DTC Ads — the last three CLI surfaces without a tool.
+//
+// The first two are pure reads. The third can spend, and defaults not to.
+// ---------------------------------------------------------------------------
+
+export interface HiggsfieldVoice {
+  readonly id: string;
+  readonly name: string;
+  /** `preset` (built-in) or `element` (cloned). This IS the --voice-type value. */
+  readonly voiceType: string;
+  readonly raw: Record<string, unknown>;
+}
+
+export async function handleHiggsfieldVoices(rawInput: unknown): Promise<{
+  count: number;
+  total: number;
+  voices: ReadonlyArray<HiggsfieldVoice>;
+}> {
+  const input: HiggsfieldVoicesInputT = HiggsfieldVoicesInput.parse(rawInput);
+  const provider = higgsfieldCliProvider();
+
+  const parsed = await provider.runReadJson(['voices', 'list', '--json']);
+  const rows = unwrapList(parsed);
+  // `total` is the platform's own count of the catalogue, distinct from how many
+  // survive the local filters below. Reporting only the filtered number would
+  // make a typo'd query indistinguishable from an empty catalogue.
+  const total =
+    parsed !== null && typeof parsed === 'object' && typeof (parsed as { total?: unknown }).total === 'number'
+      ? (parsed as { total: number }).total
+      : rows.length;
+
+  const needle = input.query?.toLowerCase();
+  const voices = rows
+    .map((row) => ({
+      id: String(row['id'] ?? ''),
+      name: assetName(row),
+      voiceType: String(row['voice_type'] ?? ''),
+      raw: row,
+    }))
+    .filter((v) => input.voiceType === undefined || v.voiceType === input.voiceType)
+    .filter((v) => needle === undefined || v.name.toLowerCase().includes(needle))
+    .slice(0, input.limit);
+
+  return { count: voices.length, total, voices };
+}
+
+export async function handleHiggsfieldPresets(rawInput: unknown): Promise<{
+  type: string;
+  resolved: boolean;
+  count: number;
+  raw: unknown;
+}> {
+  const input: HiggsfieldPresetsInputT = HiggsfieldPresetsInput.parse(rawInput);
+  const provider = higgsfieldCliProvider();
+
+  if (input.resolveId !== undefined) {
+    if (input.type !== 'video-explainer') {
+      throw new ValidationError(
+        `preset resolve is documented for video-explainer only ("Resolve a video-explainer ` +
+          `preset into its workspace-scoped style media input"). Got type="${input.type}". ` +
+          `Drop resolveId to list instead.`,
+        { field: 'resolveId' },
+      );
+    }
+    const parsed = await provider.runReadJson([
+      'preset',
+      'resolve',
+      input.type,
+      input.resolveId,
+      '--json',
+    ]);
+    return { type: input.type, resolved: true, count: 1, raw: parsed };
+  }
+
+  const args = ['preset', 'list', input.type];
+  // group/category/limit are animation-action filters. Sending them for
+  // video-explainer would earn an `Unknown params` refusal on a call that would
+  // otherwise have worked, so they are gated on the type rather than forwarded
+  // and hoped for.
+  if (input.type === 'animation-action') {
+    if (input.query) args.push('--query', input.query);
+    if (input.group) args.push('--group', input.group);
+    if (input.category) args.push('--category', input.category);
+    args.push('--limit', String(input.limit));
+  }
+
+  const parsed = await provider.runReadJson([...args, '--json']);
+  const rows = unwrapList(parsed);
+  // video-explainer has no server-side search, so the filter runs here for it.
+  const needle = input.type === 'video-explainer' ? input.query?.toLowerCase() : undefined;
+  const filtered =
+    needle === undefined
+      ? rows
+      : rows.filter((r) => assetName(r).toLowerCase().includes(needle));
+
+  return {
+    type: input.type,
+    resolved: false,
+    count: Math.min(filtered.length, input.limit),
+    raw: filtered.slice(0, input.limit),
+  };
+}
+
+export async function handleHiggsfieldDtcAd(rawInput: unknown): Promise<{
+  submitted: boolean;
+  credits?: number;
+  jobIds: ReadonlyArray<string>;
+  raw: unknown;
+}> {
+  const input: HiggsfieldDtcAdInputT = HiggsfieldDtcAdInput.parse(rawInput);
+  assertPromptWithinBudget({ provider: 'higgsfield', prompt: input.prompt, field: 'prompt' });
+
+  const args = [
+    'marketing-studio',
+    'dtc-ads',
+    'generate',
+    '--prompt',
+    input.prompt,
+    '--format-id',
+    input.formatId,
+    '--aspect-ratio',
+    input.aspectRatio,
+    '--quality',
+    input.quality,
+    '--resolution',
+    input.resolution,
+    '--batch-size',
+    String(input.batchSize),
+  ];
+  if (input.brandKitId) args.push('--brand-kit-id', input.brandKitId);
+  if (input.avatarId) args.push('--avatar', input.avatarId);
+  if (input.productId) args.push('--product', input.productId);
+  if (input.costOnly) args.push('--cost-only');
+
+  const provider = higgsfieldCliProvider();
+  // Same split as runEnhancedImageTool: --cost-only is a read and goes through
+  // the path the test-runner guard permits; a real submit does not.
+  const parsed = input.costOnly
+    ? await provider.runReadJson([...args, '--json'])
+    : await provider.runWriteJson([...args, '--json']);
+
+  const credits =
+    parsed !== null &&
+    typeof parsed === 'object' &&
+    typeof (parsed as { credits?: unknown }).credits === 'number'
+      ? (parsed as { credits: number }).credits
+      : undefined;
+
+  return {
+    submitted: !input.costOnly,
+    ...(credits !== undefined ? { credits } : {}),
+    jobIds: input.costOnly ? [] : collectJobIds(parsed),
     raw: parsed,
   };
 }

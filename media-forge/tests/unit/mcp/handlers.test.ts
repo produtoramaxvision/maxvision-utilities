@@ -122,9 +122,9 @@ describe('registerAllTools()', () => {
   // Test 1: 58 tools registered (PR#11 base 54 + F-I 1 gallery + T9-d 1 last-frame
   // + T13 2 narrative = 58). Counting is the point: a tool must not appear or
   // vanish without someone updating this line on purpose.
-  it('calls registerTool exactly 73 times', () => {
+  it('calls registerTool exactly 76 times', () => {
     const mock = server as unknown as { registerTool: ReturnType<typeof vi.fn> };
-    expect(mock.registerTool).toHaveBeenCalledTimes(73);
+    expect(mock.registerTool).toHaveBeenCalledTimes(76);
   });
 
   // Test 2: set equality with listMCPToolNames()

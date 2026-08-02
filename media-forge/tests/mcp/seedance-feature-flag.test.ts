@@ -181,19 +181,19 @@ describe('MEDIA_FORGE_SEEDANCE_ENABLED feature flag', () => {
   // -------------------------------------------------------------------------
 
   describe('buildServer() — tool count', () => {
-    it('registers 73 tools when flag is unset (default enabled)', () => {
+    it('registers 76 tools when flag is unset (default enabled)', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', undefined, () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(73);
+        expect(names).toHaveLength(76);
       });
     });
 
-    it('registers 73 tools when flag is explicitly "true"', () => {
+    it('registers 76 tools when flag is explicitly "true"', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', 'true', () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(73);
+        expect(names).toHaveLength(76);
       });
     });
 
@@ -208,11 +208,11 @@ describe('MEDIA_FORGE_SEEDANCE_ENABLED feature flag', () => {
       });
     });
 
-    it('registers 69 tools when MEDIA_FORGE_SEEDANCE_ENABLED=false', () => {
+    it('registers 72 tools when MEDIA_FORGE_SEEDANCE_ENABLED=false', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', 'false', () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(69);
+        expect(names).toHaveLength(72);
       });
     });
 
@@ -227,19 +227,19 @@ describe('MEDIA_FORGE_SEEDANCE_ENABLED feature flag', () => {
       });
     });
 
-    it('registers 69 tools when MEDIA_FORGE_SEEDANCE_ENABLED=0 (alternative false value)', () => {
+    it('registers 72 tools when MEDIA_FORGE_SEEDANCE_ENABLED=0 (alternative false value)', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', '0', () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(69);
+        expect(names).toHaveLength(72);
       });
     });
 
-    it('registers 73 tools when MEDIA_FORGE_SEEDANCE_ENABLED is empty string (treated as enabled)', () => {
+    it('registers 76 tools when MEDIA_FORGE_SEEDANCE_ENABLED is empty string (treated as enabled)', () => {
       withEnv('MEDIA_FORGE_SEEDANCE_ENABLED', '', () => {
         const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
         const names = listRegisteredToolNames(server);
-        expect(names).toHaveLength(73);
+        expect(names).toHaveLength(76);
       });
     });
 

@@ -136,16 +136,38 @@ como `NOT NULL constraint failed: video_jobs.est_usd`).
 **Pendente do dono:** adicionar `MEDIA_FORGE_HIGGSFIELD_CLI_USD_PER_CREDIT=0.0483333`
 ao `media-forge/.env`. Sem isso os specs da CLI ficam sem preço.
 
-### 4. Fase 5 parcial — três superfícies da CLI sem cobertura
+### 4. Fase 5 — três superfícies da CLI sem cobertura — **FECHADO em 2026-08-01**
 
-Entregues: `marketing-studio <kind> list` (tool genérica por `kind`),
-`product-photoshoot`, `marketplace-cards`. Fora:
+Entregues antes: `marketing-studio <kind> list`, `product-photoshoot`,
+`marketplace-cards`. As três que faltavam viraram tools:
 
-| superfície | inventário medido | observação |
+| tool | superfície | custo |
 |---|---|---|
-| `voices list/get` | **57** | TTS e voice-change |
-| `preset list/resolve` | 21 em `video-explainer` | tipos adicionais não inventariados |
-| `marketing-studio dtc-ads generate` | — | **NÃO bloqueado** — ver retratação abaixo |
+| `media_higgsfield_voices` | `voices list` — **57** vozes | 0 (leitura) |
+| `media_higgsfield_presets` | `preset list/resolve` | 0 (leitura) |
+| `media_higgsfield_dtc_ad` | `marketing-studio dtc-ads generate` | 0 por default (`costOnly`) |
+
+Registry: **73 → 76** tools.
+
+**voices** devolve o par `id` + `voiceType`, não só o id. O próprio help da CLI
+define o contrato: *"Use a voice's id as `--voice-id` and its Voice Type (preset
+for built-in voices, element for cloned ones) as `--voice-type`"*. São dois
+argumentos, e o segundo não sai do primeiro — errar o par falha no submit de um
+job que já custou crédito. A tool também reporta `total` (57) separado de `count`
+(pós-filtro): com um número só, query com typo é indistinguível de catálogo
+vazio.
+
+**presets** cobre dois catálogos que não são variação um do outro —
+`video-explainer` tem ids uuid e busca só local; `animation-action` tem ids
+**inteiros**, paginação e filtros `--group`/`--category` server-side (vem do
+Meshy; as previews são `cdn.meshy.ai`). `resolve` é documentado só para
+video-explainer, e a tool **recusa** em vez de degradar para list — resolve que
+vira listagem devolve payload plausível de uma chamada que não aconteceu.
+
+**dtc_ad** default `costOnly: true`. Gera **imagem**, não vídeo. 0,5 crédito em
+`quality=low`/`1k`/`batch=1`.
+
+`upload` continua fora por decisão do plano: caminhos locais são auto-upload.
 
 **Retratação (2026-08-01):** eu havia registrado que `dtc-ads generate` exigia
 `--brand-kit-id` e portanto estava bloqueado pela conta ter 0 brand-kits. Errado.

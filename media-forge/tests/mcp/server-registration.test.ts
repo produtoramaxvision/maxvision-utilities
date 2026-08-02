@@ -152,19 +152,27 @@ describe('MCP server tool registration', () => {
   });
 
   // + 2 T13 narrative (media_narrative_plan / media_narrative_assemble).
-  it('registers exactly 73 tools (22 base + 4 refs + 4 routing/cost + 8 higgsfield + 13 kling + 4 seedance + 5 opt-in + 1 gallery + 1 T9-d last-frame + 2 narrative + 3 narrative executor)', () => {
+  // The breakdown that used to live in this title summed to 67, not the 73 it
+  // asserted — it had drifted through several additions without anyone
+  // re-adding it, so it documented nothing and quietly contradicted the
+  // number beside it. Dropped rather than repaired: MCP_TOOLS is the list,
+  // and a hand-maintained tally of it is a second source of truth that only
+  // ever goes stale.
+  //
+  // 76 = 73 + media_higgsfield_voices, _presets, _dtc_ad (2026-08-01).
+  it('registers exactly 76 tools', () => {
     const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
     const names = listRegisteredToolNames(server);
-    expect(names).toHaveLength(73);
+    expect(names).toHaveLength(76);
   });
 
-  it('registers exactly 69 tools when MEDIA_FORGE_SEEDANCE_ENABLED=false', () => {
+  it('registers exactly 72 tools when MEDIA_FORGE_SEEDANCE_ENABLED=false', () => {
     const prev = process.env['MEDIA_FORGE_SEEDANCE_ENABLED'];
     process.env['MEDIA_FORGE_SEEDANCE_ENABLED'] = 'false';
     try {
       const server = buildServer({ config: makeFakeConfig(), client: makeFakeClient() });
       const names = listRegisteredToolNames(server);
-      expect(names).toHaveLength(69);
+      expect(names).toHaveLength(72);
       expect(names).not.toContain('media_seedance_text_to_video');
       expect(names).not.toContain('media_seedance_image_to_video');
       expect(names).not.toContain('media_seedance_multishot');

@@ -556,6 +556,115 @@ export const HiggsfieldMarketplaceCardsInput = z.object({
 });
 export type HiggsfieldMarketplaceCardsInputT = z.infer<typeof HiggsfieldMarketplaceCardsInput>;
 
+// ---------------------------------------------------------------------------
+// Voices — the id/type pair every speech job needs
+//
+// `higgsfield voices list` returns 57 entries (measured 2026-08-01). Its own
+// help text states the contract the rest of the CLI depends on: "Use a voice's
+// id as --voice-id and its Voice Type (preset for built-in voices, element for
+// cloned ones) as --voice-type". Two fields, and picking the wrong `voice_type`
+// for a given id is a submit-time failure on a job that costs credits.
+//
+// Read-only, and there is nothing to make it otherwise: voice CLONING is not a
+// `voices` subcommand at all.
+// ---------------------------------------------------------------------------
+
+export const HiggsfieldVoicesInput = z.object({
+  /** Case-insensitive substring filter on the voice name, applied locally. */
+  query: z.string().min(1).optional(),
+  /**
+   * `preset` are Higgsfield's built-ins; `element` are voices cloned into this
+   * workspace. The distinction is not cosmetic — it is the `--voice-type` value.
+   */
+  voiceType: z.enum(['preset', 'element']).optional(),
+  limit: z.number().int().positive().max(200).default(60),
+});
+export type HiggsfieldVoicesInputT = z.infer<typeof HiggsfieldVoicesInput>;
+
+// ---------------------------------------------------------------------------
+// Presets — two catalogues behind one verb, with genuinely different shapes
+//
+// `preset list <type>` takes `video-explainer` or `animation-action`, and they
+// are not variations of one thing:
+//
+//   video-explainer   uuid ids, {id,name,video_url,thumbnail_url}. `resolve`
+//                     turns one into a workspace-scoped style media input —
+//                     which is the ONLY way to feed it to a generation.
+//   animation-action  INTEGER ids, {id,name,group,category,preview_url},
+//                     paginated, filterable by group/category. Sourced from
+//                     Meshy (the preview URLs are cdn.meshy.ai).
+//
+// `resolve` is documented for video-explainer only: "Resolve a video-explainer
+// preset into its workspace-scoped style media input". It is exposed here for
+// that type alone rather than for both, because offering it on
+// animation-action would advertise a call the CLI never promised.
+// ---------------------------------------------------------------------------
+
+export const PRESET_TYPES = ['video-explainer', 'animation-action'] as const;
+
+export const HiggsfieldPresetsInput = z.object({
+  type: z.enum(PRESET_TYPES).default('video-explainer'),
+  /** Searches name, category and id. Server-side for animation-action. */
+  query: z.string().min(1).optional(),
+  /** animation-action only — e.g. 'Fighting', 'WalkAndRun'. */
+  group: z.string().min(1).optional(),
+  /** animation-action only — e.g. 'Punching', 'Walking'. */
+  category: z.string().min(1).optional(),
+  /**
+   * Resolve one preset into a generation input instead of listing.
+   *
+   * video-explainer only. Passing it with `type: 'animation-action'` is
+   * rejected rather than silently ignored — a resolve that quietly degrades to
+   * a list would return a plausible payload for a call that did not happen.
+   */
+  resolveId: z.string().min(1).optional(),
+  limit: z.number().int().positive().max(100).default(20),
+});
+export type HiggsfieldPresetsInputT = z.infer<typeof HiggsfieldPresetsInput>;
+
+// ---------------------------------------------------------------------------
+// DTC Ads Engine — branded ad IMAGES, and the brand kit that is not required
+//
+// `higgsfield marketing-studio dtc-ads generate`. Required by the CLI: `--prompt`
+// and `--format-id`. Everything else, INCLUDING `--brand-kit-id`, is optional —
+// verified rather than read off the help text:
+//
+//   $ higgsfield ms dtc-ads generate --prompt "test" \
+//       --format-id 18e9f327-b667-40f1-84d1-f234c67a4929 --cost-only --json
+//   { "credits": 0.5 }
+//
+// That answer came from an account with ZERO brand kits, which retires the
+// earlier claim in TODOS.md that this surface was blocked on one.
+//
+// It produces an IMAGE, not a video. Format ids come from
+// `media_higgsfield_ms_assets` with kind `ad-formats`.
+//
+// `costOnly` defaults to TRUE for the same reason enhanceOnly does on the two
+// image tools: a tool that spends money on its default setting spends money by
+// accident. 0.5 credits at the defaults below; quality and resolution move it.
+// ---------------------------------------------------------------------------
+
+export const DTC_AD_QUALITIES = ['low', 'medium', 'high'] as const;
+export const DTC_AD_RESOLUTIONS = ['1k', '2k', '4k'] as const;
+
+export const HiggsfieldDtcAdInput = z.object({
+  prompt: z.string().min(1),
+  /** From `media_higgsfield_ms_assets` with kind='ad-formats'. */
+  formatId: z.string().min(1),
+  /** From kind='brand-kits'. Optional — the endpoint prices and runs without it. */
+  brandKitId: z.string().min(1).optional(),
+  /** From kind='avatars'. The CLI caps this at one. */
+  avatarId: z.string().min(1).optional(),
+  /** From kind='products'. The CLI caps this at one. */
+  productId: z.string().min(1).optional(),
+  aspectRatio: z.string().min(1).default('1:1'),
+  quality: z.enum(DTC_AD_QUALITIES).default('low'),
+  resolution: z.enum(DTC_AD_RESOLUTIONS).default('1k'),
+  batchSize: z.number().int().min(1).max(20).default(1),
+  costOnly: z.boolean().default(true),
+});
+export type HiggsfieldDtcAdInputT = z.infer<typeof HiggsfieldDtcAdInput>;
+
 // HiggsfieldGenerateInput — generic Higgsfield submit (Soul / Soul2 / aesthetic
 // presets) when no specialized tool (dop / cinema_studio / speak / marketing)
 // applies. Codex P2 round 7 PR#10 closed the gap where the director
@@ -1464,6 +1573,38 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
       'listings. Defaults to enhanceOnly: returns the prompts without generating.',
     inputSchema: HiggsfieldMarketplaceCardsInput,
     validationSchema: HiggsfieldMarketplaceCardsInput,
+  },
+  {
+    name: 'media_higgsfield_voices',
+    description:
+      'Voice catalogue for text-to-speech and voice-change — 57 entries. Returns the id/voiceType ' +
+      'PAIR both jobs need: voiceType is "preset" for built-ins and "element" for voices cloned ' +
+      'into this workspace, and it is a separate argument from the id, not derivable from it. ' +
+      'Read-only, no credits.',
+    inputSchema: HiggsfieldVoicesInput,
+    validationSchema: HiggsfieldVoicesInput,
+  },
+  {
+    name: 'media_higgsfield_presets',
+    description:
+      'Generation presets. type="video-explainer" lists visual styles (uuid ids); ' +
+      'type="animation-action" lists character animations (integer ids, filterable by group and ' +
+      'category). Pass resolveId to turn a video-explainer preset into the workspace-scoped ' +
+      'media input a generation actually takes — resolve exists for that type only. ' +
+      'Read-only, no credits.',
+    inputSchema: HiggsfieldPresetsInput,
+    validationSchema: HiggsfieldPresetsInput,
+  },
+  {
+    name: 'media_higgsfield_dtc_ad',
+    description:
+      'DTC Ads Engine — a branded ad IMAGE (not a video) from a prompt plus an ad-format id. ' +
+      'Get formatId from media_higgsfield_ms_assets with kind="ad-formats"; brandKitId, avatarId ' +
+      'and productId are all OPTIONAL and come from the same tool. Defaults to costOnly: prices ' +
+      'the job without creating it (0.5 credits at the default quality/resolution). ' +
+      'Set costOnly=false to actually generate.',
+    inputSchema: HiggsfieldDtcAdInput,
+    validationSchema: HiggsfieldDtcAdInput,
   },
 
   // ---- Higgsfield Generate (Codex P2 round 7 PR#10 — generic Soul/Soul2 t2v|i2v submit) ----

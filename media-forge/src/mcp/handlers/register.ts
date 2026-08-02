@@ -96,6 +96,9 @@ import {
   handleHiggsfieldMarketingAssets,
   handleHiggsfieldProductPhotoshoot,
   handleHiggsfieldMarketplaceCards,
+  handleHiggsfieldVoices,
+  handleHiggsfieldPresets,
+  handleHiggsfieldDtcAd,
 } from './higgsfield-ugc.js';
 import { handleVideoCostEstimate, handleVideoCostReport, handleVideoRoute } from './video.js';
 import {
@@ -1626,6 +1629,34 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Marketplace Cards', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldMarketplaceCards(input) as unknown as Record<string, unknown>)),
+    );
+  }
+
+  // ---- The last three CLI surfaces (voices / presets / dtc-ads, 2026-08-01) ----
+  {
+    const t = getTool('media_higgsfield_voices');
+    regIfAllowed(
+      t.name,
+      { title: 'Higgsfield voices', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldVoices(input) as unknown as Record<string, unknown>)),
+    );
+  }
+
+  {
+    const t = getTool('media_higgsfield_presets');
+    regIfAllowed(
+      t.name,
+      { title: 'Higgsfield presets', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldPresets(input) as unknown as Record<string, unknown>)),
+    );
+  }
+
+  {
+    const t = getTool('media_higgsfield_dtc_ad');
+    regIfAllowed(
+      t.name,
+      { title: 'DTC ad image', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldDtcAd(input) as unknown as Record<string, unknown>)),
     );
   }
 
