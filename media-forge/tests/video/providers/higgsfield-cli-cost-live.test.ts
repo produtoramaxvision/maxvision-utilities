@@ -24,7 +24,12 @@
 // docs without running the binary first.
 
 import { describe, it, expect } from 'vitest';
-import { HiggsfieldCliProvider } from '../../../src/video/providers/higgsfield-cli.js';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import {
+  HiggsfieldCliProvider,
+  defaultRunner,
+} from '../../../src/video/providers/higgsfield-cli.js';
 import { VIDEO_MODELS } from '../../../src/core/models.js';
 import type { VideoGenerationRequest } from '../../../src/video/providers/base.js';
 
@@ -104,4 +109,52 @@ describeIfLive('higgsfield-cli credit rates match the platform', () => {
       }, 60_000);
     }
   }
+});
+
+// ---------------------------------------------------------------------------
+// The OTHER half of the fixture contract.
+//
+// tests/core/higgsfield-cli-catalogue-fixture.test.ts asserts registry-vs-fixture
+// offline, every CI run. This asserts fixture-vs-PLATFORM, and it is the only
+// one of the two that can tell you the catalogue itself moved — a model
+// withdrawn, a workflow added, a price changed on Higgsfield's side.
+//
+// Keeping them separate keeps the failures readable. A red test here means
+// re-run scripts/capture-higgsfield-cli-catalogue.mjs and look at the diff; a red
+// test there means someone edited a rate without measuring it.
+// ---------------------------------------------------------------------------
+
+interface CapturedCatalogue {
+  readonly capturedAt: string;
+  readonly videoModels: readonly string[];
+  readonly imageModels: readonly string[];
+  readonly workflows: readonly string[];
+}
+
+const CATALOGUE: CapturedCatalogue = JSON.parse(
+  readFileSync(resolve(__dirname, '../../fixtures/higgsfield-cli-catalogue.json'), 'utf8'),
+) as CapturedCatalogue;
+
+async function jobTypes(args: readonly string[]): Promise<string[]> {
+  // The timeout is REQUIRED by CliRunner, and omitting it does not fail loudly:
+  // the reject message formats `Math.round(undefined / 1000)` and reads
+  // "timed out after NaNs", which looks like a platform hang rather than a
+  // caller bug. 60s matches the per-test timeout below.
+  const { stdout } = await defaultRunner([...args, '--json'], 60_000);
+  const rows = JSON.parse(stdout) as Array<{ job_type: string }>;
+  return rows.map((r) => r.job_type).sort();
+}
+
+describeIfLive('the captured catalogue still matches the platform', () => {
+  it('video models are unchanged since the capture', async () => {
+    expect(await jobTypes(['model', 'list', '--video'])).toEqual([...CATALOGUE.videoModels]);
+  }, 60_000);
+
+  it('image models are unchanged since the capture', async () => {
+    expect(await jobTypes(['model', 'list', '--image'])).toEqual([...CATALOGUE.imageModels]);
+  }, 60_000);
+
+  it('workflows are unchanged since the capture', async () => {
+    expect(await jobTypes(['workflow', 'list'])).toEqual([...CATALOGUE.workflows]);
+  }, 60_000);
 });

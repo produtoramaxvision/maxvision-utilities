@@ -8,23 +8,75 @@ Criado em 2026-07-29 pelo `/maxvision:plan-ceo-review` sobre
 
 ---
 
+## (aberto) `pnpm typecheck` não cobre `tests/` — 204 erros invisíveis
+
+Descoberto em 2026-08-01 enquanto eu fechava o item 11, por uma chamada minha que
+passou: `defaultRunner([...args])` sem o `timeoutMs` que `CliRunner` exige. O
+typecheck passou limpo e o erro só apareceu em runtime, como
+`higgsfield CLI timed out after NaNs` — mensagem que parece hang da plataforma e
+é bug do chamador.
+
+**Causa:** `tsconfig.json` tem `"exclude": ["node_modules", "dist", "tests"]`, e
+`pnpm typecheck` roda `tsc --noEmit` sem `-p`. Existe um `tsconfig.test.json`
+que inclui `tests/**/*` — e **nenhum script o executa**. É configuração morta.
+
+**Tamanho medido, não estimado:**
+
+```
+$ pnpm exec tsc --noEmit -p tsconfig.test.json 2>&1 | grep -c "error TS"
+204
+```
+
+Famílias predominantes: `RequestInfo` não declarado (falta o lib DOM nos stubs de
+`fetch`), `Object is possibly 'undefined'` em índices de array, tuplas de mock
+acessadas fora do comprimento, e `vitest.config.ts` sem os tipos do `vite`.
+
+**Por que NÃO foi corrigido junto:** 204 erros é trabalho próprio, não um detalhe
+dos quatro itens. Ligar o `tsconfig.test.json` no gate agora deixaria o gate
+vermelho, e corrigir pela metade é pior que registrar o tamanho exato. Decisão do
+dono: vale uma frente separada.
+
+**Enquanto isso:** os testes seguem verdes em runtime (2611 passando) — o que
+falta é a checagem estática, não a execução.
+
+---
+
 ## (aberto) Itens do plano de 2026-08-01 que NÃO foram implantados
 
 Revisão do plano item a item feita em 2026-08-01, com o gate verde. Estes quatro
 são os únicos itens do plano original que não têm código correspondente. Nenhum
 deles é bloqueante para produção; todos são decisão, não descoberta.
 
-### 1. Item 11 — catálogo da CLI como fixture versionada
+### 1. Item 11 — catálogo da CLI como fixture versionada — **FECHADO em 2026-08-01**
 
-**O quê:** o plano previa gravar o catálogo medido (75 modelos, 18 workflows,
-custos por job type) como fixture no repo, "para o registry parar de ser memória
-de sessão". Não existe `tests/fixtures/`.
+**O que era:** a única prova de que os specs `higgsfield-cli` batiam com a
+plataforma era o portão ao vivo, que precisa de rede e de sessão OAuth. CI não
+tem nenhum dos dois, então modelo retirado ou preço mudado ficava invisível até
+alguém rodar o portão na própria máquina.
 
-**Por que importa:** hoje a única prova de que os specs `higgsfield-cli` batem com
-a plataforma é o portão ao vivo, que precisa de rede e de sessão OAuth. Sem
-fixture não há como detectar drift do catálogo offline nem em CI.
+**Como foi fechado:** `scripts/capture-higgsfield-cli-catalogue.mjs` grava
+`tests/fixtures/higgsfield-cli-catalogue.json`. Tudo leitura — `model list`,
+`workflow list` e `generate cost` respondem sem criar job. **Custo: 0 créditos**
+(saldo 260 antes e depois, conferido).
 
-**Esforço:** S. **Custo:** 0 créditos (tudo leitura).
+O contrato virou duas falhas com significados diferentes:
+
+| teste | compara | quando roda | o que uma falha significa |
+|---|---|---|---|
+| `tests/core/higgsfield-cli-catalogue-fixture.test.ts` | registry × fixture | todo CI, offline | alguém mexeu numa taxa sem medir |
+| bloco novo em `higgsfield-cli-cost-live.test.ts` | fixture × plataforma | portão ao vivo | a **plataforma** mudou; re-rodar o script |
+
+**Números medidos** (não de memória — o script os produziu):
+**25** modelos de vídeo, **28** de imagem, **18** workflows. Minha anotação
+anterior dizia 26 de vídeo; o correto é 25.
+
+A grade de custo cobre toda resolução declarada por cada spec, e a asserção
+`rate × multiplier × duração` reproduz **as 40+ células exatamente**. Isso é a
+validação mais forte que a tabela de preços da CLI já teve — antes só o baseline
+de 5s era conferido.
+
+O teste também falha se um spec declara uma resolução que ninguém precificou —
+lacuna silenciosa é o modo de falha que uma fixture parcial cria.
 
 ### 2. Item 12 — `source: 'unverified'` nos specs HTTP — **FECHADO em 2026-08-01**
 
