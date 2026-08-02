@@ -8,6 +8,98 @@ Criado em 2026-07-29 pelo `/maxvision:plan-ceo-review` sobre
 
 ---
 
+## (fechado 2026-08-02) Brand kit da Higgsfield — schema medido, e duas retratações
+
+### Retratação 1 — o schema tem 6 campos, não 16
+
+Eu havia extraído 16 nomes de campo do binário Go do CLI e apresentado como o
+schema do brand kit. O **vocabulário** estava certo; o **escopo** estava errado —
+o Go agrupa strings por comprimento, não por struct, e eu li vizinhança como
+pertencimento. O payload real, medido:
+
+```json
+"data": {
+  "brand_name": "MaxVision",
+  "website_url": "https://www.produtoramaxvision.com.br/",
+  "logo": "",
+  "business_overview": "MaxVision specializes in FPV cinematic drone services…",
+  "tagline": "Let's materialize your world.",
+  "industry": "Media Production"
+}
+```
+
+`colors`, `fonts`, `brand_values`, `tone_of_voice`, `brand_aesthetics`,
+`social_links`, `favicon` e `company_type` **não existem** neste payload.
+
+### Retratação 2 — `brand-kits fetch` é grátis
+
+`schemas.ts` afirmava que custava ("runs a site crawl") e usava isso para
+justificar a tool ser read-only. Nunca tinha sido conferido. **Saldo 260 antes e
+260 depois**, em dois fetches, sem linha nova em `account transactions`. O
+comentário foi corrigido; o read-only continua, agora por um motivo só (raio de
+ação de uma tool que lista e também muta).
+
+### Como o extrator funciona — dois fetches comparados
+
+| | `/` | `/inteligencia-artificial` |
+|---|---|---|
+| `industry` | Media Production | **Technology** |
+| `business_overview` | drones FPV, vídeo, foto | **agentes de IA, automação** |
+| `website_url` | raiz | **raiz** (não a página buscada) |
+| `logo` | vazio | vazio |
+
+1. **`industry` e `business_overview` saem do texto VISÍVEL.** Mesma marca, duas
+   páginas, dois setores. Não há campo canônico.
+2. **Não lê JSON-LD.** `logo` voltou vazio nas duas apesar do site declarar
+   `logo.url`. Derruba quase toda a recomendação de metadado que eu tinha
+   escrito antes de medir.
+3. **Tagline contígua é copiada; tagline colada é reescrita.** A home tem
+   `<span>NÓS VAMOS</span><span>MATERIALIZAR</span><span>o seu mundo.</span>` sem
+   espaço — `textContent` vira `NÓS VAMOSMATERIALIZARo seu mundo.`, ilegível, e o
+   resumidor reconstruiu **traduzindo** para inglês. A página de IA tinha frase
+   contígua e voltou verbatim em português.
+4. **Lê conteúdo `aria-hidden`** — pegou a variante escondida do rotador do H1.
+
+**Não é bug de encoding.** Cheguei a ver `PRODUÃ‡Ã•ES` no terminal e conferi os
+bytes: `\xc3\x87\xc3\x95`, UTF-8 correto. Era o cp1252 do meu console.
+
+Kits criados: `1abb45f0-…` (`/`) e `aabf4a30-…` (`/inteligencia-artificial`).
+
+### Defeitos reais no site, que NÃO afetam o kit
+
+Como o extrator ignora metadado, estes são SEO/identidade e não bloqueio:
+
+- O JSON-LD publica **`@maxvisionfpv`** em `sameAs` (Instagram e TikTok). O
+  design system marca esse handle como descontinuado.
+- `theme-color` é `#000000`; o `#A93636` não está em metadado nenhum.
+
+---
+
+## (fechado 2026-08-02) Pipeline de avatar próprio
+
+`marketing-studio avatars create --name --image <upload_id>` e `upload create`
+existem na CLI e **não tinham tool**. Sem elas o pipeline parava no primeiro
+passo: o gpt-image-2 escrevia um PNG e nada conseguia entregá-lo à Higgsfield.
+
+| tool nova | custo | como sei |
+|---|---|---|
+| `media_higgsfield_upload` | **0** | medido, PNG de 152 bytes, saldo inalterado |
+| `media_higgsfield_ms_avatar_create` | **desconhecido** | sem `--cost-only`; **não sondei porque `ms avatars` não tem delete** — uma sonda deixaria avatar-lixo permanente |
+
+Registry: **76 → 78**.
+
+Skill `mf-avatar-forge` cobre o pipeline. O achado técnico que ela existe para
+carregar: **`media_image_codex` (gpt-image-2) não aceita imagem de referência** —
+o schema é `prompt/size/outputDir/fileName`. Então N chamadas dão N pessoas
+diferentes. A consistência tem que vir do `media_generate_image` (Nano Banana
+Pro), que aceita até **14 `referenceImages`**. Não é preferência, é a única
+ferramenta das duas capaz do passo.
+
+Destinos: `ms_avatar_create` (1 imagem, vídeo, permanente) ou `soul_id_train`
+(5–20 imagens, **40 créditos**, imagens).
+
+---
+
 ## (aberto) `pnpm typecheck` não cobre `tests/` — 204 erros invisíveis
 
 Descoberto em 2026-08-01 enquanto eu fechava o item 11, por uma chamada minha que

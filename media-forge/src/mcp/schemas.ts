@@ -473,10 +473,17 @@ export type HiggsfieldSpeakInputT = z.infer<typeof HiggsfieldSpeakInput>;
 // disappearing upstream shows up here as a schema change, not as eight tools
 // silently drifting apart.
 //
-// READ-ONLY by design. `create` and `fetch` exist on several of these groups and
-// are deliberately absent: they mutate account state, some of them cost credits
-// (brand-kits fetch runs a site crawl), and a listing tool that can also create
-// is a tool whose blast radius nobody can predict from its name.
+// READ-ONLY by design, and it stays that way now for ONE reason rather than
+// three. `create` and `fetch` exist on several of these groups; a listing tool
+// that can also mutate has a blast radius nobody can predict from its name, so
+// the write paths live in their own tools (media_higgsfield_upload,
+// media_higgsfield_ms_avatar_create) instead of behind a mode flag here.
+//
+// The cost half of the old justification was WRONG and is retracted: it claimed
+// "brand-kits fetch runs a site crawl" and therefore spends. Measured 2026-08-02
+// — two `brand-kits fetch --wait` runs against real URLs, balance 260 before and
+// 260 after, no new row in `account transactions`. It is free. The claim had
+// never been checked.
 // ---------------------------------------------------------------------------
 
 export const MARKETING_STUDIO_ASSET_KINDS = [
@@ -664,6 +671,53 @@ export const HiggsfieldDtcAdInput = z.object({
   costOnly: z.boolean().default(true),
 });
 export type HiggsfieldDtcAdInputT = z.infer<typeof HiggsfieldDtcAdInput>;
+
+// ---------------------------------------------------------------------------
+// Upload — the step between "a file on disk" and "an id the platform accepts"
+//
+// `higgsfield upload create <file>` returns `{id, type, url}`. That `id` is what
+// `marketing-studio avatars create --image`, `soul-id create --image` and the
+// generation commands' media flags take. Without a tool for it, the custom-actor
+// pipeline stops at the first step: gpt-image-2 writes a PNG to disk and nothing
+// can hand it to Higgsfield.
+//
+// FREE — measured 2026-08-02 with a 152-byte PNG generated locally: balance 260
+// before, 260 after, no row in `account transactions`. Assumed nothing.
+// ---------------------------------------------------------------------------
+
+export const HiggsfieldUploadInput = z.object({
+  /** Local path to an image, video, audio or document file. */
+  filePath: z.string().min(1),
+});
+export type HiggsfieldUploadInputT = z.infer<typeof HiggsfieldUploadInput>;
+
+// ---------------------------------------------------------------------------
+// Marketing Studio avatar create — a face the account owns
+//
+// The 40 avatars `media_higgsfield_ms_assets { kind: "avatars" }` returns are
+// Higgsfield's PRESETS. `marketing-studio avatars create --name --image
+// <upload_id>` adds one of your own, which is what makes a recurring on-brand
+// presenter possible instead of renting a stock face per ad.
+//
+// TWO THINGS THE CALLER MUST KNOW, and neither is guessable from the name:
+//
+//   1. There is NO delete. `ms avatars` has exactly `create` and `list`. An
+//      avatar created by mistake is permanent, which is why `name` is required
+//      here with no default — an unnamed mistake is also unfindable.
+//   2. The COST IS NOT MEASURED. `upload create` and `brand-kits fetch` both
+//      turned out free, but there is no `--cost-only` on this subcommand and no
+//      probe was run precisely because of (1). Do not infer free from its
+//      siblings; check `higgsfield account status` before and after the first
+//      one.
+// ---------------------------------------------------------------------------
+
+export const HiggsfieldMsAvatarCreateInput = z.object({
+  /** Permanent and unremovable. Name it so you can find it in the list later. */
+  name: z.string().min(1),
+  /** An upload id from media_higgsfield_upload, or a local image path. */
+  image: z.string().min(1),
+});
+export type HiggsfieldMsAvatarCreateInputT = z.infer<typeof HiggsfieldMsAvatarCreateInput>;
 
 // HiggsfieldGenerateInput — generic Higgsfield submit (Soul / Soul2 / aesthetic
 // presets) when no specialized tool (dop / cinema_studio / speak / marketing)
@@ -1605,6 +1659,27 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
       'Set costOnly=false to actually generate.',
     inputSchema: HiggsfieldDtcAdInput,
     validationSchema: HiggsfieldDtcAdInput,
+  },
+  {
+    name: 'media_higgsfield_upload',
+    description:
+      'Upload a local file (image, video, audio, document) and get the id the platform takes. ' +
+      'That id is what marketing-studio avatar creation, Soul-ID training and the generation ' +
+      'media flags accept — it is the bridge between a file media_image_codex just wrote and ' +
+      'anything Higgsfield can use. Free: measured, balance unchanged.',
+    inputSchema: HiggsfieldUploadInput,
+    validationSchema: HiggsfieldUploadInput,
+  },
+  {
+    name: 'media_higgsfield_ms_avatar_create',
+    description:
+      'Create a CUSTOM Marketing Studio avatar from an uploaded image — your own recurring ' +
+      'presenter instead of one of the 40 platform presets. Takes an upload id from ' +
+      'media_higgsfield_upload (or a local path). PERMANENT: the CLI offers no delete, so name ' +
+      'it findably. Cost is NOT measured — check media_higgsfield_account balance before and ' +
+      'after the first one rather than assuming it is free like upload is.',
+    inputSchema: HiggsfieldMsAvatarCreateInput,
+    validationSchema: HiggsfieldMsAvatarCreateInput,
   },
 
   // ---- Higgsfield Generate (Codex P2 round 7 PR#10 — generic Soul/Soul2 t2v|i2v submit) ----

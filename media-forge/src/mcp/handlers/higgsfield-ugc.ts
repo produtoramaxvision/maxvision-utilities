@@ -10,7 +10,7 @@
 // WITHOUT submitting a job, so the default path is also free and the caller sees
 // what would be generated before paying for it.
 
-import { ValidationError } from '../../core/errors.js';
+import { ApiError, ValidationError } from '../../core/errors.js';
 import {
   HiggsfieldMarketingAssetsInput,
   HiggsfieldProductPhotoshootInput,
@@ -24,6 +24,10 @@ import {
   type HiggsfieldVoicesInputT,
   type HiggsfieldPresetsInputT,
   type HiggsfieldDtcAdInputT,
+  HiggsfieldUploadInput,
+  HiggsfieldMsAvatarCreateInput,
+  type HiggsfieldUploadInputT,
+  type HiggsfieldMsAvatarCreateInputT,
 } from '../schemas.js';
 import { higgsfieldCliProvider } from './shared.js';
 import { assertPromptWithinBudget } from '../../core/prompt-budget.js';
@@ -369,6 +373,78 @@ export async function handleHiggsfieldDtcAd(rawInput: unknown): Promise<{
     submitted: !input.costOnly,
     ...(credits !== undefined ? { credits } : {}),
     jobIds: input.costOnly ? [] : collectJobIds(parsed),
+    raw: parsed,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The write paths: upload, and a custom avatar.
+//
+// Kept out of handleHiggsfieldMarketingAssets on purpose. That tool lists; a
+// lister that can also mutate is a tool whose blast radius nobody can read off
+// its name, which is what its own header comment has always said.
+// ---------------------------------------------------------------------------
+
+export async function handleHiggsfieldUpload(rawInput: unknown): Promise<{
+  id: string;
+  type: string;
+  url: string;
+}> {
+  const input: HiggsfieldUploadInputT = HiggsfieldUploadInput.parse(rawInput);
+  const provider = higgsfieldCliProvider();
+
+  // runReadJson, not runWriteJson: this creates an asset but bills nothing —
+  // verified 2026-08-02, balance 260 before and after. The read/write split in
+  // this file tracks SPEND, not mutation, because that is what the test-runner
+  // guard and the cost discipline are about.
+  const parsed = await provider.runReadJson(['upload', 'create', input.filePath, '--json']);
+
+  const row = (parsed ?? {}) as Record<string, unknown>;
+  const id = typeof row['id'] === 'string' ? row['id'] : '';
+  if (id === '') {
+    throw new ApiError(
+      `higgsfield upload create returned no id for ${input.filePath}. Nothing downstream can ` +
+        `reference this file without one.`,
+      'API',
+      { provider: 'higgsfield-cli' },
+    );
+  }
+
+  return {
+    id,
+    type: typeof row['type'] === 'string' ? row['type'] : 'unknown',
+    url: typeof row['url'] === 'string' ? row['url'] : '',
+  };
+}
+
+export async function handleHiggsfieldMsAvatarCreate(rawInput: unknown): Promise<{
+  id: string;
+  name: string;
+  raw: unknown;
+}> {
+  const input: HiggsfieldMsAvatarCreateInputT = HiggsfieldMsAvatarCreateInput.parse(rawInput);
+  const provider = higgsfieldCliProvider();
+
+  // runWriteJson: unlike upload, this one's cost is UNKNOWN. There is no
+  // --cost-only on the subcommand and no probe was run, because `ms avatars` has
+  // no delete — a throwaway probe would have left a permanent junk avatar on the
+  // account. Routing it through the write path means it is treated as spending
+  // until someone measures otherwise, which is the safe direction to be wrong in.
+  const parsed = await provider.runWriteJson([
+    'marketing-studio',
+    'avatars',
+    'create',
+    '--name',
+    input.name,
+    '--image',
+    input.image,
+    '--json',
+  ]);
+
+  const row = (parsed ?? {}) as Record<string, unknown>;
+  return {
+    id: String(row['id'] ?? ''),
+    name: assetName(row),
     raw: parsed,
   };
 }

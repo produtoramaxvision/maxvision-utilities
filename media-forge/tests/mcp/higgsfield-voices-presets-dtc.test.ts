@@ -12,6 +12,8 @@ import {
   handleHiggsfieldVoices,
   handleHiggsfieldPresets,
   handleHiggsfieldDtcAd,
+  handleHiggsfieldUpload,
+  handleHiggsfieldMsAvatarCreate,
 } from '../../src/mcp/handlers/higgsfield-ugc.js';
 import { HiggsfieldCliProvider } from '../../src/video/providers/higgsfield-cli.js';
 import {
@@ -197,5 +199,61 @@ describe('media_higgsfield_dtc_ad', () => {
     expect(args).toEqual(expect.arrayContaining(['--product', 'pr-1']));
     expect(args).toEqual(expect.arrayContaining(['--quality', 'high']));
     expect(args).toEqual(expect.arrayContaining(['--resolution', '4k']));
+  });
+});
+
+describe('media_higgsfield_upload + media_higgsfield_ms_avatar_create', () => {
+  it('upload returns the id everything downstream references', async () => {
+    // Verbatim shape from the real CLI (2026-08-02, a 152-byte local PNG):
+    //   { "id": "...", "type": "image", "url": "https://d2ol7oe...png" }
+    _setHiggsfieldCliProviderForTests(
+      fakeCli({
+        'upload create C:/tmp/face.png': {
+          id: 'up-1',
+          type: 'image',
+          url: 'https://cdn.example.com/up-1.png',
+        },
+      }),
+    );
+
+    const result = await handleHiggsfieldUpload({ filePath: 'C:/tmp/face.png' });
+
+    expect(result).toMatchObject({ id: 'up-1', type: 'image' });
+  });
+
+  it('refuses an upload response with no id instead of returning an empty one', async () => {
+    // An empty id propagates into `avatars create --image ""` and fails there,
+    // one call later, with an error about the avatar rather than the upload.
+    _setHiggsfieldCliProviderForTests(
+      fakeCli({ 'upload create C:/tmp/face.png': { type: 'image' } }),
+    );
+
+    await expect(handleHiggsfieldUpload({ filePath: 'C:/tmp/face.png' })).rejects.toThrow(
+      /returned no id/,
+    );
+  });
+
+  it('avatar create passes name and image through', async () => {
+    _setHiggsfieldCliProviderForTests(
+      fakeCli({ 'marketing-studio avatars create': { id: 'av-new', name: 'MV Presenter 01' } }),
+    );
+
+    const result = await handleHiggsfieldMsAvatarCreate({
+      name: 'MV Presenter 01',
+      image: 'up-1',
+    });
+
+    expect(result).toMatchObject({ id: 'av-new', name: 'MV Presenter 01' });
+    expect(calls.at(-1)).toEqual([
+      'marketing-studio', 'avatars', 'create',
+      '--name', 'MV Presenter 01',
+      '--image', 'up-1',
+      '--json',
+    ]);
+  });
+
+  it('requires a name — the CLI has no delete, so an unnamed mistake is unfindable', async () => {
+    _setHiggsfieldCliProviderForTests(fakeCli({}));
+    await expect(handleHiggsfieldMsAvatarCreate({ image: 'up-1' })).rejects.toThrow();
   });
 });

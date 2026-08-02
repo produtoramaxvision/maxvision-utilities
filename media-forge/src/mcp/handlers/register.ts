@@ -99,6 +99,8 @@ import {
   handleHiggsfieldVoices,
   handleHiggsfieldPresets,
   handleHiggsfieldDtcAd,
+  handleHiggsfieldUpload,
+  handleHiggsfieldMsAvatarCreate,
 } from './higgsfield-ugc.js';
 import { handleVideoCostEstimate, handleVideoCostReport, handleVideoRoute } from './video.js';
 import {
@@ -1657,6 +1659,25 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'DTC ad image', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldDtcAd(input) as unknown as Record<string, unknown>)),
+    );
+  }
+
+  // ---- Write paths: the file -> id bridge, and a custom presenter ----
+  {
+    const t = getTool('media_higgsfield_upload');
+    regIfAllowed(
+      t.name,
+      { title: 'Higgsfield upload', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldUpload(input) as unknown as Record<string, unknown>)),
+    );
+  }
+
+  {
+    const t = getTool('media_higgsfield_ms_avatar_create');
+    regIfAllowed(
+      t.name,
+      { title: 'Create MS avatar', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldMsAvatarCreate(input) as unknown as Record<string, unknown>)),
     );
   }
 
