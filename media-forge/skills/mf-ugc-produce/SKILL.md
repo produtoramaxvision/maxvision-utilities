@@ -97,6 +97,28 @@ Both default to `enhanceOnly: true`, which returns the prompts Higgsfield's
 backend assembles **without generating**. Use it: comparing three modes costs
 nothing before one is chosen.
 
+## Before submitting: read it back, out loud
+
+The last free moment. A generation cannot be un-billed, and the failures that
+survive to this point are the ones nobody looked at, not the ones nobody knew
+about. Answer four questions from what is about to be sent — not from the brief,
+which is where the intention lives rather than the payload:
+
+1. **Is every id resolved?** Any `avatarIds`, `hookId`, `settingId`,
+   `productIds` still described in words instead of a uuid is a field the
+   platform will ignore in silence and still charge for.
+2. **Does the hook end pointing at the product?** Read the first three seconds
+   alone. If they would work as an ad for something else, they are decorative.
+3. **Would this survive with the sound off?** Most of it plays muted. If the
+   claim only exists in the audio, the claim is not on screen.
+4. **What is the one thing that would make this unusable?** Name it before
+   spending. If the answer is "nothing", the review did not happen.
+
+Anything unresolved goes back one skill — `[skill:mf-ugc-brief]` for 1 and 4,
+`[skill:mf-ugc-hooks]` for 2, `[skill:mf-ugc-script]` for 3 — rather than
+forward at a lower resolution. A cheap render of the wrong idea is still the
+wrong idea, and it costs the review pass twice.
+
 ## Cost discipline
 
 - Preview with `enhanceOnly` before spending on the image tools.

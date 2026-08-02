@@ -59,6 +59,44 @@ Four shapes that hold up, all built on the same mechanic:
 - **Claim without evidence** — say the outcome first, prove it in beat two.
 - **Visible mess** — a problem on screen before anything is said about it.
 
+### Pick the shape from the objection, not from taste
+
+The brief's ONE objection (`[skill:mf-ugc-brief]`, question 4) decides the shape.
+Choosing by vibe is how a hook ends up beautiful and unconnected to the pitch.
+
+| The viewer's objection | Shape that answers it | Because |
+|---|---|---|
+| "This won't work" | Claim without evidence | The proof beat IS the demo |
+| "I don't have this problem" | Visible mess | They recognise the mess before they agree they have it |
+| "I already own one" | Wrong object | The oddity forces a comparison they weren't going to make |
+| "This looks like effort" | Interrupted action | Starting mid-motion skips the setup they dread |
+| "Too expensive" | Claim without evidence | Price objections lose to a visible outcome, not to argument |
+
+If two shapes fit, the brief has two objections. Go back and cut one.
+
+### Word classes that carry weight
+
+Structure decides whether they stop; word choice decides whether the stop holds
+for the second beat. Four classes, one or two words per hook — more than that
+and the line reads as written-to-convert, which is the opposite of UGC:
+
+| Class | Does | Portuguese | English |
+|---|---|---|---|
+| **Insider** | Frames it as something normally withheld | escondido, ninguém conta, por dentro, bastidor | hidden, nobody tells you, behind, quietly |
+| **Loss** | Names a cost already being paid | perdendo, jogando fora, desperdiçando, custando | losing, wasting, costing, bleeding |
+| **Reversal** | Contradicts what the viewer assumes | ao contrário, mito, errado esse tempo todo | backwards, myth, wrong the whole time |
+| **Absolute** | Removes the hedge | zero, nenhum, toda vez, literalmente | zero, every, never, literally |
+
+Two constraints on them:
+
+- **A number beats an adverb.** "Nove segundos" survives translation into a shot;
+  "muito rápido" does not. When counting items, odd counts read as observed
+  rather than rounded.
+- **No engagement multiplier, ever.** Formula-to-lift claims ("2x", "10x
+  engagement") circulate attached to these word lists and none of them are
+  measured on the user's account. Repeating one inside a product that bills is a
+  liability, and the user will eventually check.
+
 Constraints that make a hook renderable rather than just clever:
 
 - **Under 3 seconds, and one beat.** Two beats is not a hook, it is the video.
