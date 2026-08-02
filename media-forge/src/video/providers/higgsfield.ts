@@ -53,6 +53,18 @@ const BASE_URL = 'https://platform.higgsfield.ai';
  *   soul2/standard            404 — corrected in place to soul/v2/standard,
  *                             which answers
  *
+ * ## Three answers discriminate, not two (probed 2026-08-02)
+ *
+ *   404 model_not_found  the platform does not serve this path
+ *   423 model_blocked    it does, and this account cannot reach it
+ *   400 / 422            it does, and the empty body failed validation
+ *
+ * `reve/text-to-image` is the 423 case — a headline model in the official images
+ * guide, real, and not enabled on this account. Recording it as 404 would file
+ * ACCOUNT state as CATALOGUE state, and the two decay differently: a 404 stays
+ * false until the platform ships the model, a 423 flips the day the plan or the
+ * account changes.
+ *
  * See tests/video/providers/higgsfield-endpoints-live.test.ts, which re-POSTs
  * every entry here and turns red if one stops being served.
  */

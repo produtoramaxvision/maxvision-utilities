@@ -70,6 +70,14 @@ const KNOWN_ABSENT: ReadonlySet<string> = new Set(
  * fails schema validation (422, or 400 for the third-party JSON-schema models)
  * and an unserved one answers `404 {"detail":"model_not_found"}`.
  *
+ * A THIRD answer exists and is neither: `423 {"detail":"model_blocked"}`. Found
+ * 2026-08-02 probing `reve/text-to-image`, which the official images guide lists
+ * as a headline model. It EXISTS — the route matched and the platform named the
+ * reason — it is simply not enabled for this account. Folding that into "absent"
+ * would delete a model from the plugin's view of the platform for a reason that
+ * is account state rather than catalogue state, and folding it into "present"
+ * would advertise a tool whose every call fails. So it is a case of its own.
+ *
  * This asks the platform directly instead of checking membership in
  * `GET /models`, because that listing is NOT the platform catalogue — it is the
  * first-party generation-model list. `/kling-video/v2.1/pro/image-to-video`
@@ -84,9 +92,13 @@ async function probeExists(path: string, headers: Record<string, string>): Promi
     body: '{}',
   });
   if (res.status === 404) return false;
+  // 423 model_blocked: the endpoint is real and this account cannot reach it.
+  // Reported as absent for ROUTING purposes — a call would fail — but it is a
+  // different fact from 404 and the message says which one happened.
+  if (res.status === 423) return false;
   expect(
     [400, 401, 403, 422],
-    `${path} answered ${res.status} — neither a schema error nor model_not_found`,
+    `${path} answered ${res.status} — neither a schema error, model_not_found, nor model_blocked`,
   ).toContain(res.status);
 
   // A 422 whose error is located in the PATH, not the body, means the route

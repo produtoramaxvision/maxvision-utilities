@@ -100,6 +100,105 @@ Destinos: `ms_avatar_create` (1 imagem, vídeo, permanente) ou `soul_id_train`
 
 ---
 
+## (BLOQUEADO por ToS, 2026-08-02) A promoção 365 Unlimited NÃO serve para o plugin
+
+Investigado com sessão de browser autenticada em `higgsfield.ai/pricing`. Duas
+cláusulas, verbatim da página:
+
+> "Unlimited models and Free Generations on plans are accessible only via
+> higgsfield.ai and **are not accessible on MCP/CLI, Canvas or Supercomputer**."
+
+> "Fair Use: This feature is designed for **personal, human use only —
+> automation tools**, credential sharing, or reselling access are strictly
+> prohibited." … "Any signs of **automation, scripting, or non-human activity**
+> can result in a temporary pause of your unlimited access."
+
+Os dois transportes que este plugin usa são exatamente CLI e API. A promoção não
+alcança nenhum deles, e mesmo que alcançasse, o uso por ferramenta automatizada é
+proibido em texto explícito.
+
+**Não existe caminho, e não vou propor contorno.** O que o plugin pode usar:
+o pool de assinatura (CLI, 0,0483333 USD/crédito) e o pool de top-up (API,
+0,0625). Nada mais.
+
+Contexto do que a promo dá (só no site): `365 Unlimited` = 1 ano de geração
+ilimitada nos modelos listados no card do plano; Plus tem Nano Banana 2 (2K) e
+Kling 3.0 por 7 dias, Ultra acrescenta Nano Banana Pro (2K). Fila padrão, não
+prioritária.
+
+---
+
+## (fechado 2026-08-02) Avatar × Soul-ID — a resposta, medida em 71 job types
+
+Varri **todos** os job types que a CLI publica (`model list --video`,
+`--image`, `workflow list`, depois `model get`/`workflow get` em cada um) e li
+quais aceitam Soul-ID e quais aceitam avatar:
+
+| parâmetro | job types |
+|---|---|
+| `custom_reference_id` (Soul-ID) | `text2image_soul_v2` · `soul_cinematic` · `soul_cinema_studio` — **todos imagem** |
+| `avatars` | `ms_image` (imagem) · `marketing_studio_video` (**vídeo**) |
+
+**Os dois conjuntos são disjuntos.** Nenhum job type aceita os dois. Então:
+
+- Soul-ID **não move vídeo nenhum** — nem o `soul_cinema_studio`, que é imagem.
+- Avatar do Marketing Studio **não move a família Soul**.
+
+**Mas a conclusão prática é o contrário de "preciso dos dois":** `ms_image`
+aceita `avatars` e devolve imagem. Logo **um avatar custom já cobre as duas
+metades** — `marketing_studio_video` para o anúncio, `ms_image` para a foto.
+Soul-ID só é necessário quando o que se quer é a estética da família Soul.
+
+`ms_image` não tinha tool. Agora tem: `media_higgsfield_ms_image`. Registry
+**78 → 79**. Preço medido: **0,5 crédito** em `low`/`1k`, **7** em `high`/`2k`
+com avatar. Validado ao vivo pelo servidor MCP real.
+
+---
+
+## (fechado 2026-08-02) `423 model_blocked` — o terceiro veredito
+
+A doutrina de existência de endpoint reconhecia dois: `404 model_not_found` =
+não existe, `400/422` = existe e o corpo falhou. Falta um.
+
+```
+POST /reve/text-to-image  ->  423 {"detail":"model_blocked"}
+```
+
+`reve/text-to-image` é modelo de destaque no guia oficial de imagens da
+Higgsfield. **Existe** — a rota casou e a plataforma nomeou o motivo — só não
+está habilitado nesta conta.
+
+Registrar isso como 404 arquivaria **estado de conta** como **estado de
+catálogo**, e os dois decaem diferente: um 404 continua falso até a plataforma
+lançar o modelo; um 423 vira verdadeiro no dia que o plano mudar.
+
+O `probeExists` do portão ao vivo trata 423 como ausente **para roteamento** (a
+chamada falharia) mas a mensagem de erro distingue os dois casos.
+
+### Catálogo de imagem da API, lido direto
+
+`GET /models` devolve 13 modelos, **7 de imagem**:
+
+| slug | base_credits |
+|---|---|
+| `higgsfield-ai/soul/standard` | 1.0 |
+| `higgsfield-ai/soul/v2/standard` | 0.0 |
+| `higgsfield-ai/soul/character` | 1.0 |
+| `higgsfield-ai/soul/reference` | 1.0 |
+| `higgsfield-ai/soul/cinema` | 0.0 |
+| `higgsfield-ai/popcorn/auto` | 1.4720 |
+| `soul-id` (`operation_type: character`) | **40.0** |
+
+O `soul-id` a 40 créditos **confirma de forma independente** o número da CLI, que
+até agora vinha de uma fonte só.
+
+Saldo da conta de API: **0**. Os quatro specs de imagem que faltam no registry
+(`soul/character`, `soul/reference`, `soul/cinema`, `popcorn/auto`) continuam
+fora — entrariam como `source: 'unverified'` igual aos irmãos, e sem saldo não há
+como fechar o ciclo.
+
+---
+
 ## (aberto — decisão do dono, 2026-08-02) Dois custos não medidos por escolha
 
 O dono pediu explicitamente para **não gastar crédito** para medir. Ambos ficam

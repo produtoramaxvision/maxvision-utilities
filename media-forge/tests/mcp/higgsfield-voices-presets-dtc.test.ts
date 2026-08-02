@@ -14,6 +14,7 @@ import {
   handleHiggsfieldDtcAd,
   handleHiggsfieldUpload,
   handleHiggsfieldMsAvatarCreate,
+  handleHiggsfieldMsImage,
 } from '../../src/mcp/handlers/higgsfield-ugc.js';
 import { HiggsfieldCliProvider } from '../../src/video/providers/higgsfield-cli.js';
 import {
@@ -309,5 +310,69 @@ describe('argv flag smuggling — positionals only', () => {
     );
     await handleHiggsfieldDtcAd({ prompt: '-- minimal, high key', formatId: 'fmt-1' });
     expect(calls.at(-1)).toEqual(expect.arrayContaining(['--prompt', '-- minimal, high key']));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ms_image — one avatar, both halves.
+//
+// Swept all 71 job types the CLI publishes and read which accept a Soul-ID
+// versus an avatar:
+//
+//   custom_reference_id  text2image_soul_v2 · soul_cinematic · soul_cinema_studio
+//   avatars              ms_image · marketing_studio_video
+//
+// DISJOINT. A Soul-ID drives no video; an avatar drives no Soul model. But
+// ms_image takes avatars and returns an image, so one custom avatar already
+// covers the ad AND the still — Soul-ID is for the Soul family's look, not for
+// keeping one face consistent.
+// ---------------------------------------------------------------------------
+describe('media_higgsfield_ms_image', () => {
+  it('sends arrays as ONE JSON flag and media as a repeated flag', async () => {
+    // Two shapes, both measured: `--avatars '["id"]'` priced at 7 credits, while
+    // the repeated form is what --image-references takes. Getting them backwards
+    // earns "Invalid types: avatars" at submit time.
+    _setHiggsfieldCliProviderForTests(fakeCli({ 'generate cost ms_image': { credits: 7 } }));
+
+    await handleHiggsfieldMsImage({
+      prompt: 'brand hero',
+      avatarIds: ['av-1', 'av-2'],
+      productIds: ['pr-1'],
+      imagePaths: ['a.png', 'b.png'],
+      quality: 'high',
+      resolution: '2k',
+    });
+
+    const args = calls.at(-1)!;
+    expect(args).toEqual(expect.arrayContaining(['--avatars', '["av-1","av-2"]']));
+    expect(args).toEqual(expect.arrayContaining(['--product_ids', '["pr-1"]']));
+    expect(args.filter((a) => a === '--image-references')).toHaveLength(2);
+  });
+
+  it('defaults to costOnly and reads the price', async () => {
+    // 0.5 credits at low/1k — the CLI's own answer, measured.
+    _setHiggsfieldCliProviderForTests(fakeCli({ 'generate cost ms_image': { credits: 0.5 } }));
+
+    const result = await handleHiggsfieldMsImage({ prompt: 'x' });
+
+    expect(result.submitted).toBe(false);
+    expect(result.credits).toBe(0.5);
+    // `generate create` has no --cost-only; the read is a different subcommand.
+    expect(calls.at(-1)!.slice(0, 3)).toEqual(['generate', 'cost', 'ms_image']);
+  });
+
+  it('switches to the create subcommand when costOnly is off', async () => {
+    _setHiggsfieldCliProviderForTests(fakeCli({ 'generate create ms_image': { id: 'job-1' } }));
+
+    const result = await handleHiggsfieldMsImage({ prompt: 'x', costOnly: false });
+
+    expect(result.submitted).toBe(true);
+    expect(calls.at(-1)!.slice(0, 3)).toEqual(['generate', 'create', 'ms_image']);
+  });
+
+  it('runs without a brand kit — brandKitId is optional here too', async () => {
+    _setHiggsfieldCliProviderForTests(fakeCli({ 'generate cost ms_image': { credits: 0.5 } }));
+    await handleHiggsfieldMsImage({ prompt: 'x' });
+    expect(calls.at(-1)).not.toContain('--brand_kit_id');
   });
 });

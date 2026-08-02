@@ -101,6 +101,7 @@ import {
   handleHiggsfieldDtcAd,
   handleHiggsfieldUpload,
   handleHiggsfieldMsAvatarCreate,
+  handleHiggsfieldMsImage,
 } from './higgsfield-ugc.js';
 import { handleVideoCostEstimate, handleVideoCostReport, handleVideoRoute } from './video.js';
 import {
@@ -1669,6 +1670,15 @@ export function registerAllTools(server: McpServer, deps: HandlersDeps): void {
       t.name,
       { title: 'Higgsfield upload', description: t.description, inputSchema: t.inputSchema as never },
       wrap(t.name, async (input) => asResult(await handleHiggsfieldUpload(input) as unknown as Record<string, unknown>)),
+    );
+  }
+
+  {
+    const t = getTool('media_higgsfield_ms_image');
+    regIfAllowed(
+      t.name,
+      { title: 'Marketing Studio image', description: t.description, inputSchema: t.inputSchema as never },
+      wrap(t.name, async (input) => asResult(await handleHiggsfieldMsImage(input) as unknown as Record<string, unknown>)),
     );
   }
 

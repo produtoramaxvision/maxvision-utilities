@@ -28,6 +28,8 @@ import {
   HiggsfieldMsAvatarCreateInput,
   type HiggsfieldUploadInputT,
   type HiggsfieldMsAvatarCreateInputT,
+  HiggsfieldMsImageInput,
+  type HiggsfieldMsImageInputT,
 } from '../schemas.js';
 import { higgsfieldCliProvider } from './shared.js';
 import { assertPromptWithinBudget } from '../../core/prompt-budget.js';
@@ -445,6 +447,64 @@ export async function handleHiggsfieldMsAvatarCreate(rawInput: unknown): Promise
   return {
     id: String(row['id'] ?? ''),
     name: assetName(row),
+    raw: parsed,
+  };
+}
+
+/**
+ * Marketing Studio image — `generate create ms_image`.
+ *
+ * Two flag shapes, both measured rather than assumed:
+ *   arrays  ->  ONE flag carrying JSON.  `--avatars '["id"]'` priced at 7;
+ *               the repeated form is what `--image-references` takes instead.
+ *   media   ->  the flag REPEATS, one per value.
+ *
+ * `--cost-only` does not exist on `generate create`; the read path is the
+ * separate `generate cost` subcommand, which is why this branches on the whole
+ * command rather than on a flag.
+ */
+export async function handleHiggsfieldMsImage(rawInput: unknown): Promise<{
+  submitted: boolean;
+  credits?: number;
+  jobIds: ReadonlyArray<string>;
+  raw: unknown;
+}> {
+  const input: HiggsfieldMsImageInputT = HiggsfieldMsImageInput.parse(rawInput);
+  assertPromptWithinBudget({ provider: 'higgsfield', prompt: input.prompt, field: 'prompt' });
+
+  const params = [
+    '--prompt',
+    input.prompt,
+    '--aspect_ratio',
+    input.aspectRatio,
+    '--quality',
+    input.quality,
+    '--resolution',
+    input.resolution,
+  ];
+  if (input.avatarIds?.length) params.push('--avatars', JSON.stringify(input.avatarIds));
+  if (input.productIds?.length) params.push('--product_ids', JSON.stringify(input.productIds));
+  if (input.brandKitId) params.push('--brand_kit_id', input.brandKitId);
+  if (input.styleId) params.push('--style_id', input.styleId);
+  if (input.folderId) params.push('--folder_id', input.folderId);
+  for (const p of input.imagePaths ?? []) params.push('--image-references', p);
+
+  const provider = higgsfieldCliProvider();
+  const parsed = input.costOnly
+    ? await provider.runReadJson(['generate', 'cost', 'ms_image', ...params, '--json'])
+    : await provider.runWriteJson(['generate', 'create', 'ms_image', ...params, '--json']);
+
+  const credits =
+    parsed !== null &&
+    typeof parsed === 'object' &&
+    typeof (parsed as { credits?: unknown }).credits === 'number'
+      ? (parsed as { credits: number }).credits
+      : undefined;
+
+  return {
+    submitted: !input.costOnly,
+    ...(credits !== undefined ? { credits } : {}),
+    jobIds: input.costOnly ? [] : collectJobIds(parsed),
     raw: parsed,
   };
 }

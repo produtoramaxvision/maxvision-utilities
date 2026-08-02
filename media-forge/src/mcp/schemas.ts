@@ -766,6 +766,53 @@ export const HiggsfieldMsAvatarCreateInput = z.object({
 });
 export type HiggsfieldMsAvatarCreateInputT = z.infer<typeof HiggsfieldMsAvatarCreateInput>;
 
+// ---------------------------------------------------------------------------
+// Marketing Studio IMAGE — the same avatar, in stills
+//
+// This is the tool that answers "do I need a Soul-ID as well as an avatar?".
+//
+// Swept every one of the 71 job types the CLI publishes (`model list --video`,
+// `--image`, `workflow list`, then `model get`/`workflow get` on each) and read
+// which of them accept a Soul-ID versus an avatar:
+//
+//   custom_reference_id  text2image_soul_v2 · soul_cinematic · soul_cinema_studio
+//                        — all IMAGE, none video
+//   avatars              ms_image (image) · marketing_studio_video (video)
+//
+// The two sets are DISJOINT. No job type takes both. So a Soul-ID cannot drive
+// video at all, and a Marketing Studio avatar cannot drive the Soul family.
+//
+// But `ms_image` takes `avatars` and returns an image, which means ONE custom
+// avatar already covers both halves: `marketing_studio_video` for the ad,
+// `ms_image` for the still. Soul-ID is only needed when the Soul family's own
+// look is what you are after — not merely to keep one face consistent.
+//
+// Measured price (`generate cost ms_image`, a read): 0.5 credits at
+// quality=low/resolution=1k, 7 at high/2k.
+// ---------------------------------------------------------------------------
+
+export const MS_IMAGE_QUALITIES = ['low', 'medium', 'high'] as const;
+export const MS_IMAGE_RESOLUTIONS = ['1k', '2k', '4k'] as const;
+
+export const HiggsfieldMsImageInput = z.object({
+  prompt: z.string().min(1),
+  /** From media_higgsfield_ms_assets kind='avatars', or media_higgsfield_ms_avatar_create. */
+  avatarIds: z.array(z.string().min(1)).optional(),
+  /** From kind='products'. */
+  productIds: z.array(z.string().min(1)).optional(),
+  /** From kind='brand-kits'. Optional — the job prices and runs without one. */
+  brandKitId: z.string().min(1).optional(),
+  styleId: z.string().min(1).optional(),
+  folderId: z.string().min(1).optional(),
+  /** Local paths or upload ids. Auto-uploaded by the CLI when they are paths. */
+  imagePaths: z.array(z.string().min(1)).max(14).optional(),
+  aspectRatio: z.string().min(1).default('1:1'),
+  quality: z.enum(MS_IMAGE_QUALITIES).default('low'),
+  resolution: z.enum(MS_IMAGE_RESOLUTIONS).default('1k'),
+  costOnly: z.boolean().default(true),
+});
+export type HiggsfieldMsImageInputT = z.infer<typeof HiggsfieldMsImageInput>;
+
 // HiggsfieldGenerateInput — generic Higgsfield submit (Soul / Soul2 / aesthetic
 // presets) when no specialized tool (dop / cinema_studio / speak / marketing)
 // applies. Codex P2 round 7 PR#10 closed the gap where the director
@@ -1716,6 +1763,20 @@ export const MCP_TOOLS: readonly MCPTool[] = Object.freeze([
       'anything Higgsfield can use. Free: measured, balance unchanged.',
     inputSchema: HiggsfieldUploadInput,
     validationSchema: HiggsfieldUploadInput,
+  },
+  {
+    name: 'media_higgsfield_ms_image',
+    description:
+      'Marketing Studio IMAGE — the same Marketing Studio avatar as a still, rather than in a ' +
+      'video. This is what makes one custom avatar cover both halves: marketing_studio_video ' +
+      'for the ad, this for the photo. A Soul-ID cannot do that — swept across all 71 CLI job ' +
+      'types, custom_reference_id and avatars appear on DISJOINT sets, so a Soul-ID drives no ' +
+      'video and an avatar drives no Soul model. Reach for Soul-ID only when the Soul family ' +
+      'look itself is the point. ' +
+      'Optional brandKitId, productIds, styleId and reference images. ' +
+      'Defaults to costOnly: 0.5 credits at low/1k, 7 at high/2k.',
+    inputSchema: HiggsfieldMsImageInput,
+    validationSchema: HiggsfieldMsImageInput,
   },
   {
     name: 'media_higgsfield_ms_avatar_create',
