@@ -257,3 +257,57 @@ describe('media_higgsfield_upload + media_higgsfield_ms_avatar_create', () => {
     await expect(handleHiggsfieldMsAvatarCreate({ image: 'up-1' })).rejects.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Argv flag smuggling.
+//
+// Not shell injection — the runner spawns with shell:false and an argv array.
+// The hazard is narrower and real: a POSITIONAL that begins with `-` stops
+// being data and is parsed as a flag. Measured against the installed CLI:
+//
+//   $ higgsfield upload create "--version" --json
+//   Error: unknown flag: --version
+//
+// Flag VALUES are safe on this CLI, also measured:
+//
+//   $ higgsfield preset list animation-action --query "--limit" --limit 1
+//   -> ran, empty result, no error
+//
+// So the guard is on positionals only. Guarding --name/--prompt/--query too
+// would reject a legitimate prompt that opens with a dash to fix a non-issue.
+// ---------------------------------------------------------------------------
+describe('argv flag smuggling — positionals only', () => {
+  it('refuses an upload path that would be parsed as a flag', async () => {
+    _setHiggsfieldCliProviderForTests(fakeCli({}));
+    await expect(handleHiggsfieldUpload({ filePath: '--version' })).rejects.toThrow();
+    // The CLI is never reached: rejection happens at schema parse.
+    expect(calls).toHaveLength(0);
+  });
+
+  it('refuses a preset id that would be parsed as a flag', async () => {
+    _setHiggsfieldCliProviderForTests(fakeCli({}));
+    await expect(
+      handleHiggsfieldPresets({ type: 'video-explainer', resolveId: '--help' }),
+    ).rejects.toThrow();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('still accepts an ordinary path', async () => {
+    _setHiggsfieldCliProviderForTests(
+      fakeCli({ 'upload create ./face.png': { id: 'up-2', type: 'image', url: 'u' } }),
+    );
+    await expect(handleHiggsfieldUpload({ filePath: './face.png' })).resolves.toMatchObject({
+      id: 'up-2',
+    });
+  });
+
+  it('does NOT reject a flag VALUE that starts with a dash', async () => {
+    // A prompt legitimately beginning with a dash reaches the CLI intact,
+    // because measurement C showed the CLI takes it as the flag's value.
+    _setHiggsfieldCliProviderForTests(
+      fakeCli({ 'marketing-studio dtc-ads generate': { credits: 0.5 } }),
+    );
+    await handleHiggsfieldDtcAd({ prompt: '-- minimal, high key', formatId: 'fmt-1' });
+    expect(calls.at(-1)).toEqual(expect.arrayContaining(['--prompt', '-- minimal, high key']));
+  });
+});

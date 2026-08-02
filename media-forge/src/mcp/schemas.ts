@@ -1,5 +1,47 @@
 import { z } from 'zod';
 import type { ZodTypeAny } from 'zod';
+
+/**
+ * A string that will be passed to the `higgsfield` CLI as a POSITIONAL argument.
+ *
+ * ## The hazard, and its exact shape — measured 2026-08-02
+ *
+ * Nothing here is a shell injection: the runner spawns with `shell: false` and
+ * an argv array, so quotes and backticks are inert. The live hazard is argv flag
+ * smuggling — a value that BEGINS with `-` stops being data and becomes a flag.
+ *
+ * Probed against the installed CLI (v1.1.20, Cobra) rather than assumed:
+ *
+ *   A. positional starting with a dash IS re-parsed as a flag
+ *        $ higgsfield upload create "--version" --json
+ *        Error: unknown flag: --version
+ *
+ *   B. the `--` end-of-options sentinel DOES NOT WORK here
+ *        $ higgsfield upload create -- ./probe.png --json
+ *        Error: accepts at most 1 arg(s), received 2
+ *      Cobra counts `--json` as a second positional once `--` is present, so the
+ *      textbook fix BREAKS the call. Do not "harden" this by adding `--`.
+ *
+ *   C. a value that FOLLOWS a flag is taken as that flag's value, not re-parsed
+ *        $ higgsfield preset list animation-action --query "--limit" --limit 1
+ *        -> ran, returned an empty result set. No error.
+ *
+ * C is why this guard is on positionals only. `--name`, `--image`, `--prompt`,
+ * `--query` and the rest carry user text safely, and rejecting a legitimate
+ * prompt that opens with a dash would be a bug traded for a non-issue.
+ *
+ * The two positionals that take free-form user input are `upload create <file>`
+ * and `preset resolve <type> <preset_id>`.
+ */
+const cliPositional = (): z.ZodString =>
+  z
+    .string()
+    .min(1)
+    .refine((v) => !v.startsWith('-'), {
+      message:
+        'must not start with "-": this value is passed to the higgsfield CLI as a positional ' +
+        'argument, where a leading dash is parsed as a flag rather than as data.',
+    }) as unknown as z.ZodString;
 import { VIDEO_MODELS, PROVIDERS } from '../core/models.js';
 // T13: the narrative tools' input schemas live with their handler, since the
 // handler is the only thing that can act on them. Re-exported into MCP_TOOLS
@@ -624,7 +666,7 @@ export const HiggsfieldPresetsInput = z.object({
    * rejected rather than silently ignored — a resolve that quietly degrades to
    * a list would return a plausible payload for a call that did not happen.
    */
-  resolveId: z.string().min(1).optional(),
+  resolveId: cliPositional().optional(),
   limit: z.number().int().positive().max(100).default(20),
 });
 export type HiggsfieldPresetsInputT = z.infer<typeof HiggsfieldPresetsInput>;
@@ -686,8 +728,13 @@ export type HiggsfieldDtcAdInputT = z.infer<typeof HiggsfieldDtcAdInput>;
 // ---------------------------------------------------------------------------
 
 export const HiggsfieldUploadInput = z.object({
-  /** Local path to an image, video, audio or document file. */
-  filePath: z.string().min(1),
+  /**
+   * Local path to an image, video, audio or document file.
+   *
+   * POSITIONAL on the CLI (`upload create <file>`), so it is guarded against a
+   * leading dash — see cliPositional() for the measurement behind that.
+   */
+  filePath: cliPositional(),
 });
 export type HiggsfieldUploadInputT = z.infer<typeof HiggsfieldUploadInput>;
 
