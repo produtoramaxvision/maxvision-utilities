@@ -1,0 +1,4 @@
+# Gitignored paths copied into every new worktree.
+# Literal paths only — glob (*, ?) and negation (!) lines are skipped.
+.env
+.env.local

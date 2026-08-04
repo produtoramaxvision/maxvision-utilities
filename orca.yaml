@@ -1,0 +1,12 @@
+# Orca project config — applies to every worktree Orca creates for this repo.
+# Docs: https://www.onorca.dev/docs/model/worktrees
+
+scripts:
+  # Runs after a worktree is created. pnpm hardlinks from its global store, so
+  # a per-worktree install is cheap on disk and safe across branches with
+  # different lockfiles — do not share node_modules between worktrees here.
+  setup: |
+    pnpm install --frozen-lockfile
+
+  # Runs before a worktree is archived.
+  archive: ""
