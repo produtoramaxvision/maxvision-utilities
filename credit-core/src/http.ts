@@ -83,6 +83,15 @@ async function main(): Promise<void> {
   if (apiKeys.length === 0) throw new Error('CREDIT_API_KEYS is required (comma-separated)');
 
   const pool = new Pool({ connectionString });
+  // The pool emits 'error' on behalf of any idle client whose backend goes away --
+  // routine whenever credit_postgres restarts. With no listener Node turns that into
+  // an uncaught 'error' event and the process dies with exit 1, so credit-core used to
+  // fall over every time its database bounced. Log and return: pg discards the dead
+  // client itself and the next checkout opens a fresh connection. Registered before
+  // runMigrations so a disconnect during boot is covered too.
+  pool.on('error', (err) => {
+    console.error('pg pool: idle client error (connection discarded)', err); // eslint-disable-line no-console
+  });
   const { runMigrations } = await import('./migrate.js');
   const applied = await runMigrations(pool);
   if (applied.length) console.log(`migrations applied: ${applied.join(', ')}`); // eslint-disable-line no-console
@@ -108,6 +117,11 @@ async function main(): Promise<void> {
   let redis: InstanceType<typeof Redis> | undefined;
   if ((process.env.SWEEP_ENABLED ?? 'true') !== 'false') {
     redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379', { maxRetriesPerRequest: 2 });
+    // Same reasoning as the pool above: ioredis reconnects on its own, but an 'error'
+    // with no listener still propagates as an uncaught event and kills the process.
+    redis.on('error', (err) => {
+      console.error('redis: connection error (client will reconnect)', err); // eslint-disable-line no-console
+    });
     const withLock = makeRedisLock(redis);
     scheduler = startSweepScheduler({
       intervalMs: Number(process.env.SWEEP_INTERVAL_MS ?? 60_000),

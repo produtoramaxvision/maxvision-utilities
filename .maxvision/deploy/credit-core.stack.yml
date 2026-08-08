@@ -41,8 +41,12 @@ services:
       MEDIA_FORGE_STATUS_SECRET: ${MEDIA_FORGE_STATUS_SECRET:-}
     deploy:
       replicas: 1
+      # `any`, not `on-failure`: with stop_grace_period raised on the data services a
+      # clean shutdown now exits 0, and on-failure does not relaunch a zero exit -- the
+      # task would sit in `Complete` forever. No max_attempts, so Swarm keeps retrying.
       restart_policy:
-        condition: on-failure
+        condition: any
+        delay: 10s
       update_config:
         # start-first: a nova task sobe e fica HEALTHY (image HEALTHCHECK -> /health)
         # ANTES da antiga ser drenada — sem janela de zero-task. monitor dá tempo ao
@@ -64,6 +68,7 @@ services:
       # Se precisar expor (ex.: webhooks externos), adicionar router Traefik como nos MCPs.
 
   credit_postgres:
+    stop_grace_period: 60s
     image: postgres:16-alpine
     networks:
       - internal
@@ -81,9 +86,10 @@ services:
     deploy:
       replicas: 1
       restart_policy:
-        condition: on-failure
+        condition: any
 
   credit_postgres_backup:
+    stop_grace_period: 60s
     image: prodrigestivill/postgres-backup-local:16
     networks:
       - internal
@@ -110,12 +116,13 @@ services:
     deploy:
       replicas: 1
       restart_policy:
-        condition: on-failure
+        condition: any
       resources:
         limits:
           memory: 128M
 
   credit_redis:
+    stop_grace_period: 60s
     image: redis:7-alpine
     command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
     networks:
@@ -123,7 +130,7 @@ services:
     deploy:
       replicas: 1
       restart_policy:
-        condition: on-failure
+        condition: any
 
 volumes:
   credit_pgdata:
