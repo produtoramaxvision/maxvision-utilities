@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { startSweepScheduler } from '../src/scheduler.js';
+import { LOCK_NOT_ACQUIRED } from '../src/redis-lock.js';
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 const okLock = async <T>(_k: string, _ttl: number, fn: () => Promise<T>) => fn();
@@ -31,12 +32,24 @@ describe('startSweepScheduler', () => {
     expect(runs).toBe(after);
   });
 
-  it('lock held by another replica (withLock returns undefined) prevents run', async () => {
+  it('lock held by another replica (withLock returns LOCK_NOT_ACQUIRED) prevents run', async () => {
     let runs = 0;
-    const skipLock = (async () => undefined) as never;
+    const skipLock = (async () => LOCK_NOT_ACQUIRED) as never;
     const h = startSweepScheduler({ intervalMs: 10, run: async () => { runs++; }, withLock: skipLock, logger: () => {} });
     await vi.advanceTimersByTimeAsync(35);
     expect(runs).toBe(0);
+    h.stop();
+  });
+
+  // A run that completes returns undefined (run is `() => Promise<void>`). Before the
+  // sentinel that was indistinguishable from a skip, so every successful sweep logged
+  // "lock held by another replica" -- the message credit-core emitted once a minute in
+  // production while the lock key never existed in Redis.
+  it('a completed run is not reported as skipped', async () => {
+    const lines: string[] = [];
+    const h = startSweepScheduler({ intervalMs: 10, run: async () => {}, withLock: okLock, logger: (m) => lines.push(m) });
+    await vi.advanceTimersByTimeAsync(35);
+    expect(lines.filter((l) => l.includes('lock held by another replica'))).toEqual([]);
     h.stop();
   });
 });

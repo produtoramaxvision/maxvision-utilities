@@ -1,7 +1,9 @@
+import { LOCK_NOT_ACQUIRED, type LockNotAcquired } from './redis-lock.js';
+
 export interface SchedulerOpts {
   intervalMs: number;
   run: () => Promise<void>;
-  withLock: <T>(key: string, ttlMs: number, fn: () => Promise<T>) => Promise<T | undefined>;
+  withLock: <T>(key: string, ttlMs: number, fn: () => Promise<T>) => Promise<T | LockNotAcquired>;
   lockKey?: string; lockTtlMs?: number; logger?: (msg: string) => void;
 }
 export interface SchedulerHandle { stop: () => void }
@@ -18,7 +20,7 @@ export function startSweepScheduler(opts: SchedulerOpts): SchedulerHandle {
     inFlight = true;
     try {
       const r = await opts.withLock(lockKey, lockTtlMs, opts.run);
-      if (r === undefined) log('sweep: lock held by another replica, skipped');
+      if (r === LOCK_NOT_ACQUIRED) log('sweep: lock held by another replica, skipped');
     } catch (err) { log(`sweep: run failed (isolated): ${(err as Error).message}`); }
     finally { inFlight = false; }
   };
